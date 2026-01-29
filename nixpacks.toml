@@ -1,0 +1,18 @@
+# Nixpacks configuration for Railway deployment
+# Includes PostgreSQL libraries for psycopg2
+
+[phases.setup]
+nixPkgs = ["python311", "postgresql", "gcc", "openssl"]
+aptPkgs = ["libpq-dev", "python3-dev", "build-essential"]
+
+[phases.install]
+cmds = [
+  "pip install --upgrade pip setuptools wheel",
+  "pip install -r requirements.txt"
+]
+
+[start]
+cmd = "gunicorn dashboardserver:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --access-logfile - --error-logfile -"
+
+[variables]
+PYTHON_VERSION = "3.11"
