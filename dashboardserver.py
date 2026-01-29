@@ -17,16 +17,12 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
+app.secret_key = os.environ.get('c475c2bcd14196b4c36d281da27393098cf0b0aca1ab8b8ff1271dbf68617bd0', '1a2bfcf2e328076efb65896cfd29b249698f0fe5a355a10a1e80efadc0a8d4bf')
+
+
 
 # Database configuration
-db = DashboardDatabase(
-    host=os.environ.get('DB_HOST', 'localhost'),
-    port=int(os.environ.get('DB_PORT', 5432)),
-    database=os.environ.get('DB_NAME', 'passwords'),
-    user=os.environ.get('DB_USER', 'postgres'),
-    password=os.environ.get('DB_PASSWORD', 'passwords')
-)
+db = DashboardDatabase()
 
 # Global variables
 RESTAURANTS_DATA = []
@@ -1427,5 +1423,18 @@ def initialize_app():
 initialize_app()
 
 if __name__ == '__main__':
-    # Run with debug mode for better error messages
-    app.run(host='0.0.0.0', port=5000)
+    import sys
+    
+    # Check if running in production mode
+    if '--production' in sys.argv or os.environ.get('FLASK_ENV') == 'production':
+        print("\n⚠️  WARNING: For production, use a WSGI server instead:")
+        print("   Option 1 (Linux/Mac): gunicorn -c gunicorn_config.py dashboardserver:app")
+        print("   Option 2 (Windows):   python run_production.py")
+        print("   Option 3 (Any OS):    waitress-serve --port=5000 dashboardserver:app")
+        sys.exit(1)
+    
+    # Development mode
+    print("\n⚠️  Running in DEVELOPMENT mode")
+    print("   For production, use: python dashboardserver.py --production")
+    print()
+    app.run(host='0.0.0.0', port=5000, debug=True)

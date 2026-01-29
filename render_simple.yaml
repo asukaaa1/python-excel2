@@ -2,10 +2,13 @@ services:
   - type: web
     name: restaurant-dashboard
     env: python
-    plan: free  # or 'starter' for $7/month with no spin-down
-    buildCommand: pip install -r requirements.txt
-    # Simple start command without config file
-    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 4 --timeout 30 dashboardserver:app
+    plan: free
+    region: oregon
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      python setup_dashboard.py
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --log-level info dashboardserver:app
     healthCheckPath: /
     envVars:
       - key: PYTHON_VERSION
@@ -14,22 +17,11 @@ services:
         generateValue: true
       - key: FLASK_ENV
         value: production
-      - key: DB_HOST
-        value: localhost
-      - key: DB_PORT
-        value: 5432
-      - key: DB_NAME
-        value: passwords
-      - key: DB_USER
-        value: postgres
-      - key: DB_PASSWORD
-        sync: false  # Set manually in dashboard
-      - key: FORCE_HTTPS
-        value: true
+      # DATABASE_URL will be automatically set by Render
 
-# Optional: PostgreSQL database
+# PostgreSQL database
 databases:
   - name: dashboard-db
     plan: free
-    databaseName: passwords
-    user: postgres
+    databaseName: restaurant_dashboard
+    user: dashboard_user
