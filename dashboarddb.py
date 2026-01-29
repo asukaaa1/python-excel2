@@ -383,7 +383,7 @@ def setup_database():
     print()
     
     # Initialize database (will use DATABASE_URL if available)
-    db = DashboardDatabase()
+    db = DashboardDatabase('postgresql://identity_9nz4_user:EOcg1zP4UWLPf26DkIv9txA89600l6Uf@dpg-d5tng97fte5s73eudg20-a/identity_9nz4')
     
     # Create tables
     if db.setup_tables():
