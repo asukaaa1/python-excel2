@@ -1,29 +1,54 @@
 """
 PostgreSQL Database Module for Restaurant Dashboard
 Handles user authentication and password storage
-FIXED VERSION - Uses bcrypt to match your existing database
+UPDATED VERSION - Supports DATABASE_URL from Render
 """
 
 import psycopg2
 from psycopg2 import sql
 import bcrypt
 import json
+import os
+from urllib.parse import urlparse
 from typing import Optional, Dict, List
 
 class DashboardDatabase:
     """Handle PostgreSQL database operations for dashboard authentication"""
     
     def __init__(self, host='localhost', port=5432, database='passwords', 
-                 user='postgres', password='passwords'):  # Updated default password
-        """Initialize database connection"""
-        self.config = {
-            'host': host,
-            'port': port,
-            'database': database,
-            'user': user,
-            'password': password,
-            'client_encoding': 'utf8'
-        }
+                 user='postgres', password='passwords'):
+        """
+        Initialize database connection
+        Supports both individual params and DATABASE_URL environment variable
+        """
+        # Check if DATABASE_URL is provided (Render, Heroku, etc.)
+        database_url = os.environ.get('DATABASE_URL')
+        
+        if database_url:
+            # Parse DATABASE_URL
+            # Format: postgresql://user:password@host:port/database
+            parsed = urlparse(database_url)
+            
+            self.config = {
+                'host': parsed.hostname,
+                'port': parsed.port or 5432,
+                'database': parsed.path[1:],  # Remove leading slash
+                'user': parsed.username,
+                'password': parsed.password,
+                'client_encoding': 'utf8'
+            }
+            print(f"📊 Using DATABASE_URL: {parsed.hostname}")
+        else:
+            # Use individual parameters
+            self.config = {
+                'host': host,
+                'port': port,
+                'database': database,
+                'user': user,
+                'password': password,
+                'client_encoding': 'utf8'
+            }
+            print(f"📊 Using individual DB params: {host}:{port}/{database}")
     
     def get_connection(self):
         """Get database connection"""
@@ -85,11 +110,11 @@ class DashboardDatabase:
             """)
             
             conn.commit()
-            print("Database tables created successfully!")
+            print("✅ Database tables created successfully!")
             return True
             
         except Exception as e:
-            print(f"Error creating tables: {e}")
+            print(f"❌ Error creating tables: {e}")
             conn.rollback()
             return False
         finally:
@@ -97,8 +122,7 @@ class DashboardDatabase:
             conn.close()
     
     def hash_password(self, password: str) -> str:
-        """Hash password using bcrypt - FIXED to match your database"""
-        # Generate salt and hash the password
+        """Hash password using bcrypt"""
         salt = bcrypt.gensalt()
         hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
         return hashed.decode('utf-8')
@@ -130,23 +154,23 @@ class DashboardDatabase:
             
             user_id = cursor.fetchone()[0]
             conn.commit()
-            print(f"User '{username}' created with ID: {user_id}")
+            print(f"✅ User '{username}' created with ID: {user_id}")
             return user_id
             
         except psycopg2.IntegrityError:
             conn.rollback()
-            print(f"User '{username}' already exists")
+            print(f"⚠️  User '{username}' already exists")
             return None
         except Exception as e:
             conn.rollback()
-            print(f"Error creating user: {e}")
+            print(f"❌ Error creating user: {e}")
             return None
         finally:
             cursor.close()
             conn.close()
     
     def authenticate_user(self, username: str, password: str) -> Optional[Dict]:
-        """Authenticate user and return user data - FIXED with bcrypt"""
+        """Authenticate user and return user data"""
         conn = self.get_connection()
         if not conn:
             return None
@@ -183,7 +207,7 @@ class DashboardDatabase:
             return None
             
         except Exception as e:
-            print(f"Authentication error: {e}")
+            print(f"❌ Authentication error: {e}")
             return None
         finally:
             cursor.close()
@@ -216,7 +240,7 @@ class DashboardDatabase:
             ]
             
         except Exception as e:
-            print(f"Error fetching restaurants: {e}")
+            print(f"❌ Error fetching restaurants: {e}")
             return []
         finally:
             cursor.close()
@@ -241,7 +265,7 @@ class DashboardDatabase:
             return True
             
         except Exception as e:
-            print(f"Error assigning restaurant: {e}")
+            print(f"❌ Error assigning restaurant: {e}")
             conn.rollback()
             return False
         finally:
@@ -249,7 +273,7 @@ class DashboardDatabase:
             conn.close()
             
     def authenticate_user_by_email(self, email: str, password: str) -> Optional[Dict]:
-        """Authenticate user by email and return user data - FIXED with bcrypt"""
+        """Authenticate user by email and return user data"""
         conn = self.get_connection()
         if not conn:
             return None
@@ -286,7 +310,7 @@ class DashboardDatabase:
             return None
             
         except Exception as e:
-            print(f"Authentication error: {e}")
+            print(f"❌ Authentication error: {e}")
             return None
         finally:
             cursor.close()
@@ -294,7 +318,7 @@ class DashboardDatabase:
 
     def create_default_users(self):
         """Create default admin and user accounts"""
-        print("\nCreating default users...")
+        print("\n👤 Creating default users...")
         
         # Create admin user
         self.create_user(
@@ -344,7 +368,7 @@ class DashboardDatabase:
             ]
             
         except Exception as e:
-            print(f"Error fetching users: {e}")
+            print(f"❌ Error fetching users: {e}")
             return []
         finally:
             cursor.close()
@@ -358,14 +382,8 @@ def setup_database():
     print("=" * 60)
     print()
     
-    # Initialize database
-    db = DashboardDatabase(
-        host='localhost',
-        port=5432,
-        database='passwords',
-        user='postgres',
-        password='passwords'  # Updated to match diagnostic
-    )
+    # Initialize database (will use DATABASE_URL if available)
+    db = DashboardDatabase()
     
     # Create tables
     if db.setup_tables():
@@ -373,13 +391,13 @@ def setup_database():
         db.create_default_users()
         
         print("\n" + "=" * 60)
-        print("Database setup complete!")
+        print("✅ Database setup complete!")
         print("=" * 60)
         print("\nDefault credentials:")
         print("  Admin:  admin@dashboard.com / admin123")
         print("  User:   user@dashboard.com / user123")
     else:
-        print("\nDatabase setup failed!")
+        print("\n❌ Database setup failed!")
 
 
 if __name__ == "__main__":
