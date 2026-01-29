@@ -1,0 +1,48 @@
+{
+  "use_mock_data": true,
+  "client_id": "MOCK_DATA_MODE",
+  "client_secret": "MOCK_DATA_MODE",
+  "data_fetch_days": 30,
+  "orders_per_restaurant": 200,
+  "merchants": [
+    {
+      "merchant_id": "0fde61bac9582f5a1fd167c6",
+      "name": "Pizzaria Bella Napoli",
+      "manager": "Marco Rossi"
+    },
+    {
+      "merchant_id": "8d378608afb009002991a802",
+      "name": "Burger House Premium",
+      "manager": "Carlos Silva"
+    },
+    {
+      "merchant_id": "803a0f56c533addc97f6098e",
+      "name": "Sushi Master",
+      "manager": "Yuki Tanaka"
+    },
+    {
+      "merchant_id": "0b4e81bf3f30378f099eb7c4",
+      "name": "Cantina Italiana",
+      "manager": "Giuseppe Verdi"
+    },
+    {
+      "merchant_id": "aee837dc8e583b92b672adeb",
+      "name": "Churrascaria Gaúcha",
+      "manager": "João Santos"
+    }
+  ],
+  "refresh_interval_minutes": 60,
+  "instructions": {
+    "mock_data_mode": "Currently using MOCK DATA for testing",
+    "to_use_real_api": [
+      "1. Get your credentials from iFood Portal: https://portal.ifood.com.br",
+      "2. Go to Configurações > Integrações",
+      "3. Create new API integration",
+      "4. Update this config with your real client_id and client_secret",
+      "5. Set use_mock_data to false",
+      "6. Add your real merchant IDs",
+      "7. Restart the dashboard server"
+    ],
+    "api_documentation": "https://developer.ifood.com.br/docs"
+  }
+}

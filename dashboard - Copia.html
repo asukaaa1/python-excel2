@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{restaurant['name']} - Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-hover: #f1f5f9;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --border: #e2e8f0;
+            --accent: #ef4444;
+            --accent-hover: #dc2626;
+            --green: #22c55e;
+            --red: #ef4444;
+            --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        [data-theme="dark"] {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #1e293b;
+            --bg-hover: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: #334155;
+            --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+            --shadow-lg: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+        }
+        
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        
+        .dashboard { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        
+        /* Back Button */
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            margin-bottom: 1.5rem;
+            transition: color 0.2s;
+        }
+        .back-link:hover { color: var(--text-primary); }
+        
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        
+        .header-info h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .header-meta {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+        
+        .platforms {
+            display: flex;
+            gap: 0.4rem;
+        }
+        
+        .platform-tag {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.6rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+        }
+        
+        /* Theme Toggle Button */
+        .theme-toggle-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.5rem;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .theme-toggle-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border-color: var(--accent);
+        }
+        
+        /* Sheet Selector */
+        .sheet-selector {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .sheet-btn {
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .sheet-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+        .sheet-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+        
+        /* Main KPIs */
+        .main-kpis {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+        
+        .kpi-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .kpi-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+        
+        .kpi-trend {
+            font-size: 0.8rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .kpi-trend.positive { color: var(--green); }
+        .kpi-trend.negative { color: var(--red); }
+        
+        /* Metric Sections */
+        .metrics-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+        
+        .metrics-section-header {
+            padding: 1rem 1.5rem;
+            font-weight: 600;
+            font-size: 0.95rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+        
+        .metrics-section-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0;
+        }
+        
+        .section-metric {
+            padding: 1.25rem;
+            text-align: center;
+            border-right: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .section-metric:last-child {
+            border-right: none;
+        }
+        
+        .metrics-section-grid > .section-metric:nth-last-child(-n+5):first-child,
+        .metrics-section-grid > .section-metric:nth-last-child(-n+5):first-child ~ .section-metric {
+            border-bottom: none;
+        }
+        
+        .section-metric-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+        
+        .section-metric-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 0.35rem;
+            color: var(--text-primary);
+        }
+        
+        .section-metric-trend {
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .section-metric-trend.positive { color: var(--green); }
+        .section-metric-trend.negative { color: var(--red); }
+        
+        /* Legacy metrics grid for fallback */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .metric-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+        
+        .metric-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+        
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+        
+        .metric-trend {
+            font-size: 0.8rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .metric-trend.positive { color: var(--green); }
+        .metric-trend.negative { color: var(--red); }
+        
+        /* Chart Section */
+        .chart-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin-bottom: 2rem;
+            overflow: hidden;
+        }
+        
+        .chart-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        
+        .chart-title { font-weight: 600; }
+        
+        .column-tabs {
+            display: flex;
+            gap: 0.25rem;
+            flex-wrap: wrap;
+        }
+        
+        .column-tab {
+            padding: 0.4rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            background: var(--bg-secondary);
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .column-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .column-tab.active { background: var(--accent); color: white; }
+        
+        .chart-container { padding: 1.5rem; }
+        .chart-wrapper { position: relative; height: 320px; }
+        
+        .chart-stats {
+            display: flex;
+            gap: 2rem;
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border);
+            background: var(--bg-secondary);
+            flex-wrap: wrap;
+        }
+        
+        .stat { font-size: 0.8rem; color: var(--text-secondary); }
+        .stat strong { color: var(--text-primary); }
+        
+        /* Tables */
+        .data-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+        
+        .section-header {
+            padding: 1rem 1.5rem;
+            font-weight: 600;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .table-container { overflow-x: auto; }
+        
+        /* Historical Table Styles */
+        .historical-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+        
+        .historical-table .category-row th {
+            padding: 0.5rem 0.75rem;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: white;
+            border: none;
+        }
+        
+        .historical-table .category-row th.cat-vendas { background: #ef4444; }
+        .historical-table .category-row th.cat-operacao { background: #f97316; }
+        .historical-table .category-row th.cat-conversao { background: #22c55e; }
+        .historical-table .category-row th.cat-financeiro { background: #3b82f6; }
+        .historical-table .category-row th.cat-outras { background: #8b5cf6; }
+        .historical-table .category-row th.cat-empty { background: transparent; }
+        
+        .historical-table .header-row th {
+            padding: 0.6rem 0.75rem;
+            text-align: center;
+            font-weight: 500;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        
+        .historical-table .header-row th:first-child {
+            text-align: left;
+            position: sticky;
+            left: 0;
+            background: var(--bg-secondary);
+            z-index: 1;
+        }
+        
+        .historical-table tbody td {
+            padding: 0.6rem 0.75rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
+        }
+        
+        .historical-table tbody td:first-child {
+            text-align: left;
+            font-weight: 500;
+            position: sticky;
+            left: 0;
+            background: var(--bg-card);
+            z-index: 1;
+        }
+        
+        .historical-table tbody tr:hover td {
+            background: var(--bg-hover);
+        }
+        
+        .historical-table tbody tr:hover td:first-child {
+            background: var(--bg-hover);
+        }
+        
+        .historical-table .empty-cell {
+            color: var(--text-muted);
+        }
+        
+        .data-table { width: 100%; border-collapse: collapse; }
+        
+        .data-table th {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        
+        .data-table td {
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        
+        .data-table tbody tr:hover { background: var(--bg-hover); }
+        .data-table td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+        
+        .no-data { padding: 3rem; text-align: center; color: var(--text-secondary); }
+        
+        /* Tab styles */
+        .view-tabs {
+            display: flex;
+            gap: 1rem;
+            margin: 2rem 0 1rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .view-tab {
+            padding: 0.75rem 1.5rem;
+            background: none;
+            border: none;
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+            margin-bottom: -1px;
+        }
+        
+        .view-tab.active {
+            color: var(--text-primary);
+            border-bottom-color: var(--accent);
+        }
+        
+        .view-tab:hover {
+            color: var(--text-primary);
+        }
+        
+        .view-container {
+            display: none;
+        }
+        
+        .view-container.active {
+            display: block;
+        }
+        
+        .historical-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-card);
+            margin-top: 1rem;
+        }
+        
+        .historical-table thead tr.category-row th {
+            padding: 0.75rem 1rem;
+            font-weight: 600;
+            color: white;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+        
+        .historical-table thead tr.header-row th {
+            background: var(--bg-secondary);
+            padding: 0.75rem 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            font-size: 0.875rem;
+            text-align: left;
+        }
+        
+        .historical-table tbody td {
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+        
+        .historical-table tbody tr:hover {
+            background: var(--bg-hover);
+        }
+        
+        .historical-table td.numeric {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard { padding: 1rem; }
+            .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+            .chart-wrapper { height: 250px; }
+            .view-tabs { flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <a href="../index.html" class="back-link">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+            </svg>
+            Voltar para Clientes
+        </a>
+        
+        <div class="header">
+            <div class="header-info">
+                <h1>{restaurant['name']}</h1>
+                <div class="header-meta">
+                    <span>👤 {restaurant['manager']}</span>
+                    <div class="platforms">
+                        {''.join(f'<span class="platform-tag">{p}</span>' for p in restaurant.get('platforms', []))}
+                    </div>
+                </div>
+            </div>
+            <button class="theme-toggle-btn" id="themeToggle" onclick="toggleTheme()" title="Alternar modo escuro">
+                <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                </svg>
+                <svg id="moonIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                </svg>
+            </button>
+        </div>
+        
+        <div class="sheet-selector" id="sheetSelector"></div>
+        
+        <div class="view-tabs">
+            <button class="view-tab active" data-view="dashboard">Dashboard</button>
+            <button class="view-tab" data-view="panorama">Panorama</button>
+        </div>
+        
+        <div id="dashboardView" class="view-container active">
+            <div class="main-kpis" id="mainKpis"></div>
+            
+            <div id="metricsSections"></div>
+            
+            <div class="chart-section">
+                <div class="chart-header">
+                    <div class="chart-title">Evolução Mensal</div>
+                    <div class="column-tabs" id="columnTabs"></div>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-wrapper">
+                        <canvas id="mainChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-stats" id="chartStats"></div>
+            </div>
+        </div>
+        
+        <div id="panoramaView" class="view-container">
+            <div id="panoramaTableContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        const allSheetsChartData = {json.dumps(all_sheets_chart_data, ensure_ascii=False)};
+        const tablesData = {json.dumps(tables_data, ensure_ascii=False)};
+        const sheetNames = {json.dumps(list(all_data.keys()), ensure_ascii=False)};
+        
+        let mainChart = null;
+        let activeSheet = sheetNames[0];
+        let activeColumn = null;
+        
+        function getCurrentChartData() {
+            return allSheetsChartData[activeSheet] || { labels: [], datasets: {}, columns: [] };
+        }
+        
+        function formatNumber(value, format) {
+            if (value === null || value === undefined || isNaN(value)) return '-';
+            if (format === 'currency') {
+                return 'R$ ' + value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+            if (format === 'percent') {
+                // Values are stored as decimals (0.37 = 37%), so multiply by 100
+                const displayValue = value * 100;
+                return displayValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+            }
+            if (Math.abs(value) >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+            if (Math.abs(value) >= 1000) return (value / 1000).toFixed(1) + 'K';
+            return value.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+        }
+        
+        function formatTrendValue(value) {
+            if (value === null || value === undefined || isNaN(value)) return '+0%';
+            const sign = value >= 0 ? '+' : '';
+            return sign + value.toFixed(2) + '%';
+        }
+        
+        // Define metric categories
+        const metricCategories = {
+            mainKpis: ['vendas', 'ticket médio', 'novos clientes', '% de desconto'],
+            financeiro: ['valor bruto', 'via loja', 'descontos', 'líquido', '% de desconto'],
+            operacao: ['cancelamentos', 'chamados', 'tempo aberto'],
+            conversao: ['visitas', 'visualizações', 'sacola', 'revisão', 'concluídos']
+        };
+        
+        function categorizeMetric(colName) {
+            const col = colName.toLowerCase();
+            
+            // Main KPIs
+            if (col === 'vendas' || col === 'ticket médio' || col === 'novos clientes') {
+                return 'mainKpis';
+            }
+            if (col.includes('% de desconto') && !col.includes('valor')) {
+                return 'mainKpis';
+            }
+            
+            // Financeiro
+            if (col.includes('valor') || col.includes('bruto') || col.includes('líquido') || 
+                col.includes('via loja') || col.includes('descontos') || col === 'líquido') {
+                return 'financeiro';
+            }
+            
+            // Operação
+            if (col.includes('cancelamento') || col.includes('chamado') || col.includes('tempo aberto')) {
+                return 'operacao';
+            }
+            
+            // Conversão
+            if (col.includes('visita') || col.includes('visualiza') || col.includes('sacola') || 
+                col.includes('revisão') || col.includes('concluíd')) {
+                return 'conversao';
+            }
+            
+            return 'outros';
+        }
+        
+        function getMetricFormat(colName) {
+            const col = colName.toLowerCase();
+            if (col.includes('valor') || col.includes('bruto') || col.includes('líquido') || 
+                col.includes('via loja') || col.includes('descontos') || col.includes('ticket')) {
+                return 'currency';
+            }
+            if (col.includes('%') || col.includes('cancelamento') || col.includes('chamado') || col.includes('tempo')) {
+                return 'percent';
+            }
+            return 'number';
+        }
+        
+        function calculateMetricData(col, chartData) {
+            const dataset = chartData.datasets[col];
+            if (!dataset) return null;
+            
+            const data = dataset.data.filter(d => d !== 0 && !isNaN(d));
+            if (data.length === 0) return null;
+            
+            const total = data.reduce((a, b) => a + b, 0);
+            const colLower = col.toLowerCase();
+            const isAvg = colLower.includes('médio') || colLower.includes('taxa') || colLower.includes('%') ||
+                         colLower.includes('cancelamento') || colLower.includes('chamado') || colLower.includes('tempo');
+            
+            const value = isAvg ? (data.length > 0 ? data[data.length - 1] : 0) : data[data.length - 1];
+            
+            // Calculate trend (compare last value vs previous)
+            let trend = 0;
+            if (data.length >= 2) {
+                const prev = data[data.length - 2];
+                const curr = data[data.length - 1];
+                if (prev > 0) {
+                    trend = ((curr - prev) / prev) * 100;
+                }
+            }
+            
+            return {
+                name: col,
+                value: value,
+                trend: trend,
+                format: getMetricFormat(col)
+            };
+        }
+        
+        function renderMainKpis() {
+            const container = document.getElementById('mainKpis');
+            const chartData = getCurrentChartData();
+            
+            if (!chartData.columns || chartData.columns.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            const mainKpiCols = chartData.columns.filter(col => categorizeMetric(col) === 'mainKpis');
+            const metrics = mainKpiCols.map(col => calculateMetricData(col, chartData)).filter(m => m !== null);
+            
+            // If no specific main KPIs found, use first 4 columns
+            if (metrics.length === 0) {
+                const fallbackMetrics = chartData.columns.slice(0, 4).map(col => calculateMetricData(col, chartData)).filter(m => m !== null);
+                container.innerHTML = fallbackMetrics.map(m => `
+                    <div class="kpi-card">
+                        <div class="kpi-label">${m.name}</div>
+                        <div class="kpi-value">${formatNumber(m.value, m.format)}</div>
+                        <div class="kpi-trend ${m.trend >= 0 ? 'positive' : 'negative'}">
+                            ${formatTrendValue(m.trend)}
+                        </div>
+                    </div>
+                `).join('');
+                return;
+            }
+            
+            container.innerHTML = metrics.map(m => `
+                <div class="kpi-card">
+                    <div class="kpi-label">${m.name}</div>
+                    <div class="kpi-value">${formatNumber(m.value, m.format)}</div>
+                    <div class="kpi-trend ${m.trend >= 0 ? 'positive' : 'negative'}">
+                        ${formatTrendValue(m.trend)}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function renderMetricsSections() {
+            const container = document.getElementById('metricsSections');
+            const chartData = getCurrentChartData();
+            
+            if (!chartData.columns || chartData.columns.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            const sections = {
+                financeiro: { title: 'Resumo Financeiro', metrics: [] },
+                operacao: { title: 'Operação', metrics: [] },
+                conversao: { title: 'Conversão do Cardápio', metrics: [] },
+                outros: { title: 'Outras Métricas', metrics: [] }
+            };
+            
+            chartData.columns.forEach(col => {
+                const category = categorizeMetric(col);
+                if (category !== 'mainKpis' && sections[category]) {
+                    const metricData = calculateMetricData(col, chartData);
+                    if (metricData) {
+                        sections[category].metrics.push(metricData);
+                    }
+                }
+            });
+            
+            let html = '';
+            
+            Object.entries(sections).forEach(([key, section]) => {
+                if (section.metrics.length > 0) {
+                    html += `
+                        <div class="metrics-section">
+                            <div class="metrics-section-header">${section.title}</div>
+                            <div class="metrics-section-grid">
+                                ${section.metrics.map(m => `
+                                    <div class="section-metric">
+                                        <div class="section-metric-label">${m.name}</div>
+                                        <div class="section-metric-value">${formatNumber(m.value, m.format)}</div>
+                                        <div class="section-metric-trend ${m.trend >= 0 ? 'positive' : 'negative'}">
+                                            ${formatTrendValue(m.trend)}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+            
+            container.innerHTML = html;
+        }
+        
+        function renderSheetSelector() {
+            const container = document.getElementById('sheetSelector');
+            container.innerHTML = sheetNames.map(name => 
+                `<button class="sheet-btn ${name === activeSheet ? 'active' : ''}" data-sheet="${name}">${name}</button>`
+            ).join('');
+            
+            container.querySelectorAll('.sheet-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    activeSheet = btn.dataset.sheet;
+                    activeColumn = null;
+                    renderAll();
+                });
+            });
+        }
+        
+        
+        function renderColumnTabs() {
+            const container = document.getElementById('columnTabs');
+            const chartData = getCurrentChartData();
+            
+            if (!chartData.columns || chartData.columns.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            if (!activeColumn || !chartData.columns.includes(activeColumn)) {
+                activeColumn = chartData.columns[0];
+            }
+            
+            container.innerHTML = chartData.columns.slice(0, 8).map(col => 
+                `<button class="column-tab ${col === activeColumn ? 'active' : ''}" data-column="${col}">${col}</button>`
+            ).join('');
+            
+            container.querySelectorAll('.column-tab').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    activeColumn = btn.dataset.column;
+                    container.querySelectorAll('.column-tab').forEach(t => t.classList.remove('active'));
+                    btn.classList.add('active');
+                    updateChart();
+                });
+            });
+        }
+        
+        function updateChart() {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            const chartData = getCurrentChartData();
+            
+            if (!chartData.datasets || !activeColumn || !chartData.datasets[activeColumn]) {
+                if (mainChart) mainChart.destroy();
+                document.getElementById('chartStats').innerHTML = '';
+                return;
+            }
+            
+            const dataset = chartData.datasets[activeColumn];
+            
+            if (mainChart) mainChart.destroy();
+            
+            mainChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        label: dataset.label,
+                        data: dataset.data,
+                        borderColor: dataset.borderColor,
+                        backgroundColor: dataset.backgroundColor,
+                        borderWidth: 2,
+                        pointRadius: 5,
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#ffffff',
+                        pointBorderColor: dataset.borderColor,
+                        pointBorderWidth: 2,
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            padding: 12,
+                            cornerRadius: 8,
+                            borderColor: '#e2e8f0',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: document.documentElement.getAttribute('data-theme') === 'dark' ? '#334155' : '#f1f5f9' },
+                            ticks: { color: document.documentElement.getAttribute('data-theme') === 'dark' ? '#94a3b8' : '#64748b' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: document.documentElement.getAttribute('data-theme') === 'dark' ? '#94a3b8' : '#64748b' }
+                        }
+                    }
+                }
+            });
+            
+            const data = dataset.data.filter(d => d !== 0 && !isNaN(d));
+            const total = data.reduce((a, b) => a + b, 0);
+            const avg = data.length > 0 ? total / data.length : 0;
+            const max = data.length > 0 ? Math.max(...data) : 0;
+            const min = data.length > 0 ? Math.min(...data.filter(d => d > 0)) : 0;
+            
+            document.getElementById('chartStats').innerHTML = `
+                <div class="stat"><strong>Total:</strong> ${total.toLocaleString('pt-BR', {maximumFractionDigits: 0})}</div>
+                <div class="stat"><strong>Média:</strong> ${avg.toLocaleString('pt-BR', {maximumFractionDigits: 1})}</div>
+                <div class="stat"><strong>Máx:</strong> ${max.toLocaleString('pt-BR', {maximumFractionDigits: 0})}</div>
+                <div class="stat"><strong>Mín:</strong> ${min.toLocaleString('pt-BR', {maximumFractionDigits: 0})}</div>
+            `;
+        }
+        
+        function renderPanorama() {
+            const container = document.getElementById('panoramaTableContainer');
+            if (!container) return;
+            
+            const currentTable = tablesData.find(t => t.name === activeSheet);
+            if (!currentTable) {
+                container.innerHTML = '<div class="no-data">Sem dados disponíveis</div>';
+                return;
+            }
+            
+            const labelCol = currentTable.columns[0];
+            
+            // Category configuration with colors
+            const categoryConfig = {
+                vendas: { title: 'VENDAS', color: '#ef4444', cols: [] },
+                operacao: { title: 'OPERAÇÃO', color: '#f97316', cols: [] },
+                conversao: { title: 'CONVERSÃO DO CARDÁPIO', color: '#22c55e', cols: [] },
+                financeiro: { title: 'FINANCEIRO', color: '#3b82f6', cols: [] },
+                outras: { title: 'OUTRAS', color: '#64748b', cols: [] }
+            };
+            
+            // Categorize columns
+            currentTable.columns.forEach((col, idx) => {
+                if (idx === 0) return; // Skip label column
+                
+                const colLower = col.toLowerCase();
+                let categorized = false;
+                
+                if (colLower === 'vendas' || colLower === 'ticket médio' || colLower === 'novos clientes') {
+                    categoryConfig.vendas.cols.push(col);
+                    categorized = true;
+                } else if (colLower.includes('cancelamento') || colLower.includes('chamado') || colLower.includes('tempo aberto')) {
+                    categoryConfig.operacao.cols.push(col);
+                    categorized = true;
+                } else if (colLower.includes('visita') || colLower.includes('visualiza') || colLower.includes('sacola') || 
+                           colLower.includes('revisão') || colLower.includes('concluíd')) {
+                    categoryConfig.conversao.cols.push(col);
+                    categorized = true;
+                } else if (colLower.includes('valor') || colLower.includes('bruto') || colLower.includes('líquido') || 
+                           colLower.includes('via loja') || colLower.includes('descontos') || colLower.includes('% de desconto')) {
+                    categoryConfig.financeiro.cols.push(col);
+                    categorized = true;
+                }
+                
+                if (!categorized) {
+                    categoryConfig.outras.cols.push(col);
+                }
+            });
+            
+            // Helper function to check if row has actual data (not empty or placeholder values)
+            function rowHasData(row, cols) {
+                return cols.some(col => {
+                    const val = row[col];
+                    // Check if value is meaningful (not empty, not dash, not null/undefined, and not just whitespace)
+                    if (val === null || val === undefined || val === '' || val === '-') return false;
+                    const strVal = String(val).trim();
+                    if (strVal === '' || strVal === '-' || strVal === '0' || strVal === '0.0' || strVal === '0,0') return false;
+                    // Check if it's a number greater than 0
+                    const numVal = parseFloat(String(val).replace(',', '.').replace(/[R$% ]/g, ''));
+                    if (!isNaN(numVal) && numVal !== 0) return true;
+                    return false;
+                });
+            }
+            
+            // Helper function to format panorama table values
+            function formatPanoramaValue(val, colName) {
+                if (val === '' || val === null || val === undefined) return '-';
+                
+                const colLower = colName.toLowerCase();
+                const numVal = parseFloat(String(val).replace(',', '.'));
+                
+                if (isNaN(numVal)) return val;
+                
+                // Currency columns
+                if (colLower.includes('valor') || colLower.includes('bruto') || colLower.includes('líquido') || 
+                    colLower.includes('via loja') || colLower.includes('descontos') || colLower.includes('ticket')) {
+                    return 'R$ ' + numVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                }
+                
+                // Percentage columns - stored as decimals
+                if (colLower.includes('% de desconto') || colLower.includes('cancelamento') || 
+                    colLower.includes('chamado') || colLower.includes('tempo aberto')) {
+                    const percentVal = numVal * 100;
+                    return percentVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+                }
+                
+                // Regular numbers
+                return numVal.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+            }
+            
+            // Get current theme for styling
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            const headerBg = isDark ? '#1e293b' : '#f8fafc';
+            const headerColor = isDark ? '#f1f5f9' : '#0f172a';
+            
+            // Build category header row
+            let categoryHeaderCells = `<th class="cat-empty" style="background: ${headerBg};"></th>`;
+            let subHeaderCells = `<th style="background: ${headerBg}; color: ${headerColor};">${labelCol}</th>`;
+            
+            // Order of categories to display
+            const categoryOrder = ['vendas', 'operacao', 'conversao', 'financeiro', 'outras'];
+            
+            categoryOrder.forEach(catKey => {
+                const cat = categoryConfig[catKey];
+                if (cat.cols.length > 0) {
+                    categoryHeaderCells += `<th style="background-color: ${cat.color}; color: white;" colspan="${cat.cols.length}">${cat.title}</th>`;
+                    cat.cols.forEach(col => {
+                        subHeaderCells += `<th style="background: ${headerBg}; color: ${headerColor};">${col}</th>`;
+                    });
+                }
+            });
+            
+            // Get ordered columns for data rows
+            const orderedCols = [];
+            categoryOrder.forEach(catKey => {
+                orderedCols.push(...categoryConfig[catKey].cols);
+            });
+            
+            // Filter rows that have actual data (hide months without data like Jan/26 in the image)
+            const rowsWithData = currentTable.data.filter(row => rowHasData(row, orderedCols));
+            
+            // Build data rows with proper formatting
+            const dataRows = rowsWithData.map(row => {
+                let cells = `<td><strong>${row[labelCol] || '-'}</strong></td>`;
+                
+                orderedCols.forEach(col => {
+                    const val = row[col];
+                    const formatted = formatPanoramaValue(val, col);
+                    const isEmpty = formatted === '-';
+                    cells += `<td class="${isEmpty ? 'empty-cell' : 'numeric'}">${formatted}</td>`;
+                });
+                
+                return `<tr>${cells}</tr>`;
+            }).join('');
+            
+            // Show message about filtered rows if any were removed
+            const totalRows = currentTable.data.length;
+            const shownRows = rowsWithData.length;
+            const hiddenRows = totalRows - shownRows;
+            const hiddenMessage = hiddenRows > 0 ? 
+                `<div style="padding: 0.75rem 1rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border); font-size: 0.85rem; color: var(--text-secondary);">
+                    📊 Mostrando ${shownRows} de ${totalRows} meses (meses sem dados estão ocultos)
+                </div>` : '';
+            
+            container.innerHTML = `
+                <div class="data-section" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
+                    <div class="section-header" style="padding: 1rem 1.5rem; font-weight: 600; background: var(--bg-secondary); border-bottom: 1px solid var(--border);">
+                        Histórico Completo - Panorama
+                    </div>
+                    ${hiddenMessage}
+                    <div class="table-container" style="overflow-x: auto;">
+                        <table class="historical-table">
+                            <thead>
+                                <tr class="category-row">${categoryHeaderCells}</tr>
+                                <tr class="header-row">${subHeaderCells}</tr>
+                            </thead>
+                            <tbody>
+                                ${dataRows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Tab switching
+        document.querySelectorAll('.view-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const view = e.target.dataset.view;
+                
+                // Update active tab
+                document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+                e.target.classList.add('active');
+                
+                // Update active view
+                document.querySelectorAll('.view-container').forEach(v => v.classList.remove('active'));
+                if (view === 'dashboard') {
+                    document.getElementById('dashboardView').classList.add('active');
+                } else {
+                    document.getElementById('panoramaView').classList.add('active');
+                    renderPanorama();
+                }
+            });
+        });
+        
+        function renderAll() {
+            document.querySelectorAll('.sheet-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.sheet === activeSheet);
+            });
+            renderMainKpis();
+            renderMetricsSections();
+            renderColumnTabs();
+            updateChart();
+        }
+        
+        renderSheetSelector();
+        renderAll();
+        
+        // Dark mode functions
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+            
+            // Update chart colors for dark mode
+            if (mainChart) {
+                updateChart();
+            }
+        }
+        
+        function updateThemeIcon(theme) {
+            const sunIcon = document.getElementById('sunIcon');
+            const moonIcon = document.getElementById('moonIcon');
+            
+            if (theme === 'dark') {
+                sunIcon.style.display = 'block';
+                moonIcon.style.display = 'none';
+            } else {
+                sunIcon.style.display = 'none';
+                moonIcon.style.display = 'block';
+            }
+        }
+        
+        // Initialize theme on page load
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+        })();
+    </script>
+</body>
+</html>

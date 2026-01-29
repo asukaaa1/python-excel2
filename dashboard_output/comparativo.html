@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comparativo por Gestor - Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #ffffff; --bg-secondary: #f8fafc; --bg-card: #ffffff;
+            --bg-hover: #ffffff; --text-primary: #000000; --text-secondary: #666666;
+            --text-muted: #a0a0a0; --border: #e2e8f0; --accent: #ef4444;
+            --accent-hover: #dc2626; --green: #22c55e; --green-bg: rgba(34,197,94,0.1);
+            --red: #ef4444; --red-bg: rgba(239,68,68,0.1); --blue: #3b82f6;
+            --orange: #f97316;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1); --shadow-lg: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        [data-theme="dark"] {
+            --bg-primary: #000000; --bg-secondary: #0a0a0a; --bg-card: #0a0a0a;
+            --bg-hover: #1a1a1a; --text-primary: #ffffff; --text-secondary: #a0a0a0;
+            --text-muted: #666666; --border: #1a1a1a; --shadow: 0 1px 3px rgba(0,0,0,0.3);
+            --green-bg: rgba(34,197,94,0.15); --red-bg: rgba(239,68,68,0.15);
+        }
+        body { 
+            font-family: 'Inter', system-ui, sans-serif; 
+            background: var(--bg-secondary); 
+            color: var(--text-primary); 
+            line-height: 1.6; 
+            min-height: 100vh;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        
+        /* Sidebar - Hidden by Default */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 260px;
+            height: 100vh;
+            background: var(--bg-card);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+        }
+        .sidebar.open { transform: translateX(0); }
+        
+        .sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 99;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+        .sidebar-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .sidebar-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .sidebar-user {
+            display: flex;
+            align-items: center;
+            gap: 0.875rem;
+        }
+        .sidebar-avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+        .sidebar-user-info h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+        .sidebar-user-info p {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .sidebar-user-info .role-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+        }
+        
+        .sidebar-nav {
+            flex: 1;
+            padding: 1rem 0;
+            overflow-y: auto;
+        }
+        .sidebar-section {
+            padding: 0 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .sidebar-section-title {
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 0 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            border-radius: 10px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+        }
+        .sidebar-link:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        .sidebar-link.active {
+            background: var(--accent);
+            color: white;
+        }
+        .sidebar-link svg {
+            width: 20px;
+            height: 20px;
+        }
+        
+        .sidebar-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border);
+        }
+        .sidebar-footer-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+            padding: 0.75rem;
+            border-radius: 10px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .sidebar-footer-btn:hover {
+            background: var(--red-bg);
+            border-color: var(--red);
+            color: var(--red);
+        }
+        .sidebar-footer-btn svg {
+            width: 18px;
+            height: 18px;
+        }
+        
+        /* Main Content */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .menu-toggle {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .menu-toggle:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .header h1 svg {
+            color: var(--accent);
+        }
+        .header-actions {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+        .btn {
+            padding: 0.6rem 1.2rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: inherit;
+        }
+        .btn-secondary {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+        .btn-secondary:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        
+        /* Filters */
+        .filters-bar {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        .filter-select {
+            position: relative;
+        }
+        .filter-select select {
+            appearance: none;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem 2.5rem 0.75rem 1rem;
+            font-size: 0.875rem;
+            font-family: inherit;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 150px;
+        }
+        .filter-select select:hover { border-color: var(--accent); }
+        .filter-select select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(239,68,68,0.1); }
+        .filter-select::after {
+            content: '';
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 5px solid var(--text-secondary);
+            pointer-events: none;
+        }
+        
+        /* Summary Cards */
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .summary-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        .summary-card-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+            font-weight: 500;
+        }
+        .summary-card-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+        .summary-card-detail {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+        
+        /* Table */
+        .table-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 2rem;
+        }
+        .table-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .table-header h2 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .table-wrapper { overflow-x: auto; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        thead {
+            background: var(--bg-secondary);
+        }
+        th {
+            padding: 1rem 1.5rem;
+            text-align: left;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border);
+        }
+        td {
+            padding: 1.25rem 1.5rem;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            border-bottom: 1px solid var(--border);
+        }
+        tbody tr { transition: background 0.2s; }
+        tbody tr:hover { background: var(--bg-hover); }
+        tbody tr:last-child td { border-bottom: none; }
+        
+        .manager-cell {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .manager-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 1rem;
+            color: white;
+        }
+        .manager-info h4 {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.125rem;
+        }
+        .manager-info p {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        
+        .performance-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.35rem 0.65rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        .performance-badge svg {
+            width: 14px;
+            height: 14px;
+        }
+        .performance-badge.positive {
+            background: var(--green-bg);
+            color: var(--green);
+        }
+        .performance-badge.negative {
+            background: var(--red-bg);
+            color: var(--red);
+        }
+        
+        .service-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+        .service-tag {
+            font-size: 0.7rem;
+            padding: 0.25rem 0.5rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .service-tag.delivery { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+        .service-tag.takeout { background: rgba(59,130,246,0.1); border-color: #3b82f6; color: #3b82f6; }
+        .service-tag.indoor { background: rgba(249,115,22,0.1); border-color: #f97316; color: #f97316; }
+        
+        .btn-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.5rem 0.85rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            font-family: inherit;
+        }
+        .btn-action:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+        .btn-action svg {
+            width: 16px;
+            height: 16px;
+        }
+        
+        .close-section-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .close-section-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        .close-section-btn svg {
+            width: 18px;
+            height: 18px;
+        }
+        
+        /* Restaurants Section */
+        #restaurantsSection {
+            display: none;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+        
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            box-shadow: var(--shadow-lg);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            z-index: 1000;
+            transition: opacity 0.3s;
+        }
+        .toast svg { flex-shrink: 0; }
+    </style>
+</head>
+<body>
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+    
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-user">
+                <div class="sidebar-avatar" id="sidebarAvatar">U</div>
+                <div class="sidebar-user-info">
+                    <h3 id="sidebarUserName">Usuário</h3>
+                    <p><span class="role-dot"></span> <span id="sidebarUserRole">Carregando...</span></p>
+                </div>
+            </div>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Menu</div>
+                <a href="/dashboard" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Clientes
+                </a>
+            </div>
+            
+            <div class="sidebar-section" id="adminSection" style="display: none;">
+                <div class="sidebar-section-title">Admin</div>
+                <a href="/comparativo" class="sidebar-link active">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    Comparativo
+                </a>
+                <a href="/admin" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Configurações
+                </a>
+            </div>
+        </nav>
+        
+        <div class="sidebar-footer">
+            <button class="sidebar-footer-btn" onclick="logout()">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                </svg>
+                Sair
+            </button>
+        </div>
+    </aside>
+    
+    <!-- Main Content -->
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <button class="menu-toggle" onclick="toggleSidebar()" title="Menu">
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                </button>
+                <h1>
+                    <svg width="28" height="28" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                    Comparativo por Gestor
+                </h1>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-secondary" id="themeToggle" onclick="toggleTheme()" title="Alternar tema">
+                    <svg id="sunIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                    </svg>
+                    <svg id="moonIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Filters -->
+        <div class="filters-bar">
+            <div class="filter-select">
+                <select id="monthFilter" onchange="applyFilters()">
+                    <option value="">Todos os meses</option>
+                </select>
+            </div>
+            <div class="filter-select">
+                <select id="serviceFilter" onchange="applyFilters()">
+                    <option value="">Todos os serviços</option>
+                    <option value="delivery">Delivery</option>
+                    <option value="takeout">Retirada</option>
+                    <option value="indoor">Salão</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- Summary Cards -->
+        <div class="summary-cards">
+            <div class="summary-card">
+                <div class="summary-card-label">Total de Gestores</div>
+                <div class="summary-card-value" id="totalManagers">-</div>
+                <div class="summary-card-detail">Ativos no sistema</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-card-label">Total de Lojas</div>
+                <div class="summary-card-value" id="totalStores">-</div>
+                <div class="summary-card-detail">Sob gestão</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-card-label">Faturamento Total</div>
+                <div class="summary-card-value" id="totalRevenue">R$ 0,00</div>
+                <div class="summary-card-detail">Soma de todos os gestores</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-card-label">Performance Média</div>
+                <div class="summary-card-value" id="avgPerformance">-</div>
+                <div class="summary-card-detail">Tendência geral</div>
+            </div>
+        </div>
+        
+        <!-- Managers Table -->
+        <div class="table-container">
+            <div class="table-header">
+                <h2>Gestores</h2>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Gestor</th>
+                            <th>Lojas</th>
+                            <th>Faturamento</th>
+                            <th>Performance</th>
+                            <th>Serviços</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="managersTable">
+                        <tr>
+                            <td colspan="6" class="loading">Carregando dados...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Restaurants Section -->
+        <div class="table-container" id="restaurantsSection">
+            <div class="table-header">
+                <h2 id="restaurantsSectionTitle">Restaurantes</h2>
+                <button class="close-section-btn" onclick="closeRestaurantsSection()">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                    Fechar
+                </button>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Restaurante</th>
+                            <th>Faturamento</th>
+                            <th>Pedidos</th>
+                            <th>Ticket Médio</th>
+                            <th>Tendência</th>
+                            <th>Status</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="restaurantsTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let managersData = [];
+        const servicesMap = {
+            'delivery': 'Delivery',
+            'takeout': 'Retirada',
+            'indoor': 'Salão'
+        };
+        
+        // Generate month options
+        function generateMonthOptions() {
+            const select = document.getElementById('monthFilter');
+            const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
+                          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+            const currentYear = new Date().getFullYear();
+            
+            for (let year = currentYear; year >= currentYear - 2; year--) {
+                months.forEach((month, idx) => {
+                    const option = document.createElement('option');
+                    option.value = `${year}-${String(idx + 1).padStart(2, '0')}`;
+                    option.textContent = `${month} ${year}`;
+                    select.appendChild(option);
+                });
+            }
+        }
+        
+        // Load data
+        async function loadData() {
+            try {
+                const response = await fetch('/api/restaurants');
+                const data = await response.json();
+                
+                if (data.success && data.restaurants) {
+                    processManagersData(data.restaurants);
+                    renderManagersTable();
+                } else {
+                    document.getElementById('managersTable').innerHTML = '<tr><td colspan="6" class="empty-state">Nenhum dado disponível</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('managersTable').innerHTML = '<tr><td colspan="6" class="empty-state">Erro ao carregar dados</td></tr>';
+            }
+        }
+        
+        // Process managers data
+        function processManagersData(restaurants) {
+            const managersMap = {};
+            
+            restaurants.forEach(r => {
+                const manager = r.manager || 'Sem Gestor';
+                if (!managersMap[manager]) {
+                    managersMap[manager] = {
+                        name: manager,
+                        restaurants: [],
+                        totalRevenue: 0,
+                        positiveCount: 0,
+                        negativeCount: 0,
+                        services: new Set()
+                    };
+                }
+                
+                managersMap[manager].restaurants.push(r);
+                managersMap[manager].totalRevenue += r.metrics?.valor_bruto || 0;
+                
+                const trend = r.metrics?.trends?.vendas || 0;
+                if (trend > 0) managersMap[manager].positiveCount++;
+                else if (trend < 0) managersMap[manager].negativeCount++;
+                
+                // Collect services
+                if (r.services) {
+                    r.services.forEach(s => managersMap[manager].services.add(s));
+                }
+            });
+            
+            managersData = Object.values(managersMap).sort((a, b) => b.totalRevenue - a.totalRevenue);
+            
+            // Update summary
+            document.getElementById('totalManagers').textContent = managersData.length;
+            document.getElementById('totalStores').textContent = restaurants.length;
+            document.getElementById('totalRevenue').textContent = formatCurrency(
+                managersData.reduce((sum, m) => sum + m.totalRevenue, 0)
+            );
+            
+            const avgPositive = managersData.reduce((sum, m) => sum + m.positiveCount, 0) / managersData.length;
+            const avgNegative = managersData.reduce((sum, m) => sum + m.negativeCount, 0) / managersData.length;
+            document.getElementById('avgPerformance').textContent = 
+                avgPositive > avgNegative ? `+${avgPositive.toFixed(1)} positivos` : `${avgNegative.toFixed(1)} negativos`;
+        }
+        
+        // Format currency
+        function formatCurrency(value) {
+            return new Intl.NumberFormat('pt-BR', { 
+                style: 'currency', 
+                currency: 'BRL',
+                minimumFractionDigits: 2 
+            }).format(value || 0);
+        }
+        
+        // Format number
+        function formatNumber(value) {
+            return new Intl.NumberFormat('pt-BR').format(value || 0);
+        }
+        
+        // Format trend
+        function formatTrend(value) {
+            const num = parseFloat(value) || 0;
+            return (num >= 0 ? '+' : '') + num.toFixed(1) + '%';
+        }
+        
+        // Get avatar color
+        function getAvatarColor(name) {
+            const colors = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6'];
+            const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            return colors[hash % colors.length];
+        }
+        
+        // Render managers table
+        function renderManagersTable() {
+            const tbody = document.getElementById('managersTable');
+            
+            if (managersData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Nenhum gestor encontrado</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = managersData.map(manager => {
+                const storeCount = manager.restaurants.length;
+                const isPositive = manager.positiveCount >= manager.negativeCount;
+                const services = Array.from(manager.services);
+                
+                return `
+                    <tr>
+                        <td>
+                            <div class="manager-cell">
+                                <div class="manager-avatar" style="background: ${getAvatarColor(manager.name)}">
+                                    ${manager.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div class="manager-info">
+                                    <h4>${manager.name}</h4>
+                                    <p>${storeCount} restaurante${storeCount !== 1 ? 's' : ''}</p>
+                                </div>
+                            </div>
+                        </td>
+                        <td><strong>${storeCount}</strong></td>
+                        <td><strong>${formatCurrency(manager.totalRevenue)}</strong></td>
+                        <td>
+                            <span class="performance-badge ${isPositive ? 'positive' : 'negative'}">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${isPositive ? 'M5 10l7-7m0 0l7 7m-7-7v18' : 'M19 14l-7 7m0 0l-7-7m7 7V3'}"/>
+                                </svg>
+                                ${manager.positiveCount} positivo${manager.positiveCount !== 1 ? 's' : ''} / ${manager.negativeCount} negativo${manager.negativeCount !== 1 ? 's' : ''}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="service-tags">
+                                ${services.map(s => `<span class="service-tag ${s}">${servicesMap[s] || s}</span>`).join('')}
+                                ${services.length === 0 ? '<span class="service-tag">-</span>' : ''}
+                            </div>
+                        </td>
+                        <td>
+                            <button class="btn-action" onclick="showManagerRestaurants('${manager.name.replace(/'/g, "\\'")}')">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                Ver Lojas
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        // Show restaurants for a manager
+        function showManagerRestaurants(managerName) {
+            const manager = managersData.find(m => m.name === managerName);
+            if (!manager) return;
+            
+            document.getElementById('restaurantsSectionTitle').innerHTML = `
+                Restaurantes de ${managerName}
+            `;
+            
+            const tbody = document.getElementById('restaurantsTable');
+            tbody.innerHTML = manager.restaurants.map(r => {
+                const metrics = r.metrics || {};
+                const trend = metrics.trends?.vendas || 0;
+                const isPositive = trend >= 0;
+                
+                return `
+                    <tr>
+                        <td>
+                            <div class="manager-cell">
+                                <div class="manager-avatar" style="background: ${getAvatarColor(r.name)}">${(r.name || 'R')[0].toUpperCase()}</div>
+                                <div class="manager-info">
+                                    <h4>${r.name}</h4>
+                                    <p>ID: ${r.id?.substring(0, 8) || '-'}...</p>
+                                </div>
+                            </div>
+                        </td>
+                        <td><strong>${formatCurrency(metrics.valor_bruto || 0)}</strong></td>
+                        <td>${formatNumber(metrics.total_pedidos || 0)}</td>
+                        <td>${formatCurrency(metrics.ticket_medio || 0)}</td>
+                        <td>
+                            <span class="performance-badge ${isPositive ? 'positive' : 'negative'}">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${isPositive ? 'M5 10l7-7m0 0l7 7m-7-7v18' : 'M19 14l-7 7m0 0l-7-7m7 7V3'}"/>
+                                </svg>
+                                ${formatTrend(trend)}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="service-tag" style="background: var(--green-bg); color: var(--green);">Ativo</span>
+                        </td>
+                        <td>
+                            <a href="/restaurant/${r.id}" class="btn-action">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                Abrir
+                            </a>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            document.getElementById('restaurantsSection').style.display = 'block';
+            document.getElementById('restaurantsSection').scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function closeRestaurantsSection() {
+            document.getElementById('restaurantsSection').style.display = 'none';
+        }
+        
+        // Apply filters
+        function applyFilters() {
+            renderManagersTable();
+        }
+        
+        // Toast notification
+        function showToast(message, type = 'success') {
+            document.querySelectorAll('.toast').forEach(t => t.remove());
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/>
+                </svg>
+                <span>${message}</span>
+            `;
+            toast.style.color = type === 'success' ? 'var(--green)' : 'var(--red)';
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+        
+        // Theme toggle
+        function toggleTheme() {
+            const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+        }
+        
+        // Sidebar toggle
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+            document.getElementById('sidebarOverlay').classList.toggle('show');
+        }
+        
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebarOverlay').classList.remove('show');
+        }
+        
+        // Logout
+        function logout() {
+            fetch('/api/logout', { method: 'POST' })
+                .then(() => {
+                    localStorage.removeItem('currentUser');
+                    window.location.href = '/login';
+                })
+                .catch(() => {
+                    window.location.href = '/login';
+                });
+        }
+        
+        // Check user
+        function checkUser() {
+            fetch('/api/me')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.user) {
+                        const u = data.user;
+                        document.getElementById('sidebarUserName').textContent = u.name || u.username || 'Usuário';
+                        document.getElementById('sidebarAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase();
+                        document.getElementById('sidebarUserRole').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
+                        
+                        if (u.role === 'admin') {
+                            document.getElementById('adminSection').style.display = 'block';
+                        } else {
+                            window.location.href = '/dashboard';
+                        }
+                    } else {
+                        window.location.href = '/login';
+                    }
+                })
+                .catch(() => {
+                    window.location.href = '/login';
+                });
+        }
+        
+        // Initialize
+        (function init() {
+            const theme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+            
+            generateMonthOptions();
+            checkUser();
+            loadData();
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administração - Dashboard iFood</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #ffffff; --bg-secondary: #f8fafc; --bg-card: #ffffff;
+            --bg-hover: #f1f5f9; --text-primary: #0f172a; --text-secondary: #64748b;
+            --text-muted: #94a3b8; --border: #e2e8f0; --accent: #ef4444;
+            --accent-hover: #dc2626; --green: #22c55e; --green-bg: rgba(34,197,94,0.1);
+            --red: #ef4444; --red-bg: rgba(239,68,68,0.1); --blue: #3b82f6;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1); --shadow-lg: 0 4px 6px rgba(0,0,0,0.1);
+            --sidebar-width: 260px;
+        }
+        [data-theme="dark"] {
+            --bg-primary: #000000; --bg-secondary: #0a0a0a; --bg-card: #0f0f0f;
+            --bg-hover: #1a1a1a; --text-primary: #ffffff; --text-secondary: #a0a0a0;
+            --text-muted: #666666; --border: #1f1f1f; --shadow: 0 1px 3px rgba(0,0,0,0.5);
+        }
+        body { 
+            font-family: 'Inter', system-ui, sans-serif; 
+            background: var(--bg-secondary); 
+            color: var(--text-primary); 
+            line-height: 1.6; 
+            min-height: 100vh;
+            display: flex;
+        }
+        
+        /* Sidebar - Hidden by Default */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-card);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 100;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+        }
+        .sidebar.open { transform: translateX(0); }
+        
+        .sidebar-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .sidebar-logo-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        
+        .sidebar-nav {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.25rem;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .nav-item.active { background: rgba(239,68,68,0.1); color: var(--accent); }
+        .nav-item svg { width: 20px; height: 20px; }
+        
+        .sidebar-footer {
+            padding: 1rem;
+            border-top: 1px solid var(--border);
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+        }
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+        .user-details {
+            flex: 1;
+            min-width: 0;
+        }
+        .user-name {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .user-role {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+        
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            min-height: 100vh;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 2rem; 
+            flex-wrap: wrap; 
+            gap: 1rem; 
+        }
+        .header-left { display: flex; align-items: center; gap: 1rem; }
+        .mobile-menu-btn {
+            display: flex;
+            width: 40px;
+            height: 40px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            border-radius: 8px;
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+        }
+        .mobile-menu-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+        .header h1 { 
+            font-size: 1.5rem; 
+            font-weight: 600; 
+            display: flex; 
+            align-items: center; 
+            gap: 0.75rem; 
+        }
+        .header h1 svg { color: var(--accent); }
+        .header-actions { display: flex; gap: 0.75rem; }
+        .btn { 
+            padding: 0.625rem 1.25rem; 
+            font-size: 0.875rem; 
+            font-weight: 500; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 0.5rem; 
+            text-decoration: none; 
+        }
+        .btn-primary { background: var(--accent); color: white; border: none; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary { background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--accent); color: var(--text-primary); }
+        .btn-danger { color: var(--red); }
+        .btn-danger:hover { background: var(--red-bg); border-color: var(--red); }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+        .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; }
+        .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+        .stat-icon.users { background: rgba(59,130,246,0.1); color: var(--blue); }
+        .stat-icon.restaurants { background: rgba(34,197,94,0.1); color: var(--green); }
+        .stat-icon.api { background: rgba(239,68,68,0.1); color: var(--accent); }
+        .stat-icon svg { width: 24px; height: 24px; }
+        .stat-info h3 { font-size: 1.5rem; font-weight: 700; }
+        .stat-info p { font-size: 0.8rem; color: var(--text-secondary); }
+        .section { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 1.5rem; overflow: hidden; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); }
+        .section-header h2 { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+        .section-body { padding: 1rem 1.5rem; }
+        .table { width: 100%; border-collapse: collapse; }
+        .table th, .table td { padding: 0.875rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+        .table th { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .table tr:last-child td { border-bottom: none; }
+        .table tr:hover td { background: var(--bg-hover); }
+        .badge { padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+        .badge-admin { background: var(--red-bg); color: var(--accent); }
+        .badge-user { background: rgba(59,130,246,0.1); color: var(--blue); }
+        .badge-connected { background: var(--green-bg); color: var(--green); }
+        .badge-disconnected { background: var(--red-bg); color: var(--red); }
+        .form-group { margin-bottom: 1rem; }
+        .form-label { display: block; font-size: 0.8rem; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-secondary); }
+        .form-input { width: 100%; padding: 0.75rem 1rem; font-size: 0.9rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); }
+        .form-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(239,68,68,0.1); }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; width: 100%; max-width: 480px; overflow: hidden; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); }
+        .modal-header h2 { font-size: 1.1rem; font-weight: 600; }
+        .modal-close { width: 32px; height: 32px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 1.25rem; border-radius: 8px; }
+        .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .modal-body { padding: 1.5rem; }
+        .modal-footer { padding: 1rem 1.5rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.75rem; }
+        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: 0.75rem; z-index: 2000; }
+        .toast.success { border-left: 4px solid var(--green); color: var(--green); }
+        .toast.error { border-left: 4px solid var(--red); color: var(--red); }
+        .config-item { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+        .config-item:last-child { border-bottom: none; }
+        .config-label { font-size: 0.875rem; color: var(--text-secondary); }
+        .config-value { font-size: 0.875rem; font-weight: 500; }
+        .empty-state { text-align: center; padding: 2rem; color: var(--text-secondary); }
+        
+        /* Sidebar Overlay */
+        .sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 99;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+        .sidebar-overlay.show { opacity: 1; visibility: visible; }
+        
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+    
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="user-info" style="margin: 0; background: transparent; padding: 0;">
+                <div class="user-avatar" id="userAvatar">A</div>
+                <div class="user-details">
+                    <div class="user-name" id="userName">Admin</div>
+                    <div class="user-role" style="display: flex; align-items: center; gap: 0.35rem;">
+                        <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--green);"></span>
+                        <span id="userRoleText">Administrador</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <div style="margin-bottom: 1.5rem;">
+                <div style="font-size: 0.65rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 0 0.75rem; margin-bottom: 0.5rem;">Menu</div>
+                <a href="/dashboard" class="nav-item">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    <span>Clientes</span>
+                </a>
+            </div>
+            
+            <div style="margin-bottom: 1.5rem;">
+                <div style="font-size: 0.65rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 0 0.75rem; margin-bottom: 0.5rem;">Admin</div>
+                <a href="/comparativo" class="nav-item">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                    <span>Comparativo</span>
+                </a>
+                <a href="/admin" class="nav-item active">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    <span>Configurações</span>
+                </a>
+            </div>
+        </nav>
+        
+        <div class="sidebar-footer">
+            <button class="btn btn-secondary" onclick="logout()" style="width: 100%; justify-content: center; color: var(--text-secondary); font-family: inherit;">
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                </svg>
+                <span>Sair</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="container">
+            <div class="header">
+                <div class="header-left">
+                    <button class="mobile-menu-btn" onclick="toggleSidebar()">
+                        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                        </svg>
+                    </button>
+                    <h1>
+                        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        </svg>
+                        Administração
+                    </h1>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-secondary" onclick="toggleTheme()" title="Alternar tema">
+                        <svg id="sunIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none;">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                        </svg>
+                        <svg id="moonIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon users"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg></div>
+                    <div class="stat-info"><h3 id="userCount">0</h3><p>Usuários</p></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon restaurants"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg></div>
+                    <div class="stat-info"><h3 id="merchantCount">0</h3><p>Merchants</p></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon api"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>
+                    <div class="stat-info"><h3 id="apiStatus">-</h3><p>Status API</p></div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>Usuários</h2>
+                    <button class="btn btn-primary" onclick="openModal('addUserModal')">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                        Adicionar Usuário
+                    </button>
+                </div>
+                <div class="section-body">
+                    <table class="table">
+                        <thead><tr><th>Nome</th><th>Email</th><th>Função</th><th>Último Login</th><th>Ações</th></tr></thead>
+                        <tbody id="usersTable"><tr><td colspan="5" class="empty-state">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>Merchants Configurados</h2>
+                    <button class="btn btn-primary" onclick="openModal('addMerchantModal')">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                        Adicionar Merchant
+                    </button>
+                </div>
+                <div class="section-body">
+                    <table class="table">
+                        <thead><tr><th>ID</th><th>Nome</th><th>Gerente</th><th>Status</th><th>Ações</th></tr></thead>
+                        <tbody id="merchantsTable"><tr><td colspan="5" class="empty-state">Carregando...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Configuração API iFood</h2>
+                </div>
+                <div class="section-body">
+                    <div class="config-item">
+                        <div class="config-label">Client ID</div>
+                        <div class="config-value" id="clientId">-</div>
+                    </div>
+                    <div class="config-item">
+                        <div class="config-label">Client Secret</div>
+                        <div class="config-value">••••••••</div>
+                    </div>
+                    <div class="config-item">
+                        <div class="config-label">Status da Conexão</div>
+                        <div class="config-value"><span class="badge badge-disconnected" id="connectionStatus">Desconectado</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div class="modal-overlay" id="addUserModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Adicionar Usuário</h2>
+                <button class="modal-close" onclick="closeModal('addUserModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Nome Completo</label>
+                    <input type="text" class="form-input" id="userFullName" placeholder="João Silva">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Username</label>
+                        <input type="text" class="form-input" id="userUsername" placeholder="joaosilva">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="userEmail" placeholder="joao@empresa.com">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Senha</label>
+                        <input type="password" class="form-input" id="userPassword" placeholder="••••••••">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Função</label>
+                        <select class="form-input" id="userRole">
+                            <option value="user">Usuário</option>
+                            <option value="admin">Administrador</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('addUserModal')">Cancelar</button>
+                <button class="btn btn-primary" onclick="addUser()">Adicionar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Merchant Modal -->
+    <div class="modal-overlay" id="addMerchantModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Adicionar Merchant</h2>
+                <button class="modal-close" onclick="closeModal('addMerchantModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Merchant ID</label>
+                    <input type="text" class="form-input" id="merchantId" placeholder="UUID do merchant">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nome do Restaurante</label>
+                    <input type="text" class="form-input" id="merchantName" placeholder="Nome do restaurante">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Gerente</label>
+                    <input type="text" class="form-input" id="merchantManager" placeholder="Nome do gerente">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('addMerchantModal')">Cancelar</button>
+                <button class="btn btn-primary" onclick="addMerchant()">Adicionar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadData() {
+            await Promise.all([loadUsers(), loadIfoodConfig(), loadRestaurants()]);
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/users');
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('userCount').textContent = data.users.length;
+                    const tbody = document.getElementById('usersTable');
+                    if (data.users.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum usuário encontrado</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = data.users.map(user => `
+                        <tr>
+                            <td>${user.name}</td>
+                            <td>${user.email || '-'}</td>
+                            <td><span class="badge badge-${user.role === 'admin' ? 'admin' : 'user'}">${user.role === 'admin' ? 'Admin' : 'Usuário'}</span></td>
+                            <td>${user.last_login ? new Date(user.last_login).toLocaleDateString('pt-BR') : 'Nunca'}</td>
+                            <td><button class="btn btn-secondary btn-danger" onclick="deleteUser(${user.id}, '${user.name}')">Excluir</button></td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error loading users:', error);
+                document.getElementById('usersTable').innerHTML = '<tr><td colspan="5" class="empty-state">Erro ao carregar usuários</td></tr>';
+            }
+        }
+
+        async function loadIfoodConfig() {
+            try {
+                const response = await fetch('/api/ifood/config');
+                const data = await response.json();
+                if (data.success && data.config) {
+                    // Note: client_id is not exposed by the API for security
+                    document.getElementById('clientId').textContent = data.config.configured ? 'Configurado' : 'Não configurado';
+                    const statusBadge = document.getElementById('connectionStatus');
+                    const apiStatus = document.getElementById('apiStatus');
+                    if (data.config.configured) {
+                        statusBadge.className = 'badge badge-connected';
+                        statusBadge.textContent = 'Conectado';
+                        apiStatus.textContent = 'Ativo';
+                    } else {
+                        statusBadge.className = 'badge badge-disconnected';
+                        statusBadge.textContent = 'Desconectado';
+                        apiStatus.textContent = 'Inativo';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading config:', error);
+                document.getElementById('apiStatus').textContent = 'Erro';
+            }
+        }
+
+        async function loadRestaurants() {
+            try {
+                const response = await fetch('/api/ifood/config');
+                const data = await response.json();
+                if (data.success && data.config) {
+                    const merchants = data.config.merchants || [];
+                    document.getElementById('merchantCount').textContent = merchants.length;
+                    const tbody = document.getElementById('merchantsTable');
+                    if (merchants.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum merchant configurado</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = merchants.map(merchant => `
+                        <tr>
+                            <td style="font-family: monospace; font-size: 0.75rem;">${merchant.merchant_id.substring(0, 8)}...</td>
+                            <td>${merchant.name}</td>
+                            <td>${merchant.manager || '-'}</td>
+                            <td><span class="badge badge-connected">Ativo</span></td>
+                            <td><button class="btn btn-secondary btn-danger" onclick="removeMerchant('${merchant.merchant_id}', '${merchant.name}')">Remover</button></td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error loading merchants:', error);
+                document.getElementById('merchantsTable').innerHTML = '<tr><td colspan="5" class="empty-state">Erro ao carregar merchants</td></tr>';
+            }
+        }
+
+        function openModal(id) { document.getElementById(id).classList.add('show'); }
+        function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+        async function addMerchant() {
+            const merchantId = document.getElementById('merchantId').value.trim();
+            const name = document.getElementById('merchantName').value.trim();
+            const manager = document.getElementById('merchantManager').value.trim();
+            
+            if (!merchantId || !name) {
+                showToast('Preencha ID e nome do merchant', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/ifood/merchants', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ merchant_id: merchantId, name, manager })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showToast('Merchant adicionado!', 'success');
+                    closeModal('addMerchantModal');
+                    await loadIfoodConfig();
+                    await loadRestaurants();
+                } else {
+                    showToast(data.error || 'Erro ao adicionar', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        async function removeMerchant(merchantId, name) {
+            if (!confirm(`Remover "${name}"?`)) return;
+            try {
+                const response = await fetch(`/api/ifood/merchants/${merchantId}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (data.success) {
+                    showToast('Merchant removido', 'success');
+                    await loadIfoodConfig();
+                    await loadRestaurants();
+                } else {
+                    showToast(data.error || 'Erro ao remover', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        async function addUser() {
+            const fullName = document.getElementById('userFullName').value.trim();
+            const username = document.getElementById('userUsername').value.trim();
+            const email = document.getElementById('userEmail').value.trim();
+            const password = document.getElementById('userPassword').value;
+            const role = document.getElementById('userRole').value;
+            
+            if (!fullName || !username || !email || !password) {
+                showToast('Preencha todos os campos obrigatórios', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ full_name: fullName, username, email, password, role })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showToast('Usuário criado!', 'success');
+                    closeModal('addUserModal');
+                    await loadUsers();
+                } else {
+                    showToast(data.error || 'Erro ao criar usuário', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        async function deleteUser(userId, name) {
+            if (!confirm(`Excluir usuário "${name}"?`)) return;
+            try {
+                const response = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (data.success) {
+                    showToast('Usuário excluído', 'success');
+                    await loadUsers();
+                } else {
+                    showToast(data.error || 'Erro ao excluir', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        function showToast(message, type = 'success') {
+            document.querySelectorAll('.toast').forEach(t => t.remove());
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/></svg><span>${message}</span>`;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        function toggleTheme() {
+            const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+            document.getElementById('sidebarOverlay').classList.toggle('show');
+        }
+
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebarOverlay').classList.remove('show');
+        }
+
+        function logout() {
+            if (confirm('Deseja realmente sair?')) {
+                fetch('/api/logout', { method: 'POST' }).then(() => {
+                    localStorage.removeItem('currentUser');
+                    window.location.href = '/login';
+                }).catch(() => {
+                    window.location.href = '/login';
+                });
+            }
+        }
+
+        function loadUserInfo() {
+            fetch('/api/me')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.user) {
+                        const u = data.user;
+                        document.getElementById('userName').textContent = u.name || u.username || 'Usuário';
+                        const initials = (u.name || u.username || 'U').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                        document.getElementById('userAvatar').textContent = initials;
+                        document.getElementById('userRoleText').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
+                        
+                        if (u.role !== 'admin') {
+                            window.location.href = '/dashboard';
+                        }
+                    } else {
+                        window.location.href = '/login';
+                    }
+                })
+                .catch(() => {
+                    window.location.href = '/login';
+                });
+        }
+
+        (function init() {
+            const theme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+            loadUserInfo();
+            loadData();
+        })();
+
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal('addMerchantModal'); closeModal('addUserModal'); } });
+        document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(e.target.id); }));
+    </script>
+</body>
+</html>

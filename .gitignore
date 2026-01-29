@@ -1,0 +1,51 @@
+# ============================================================================
+# Git Ignore - Keep sensitive files out of version control
+# ============================================================================
+
+# Environment variables - NEVER commit this!
+.env
+.env.local
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Data files (may contain sensitive info)
+excel_files/
+*.xlsx
+*.xls
+
+# Database
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploaded files
+uploads/
+
+# Compiled files
+*.pyc
+dist/
+build/
+*.egg-info/

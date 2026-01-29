@@ -1,0 +1,344 @@
+
+"<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administração - Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #ffffff; --bg-secondary: #f8fafc; --bg-card: #ffffff; --bg-hover: #f1f5f9;
+            --text-primary: #0f172a; --text-secondary: #64748b; --text-muted: #94a3b8; --border: #e2e8f0;
+            --accent: #ef4444; --accent-hover: #dc2626; --green: #22c55e; --red: #ef4444; --yellow: #f59e0b; --blue: #3b82f6;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1); --shadow-lg: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+        [data-theme="dark"] {
+            --bg-primary: #0f172a; --bg-secondary: #1e293b; --bg-card: #1e293b; --bg-hover: #334155;
+            --text-primary: #f1f5f9; --text-secondary: #94a3b8; --text-muted: #64748b; --border: #334155;
+            --shadow: 0 1px 3px rgba(0,0,0,0.3); --shadow-lg: 0 4px 6px -1px rgba(0,0,0,0.4);
+        }
+        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg-secondary); color: var(--text-primary); line-height: 1.6; min-height: 100vh; transition: background-color 0.3s, color 0.3s; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
+        .header-left { display: flex; align-items: center; gap: 1rem; }
+        .back-link { display: flex; align-items: center; gap: 0.4rem; color: var(--text-secondary); text-decoration: none; padding: 0.4rem 0.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; font-size: 0.8rem; transition: all 0.2s; }
+        .back-link:hover { border-color: var(--accent); color: var(--text-primary); }
+        .header h1 { font-size: 1.25rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+        .header h1 svg { color: var(--accent); }
+        .header-actions { display: flex; gap: 0.75rem; align-items: center; }
+        .btn { padding: 0.5rem 1rem; font-size: 0.8rem; font-weight: 500; font-family: inherit; border-radius: 6px; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.4rem; }
+        .btn-primary { background: var(--accent); color: white; border: none; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary { background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--accent); color: var(--text-primary); }
+        .btn-icon { width: 36px; height: 36px; padding: 0; justify-content: center; }
+        .logout-btn { color: var(--red); }
+        .logout-btn:hover { background: rgba(239,68,68,0.1); border-color: var(--red); }
+        
+        /* Tabs */
+        .tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+        .tab { padding: 0.75rem 1.25rem; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); background: none; border: none; cursor: pointer; position: relative; font-family: inherit; transition: all 0.2s; }
+        .tab:hover { color: var(--text-primary); }
+        .tab.active { color: var(--accent); }
+        .tab.active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--accent); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        /* Squad Cards */
+        .section-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; }
+        .section-header h2 { font-size: 1.1rem; font-weight: 600; }
+        .section-header p { color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.2rem; }
+        .squad-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1rem; }
+        .squad-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; transition: all 0.2s; }
+        .squad-card:hover { border-color: var(--accent); box-shadow: var(--shadow-lg); }
+        .squad-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; }
+        .squad-name { font-size: 1rem; font-weight: 600; margin-bottom: 0.2rem; }
+        .squad-leader { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--yellow); }
+        .squad-actions { display: flex; gap: 0.4rem; }
+        .icon-btn { width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; font-size: 0.85rem; }
+        .icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .icon-btn.delete:hover { background: rgba(239,68,68,0.1); color: var(--red); border-color: var(--red); }
+        .squad-stats { display: flex; gap: 1.25rem; margin-bottom: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); }
+        .squad-stats span { display: flex; align-items: center; gap: 0.3rem; }
+        
+        /* Toggle */
+        .toggle-switch { position: relative; width: 40px; height: 22px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--border); border-radius: 22px; transition: 0.3s; }
+        .toggle-slider::before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s; }
+        .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+        .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
+        
+        .members-section { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+        .members-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.5rem; }
+        .members-list { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+        .member-tag { padding: 0.3rem 0.6rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 5px; font-size: 0.75rem; color: var(--text-primary); }
+        
+        /* Card & Table */
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .card-title { font-size: 1rem; font-weight: 600; }
+        .users-table { width: 100%; border-collapse: collapse; }
+        .users-table th { text-align: left; padding: 0.75rem; font-size: 0.7rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid var(--border); }
+        .users-table td { padding: 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+        .users-table tr:hover td { background: var(--bg-hover); }
+        .user-info { display: flex; align-items: center; gap: 0.6rem; }
+        .user-avatar { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 0.8rem; }
+        .role-badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 500; }
+        .role-badge.admin { background: rgba(168,85,247,0.15); color: #a855f7; }
+        .role-badge.user { background: rgba(59,130,246,0.15); color: var(--blue); }
+        
+        /* Modal */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; width: 100%; max-width: 450px; max-height: 85vh; overflow-y: auto; animation: modalIn 0.2s ease; }
+        @keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .modal-header { padding: 1.25rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .modal-title { font-size: 1rem; font-weight: 600; }
+        .modal-close { width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; }
+        .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .modal-body { padding: 1.25rem; }
+        .modal-footer { padding: 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.6rem; }
+        .form-group { margin-bottom: 1rem; }
+        .form-label { display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); margin-bottom: 0.4rem; }
+        .form-input, .form-select { width: 100%; padding: 0.6rem 0.875rem; font-size: 0.85rem; font-family: inherit; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); }
+        .form-input:focus, .form-select:focus { outline: none; border-color: var(--accent); }
+        .restaurant-assignment { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.5rem; max-height: 200px; overflow-y: auto; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px; }
+        .restaurant-checkbox { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 0.8rem; transition: all 0.2s; }
+        .restaurant-checkbox:hover { border-color: var(--accent); }
+        .restaurant-checkbox input { width: 16px; height: 16px; accent-color: var(--accent); }
+        
+        .empty-state { text-align: center; padding: 2rem; color: var(--text-secondary); font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <a href="index.html" class="back-link">← Voltar</a>
+                <h1>
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Administração
+                </h1>
+            </div>
+            <div class="header-actions">
+                <span style="color:var(--text-secondary);font-size:0.8rem" id="currentUserDisplay"></span>
+                <button class="btn btn-icon btn-secondary" onclick="toggleTheme()" title="Alternar tema">
+                    <svg id="sunIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    <svg id="moonIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                </button>
+                <button class="btn btn-secondary logout-btn" onclick="logout()">Sair</button>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" data-tab="squads">Gestão de Squads</button>
+            <button class="tab" data-tab="users">Usuários</button>
+            <button class="tab" data-tab="assignments">Atribuições</button>
+        </div>
+        
+        <div class="tab-content active" id="squads-content">
+            <div class="section-header">
+                <div><h2>Gestão de Squads</h2><p>Configure equipes para compartilhar acesso às lojas dos responsáveis</p></div>
+                <button class="btn btn-primary" onclick="openSquadModal()">+ Novo Squad</button>
+            </div>
+            <div class="squad-grid" id="squadGrid"></div>
+        </div>
+        
+        <div class="tab-content" id="users-content">
+            <div class="card">
+                <div class="card-header"><h2 class="card-title">Usuários do Sistema</h2><button class="btn btn-primary" onclick="openUserModal()">+ Novo Usuário</button></div>
+                <table class="users-table"><thead><tr><th>Usuário</th><th>Função</th><th>Restaurantes</th><th>Ações</th></tr></thead><tbody id="usersTableBody"></tbody></table>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="assignments-content">
+            <div class="card"><div class="card-header"><h2 class="card-title">Atribuir Restaurantes a Usuários</h2></div><div id="assignmentsList"></div></div>
+        </div>
+    </div>
+    
+    <!-- Squad Modal -->
+    <div class="modal-overlay" id="squadModal">
+        <div class="modal">
+            <div class="modal-header"><h3 class="modal-title" id="squadModalTitle">Novo Squad</h3><button class="modal-close" onclick="closeSquadModal()">×</button></div>
+            <div class="modal-body">
+                <input type="hidden" id="squadId">
+                <div class="form-group"><label class="form-label">Nome do Squad</label><input type="text" class="form-input" id="squadName" placeholder="Ex: Rebeca + Ana"></div>
+                <div class="form-group"><label class="form-label">Líder</label><input type="text" class="form-input" id="squadLeader" placeholder="Nome do líder"></div>
+                <div class="form-group"><label class="form-label">Membros (separados por vírgula)</label><input type="text" class="form-input" id="squadMembers" placeholder="Ana, Carlos, Maria"></div>
+                <div class="form-group"><label class="form-label">Restaurantes</label><div class="restaurant-assignment" id="squadRestaurants"></div></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeSquadModal()">Cancelar</button><button class="btn btn-primary" onclick="saveSquad()">Salvar</button></div>
+        </div>
+    </div>
+    
+    <!-- User Modal -->
+    <div class="modal-overlay" id="userModal">
+        <div class="modal">
+            <div class="modal-header"><h3 class="modal-title">Novo Usuário</h3><button class="modal-close" onclick="closeUserModal()">×</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label class="form-label">Nome de Usuário</label><input type="text" class="form-input" id="newUsername" placeholder="usuario"></div>
+                <div class="form-group"><label class="form-label">Nome Completo</label><input type="text" class="form-input" id="newUserFullname" placeholder="Nome completo"></div>
+                <div class="form-group"><label class="form-label">Senha</label><input type="password" class="form-input" id="newUserPassword" placeholder="Senha"></div>
+                <div class="form-group"><label class="form-label">Função</label><select class="form-select" id="newUserRole"><option value="user">Usuário</option><option value="admin">Administrador</option></select></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeUserModal()">Cancelar</button><button class="btn btn-primary" onclick="saveUser()">Criar</button></div>
+        </div>
+    </div>
+    
+    <script>
+        let restaurants = JSON.parse(localStorage.getItem('restaurantsData')) || [];
+        let squads = JSON.parse(localStorage.getItem('squads')) || [
+            { id: 'squad1', name: 'Rebeca + Ana', leader: 'Rebeca', members: ['Ana'], restaurants: [], active: true },
+            { id: 'squad2', name: 'Vinicius + Paola + Gleyson', leader: 'Vinicius', members: ['Paola', 'Gleyson'], restaurants: [], active: true }
+        ];
+        let users = JSON.parse(localStorage.getItem('users')) || { 'admin': { role: 'admin', name: 'Administrador', restaurants: [] }, 'usuario': { role: 'user', name: 'Usuário Padrão', restaurants: [] } };
+        
+        const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+        if (!currentUser || currentUser.role !== 'admin') window.location.href = 'login.html';
+        document.getElementById('currentUserDisplay').textContent = currentUser?.name || '';
+        
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab + '-content').classList.add('active');
+            });
+        });
+        
+        function renderSquads() {
+            const container = document.getElementById('squadGrid');
+            if (!squads.length) { container.innerHTML = '<div class="empty-state">Nenhum squad criado</div>'; return; }
+            container.innerHTML = squads.map(s => `
+                <div class="squad-card">
+                    <div class="squad-header">
+                        <div><div class="squad-name">${s.name}</div><div class="squad-leader">⭐ ${s.leader}</div></div>
+                        <div class="squad-actions">
+                            <button class="icon-btn" onclick="editSquad('${s.id}')" title="Editar">✏️</button>
+                            <button class="icon-btn delete" onclick="deleteSquad('${s.id}')" title="Excluir">🗑️</button>
+                        </div>
+                    </div>
+                    <div class="squad-stats">
+                        <span>👥 ${s.members.length} membros</span>
+                        <span>🏪 ${(s.restaurants||[]).length} lojas</span>
+                        <label class="toggle-switch"><input type="checkbox" ${s.active?'checked':''} onchange="toggleSquad('${s.id}')"><span class="toggle-slider"></span></label>
+                    </div>
+                    <div class="members-section"><div class="members-label">Membros:</div><div class="members-list">${s.members.map(m=>'<span class="member-tag">'+m+'</span>').join('')}</div></div>
+                </div>
+            `).join('');
+        }
+        
+        function renderUsers() {
+            document.getElementById('usersTableBody').innerHTML = Object.entries(users).map(([u,d]) => `
+                <tr>
+                    <td><div class="user-info"><div class="user-avatar">${d.name.charAt(0)}</div><div><div style="font-weight:500">${d.name}</div><div style="font-size:0.75rem;color:var(--text-muted)">@${u}</div></div></div></td>
+                    <td><span class="role-badge ${d.role}">${d.role.toUpperCase()}</span></td>
+                    <td>${d.role==='admin'?'Todos':(d.restaurants||[]).length+' restaurantes'}</td>
+                    <td>${d.role!=='admin'?'<button class="icon-btn" onclick="document.querySelector(\`.tab[data-tab=assignments]\`).click()">📝</button>':''}</td>
+                </tr>
+            `).join('');
+        }
+        
+        function renderAssignments() {
+            const list = Object.entries(users).filter(([_,u])=>u.role!=='admin');
+            if (!list.length) { document.getElementById('assignmentsList').innerHTML = '<div class="empty-state">Nenhum usuário</div>'; return; }
+            document.getElementById('assignmentsList').innerHTML = list.map(([u,d]) => `
+                <div style="margin-bottom:1.5rem">
+                    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
+                        <div class="user-avatar">${d.name.charAt(0)}</div>
+                        <div><div style="font-weight:600">${d.name}</div><div style="font-size:0.75rem;color:var(--text-muted)">@${u}</div></div>
+                    </div>
+                    <div class="restaurant-assignment">${restaurants.length?restaurants.map(r=>`<label class="restaurant-checkbox"><input type="checkbox" ${(d.restaurants||[]).includes(r.id)?'checked':''} onchange="toggleAssign('${u}','${r.id}')"><span>${r.name}</span></label>`).join(''):'<div class="empty-state">Nenhum restaurante</div>'}</div>
+                </div>
+            `).join('');
+        }
+        
+        function openSquadModal(id=null) {
+            document.getElementById('squadId').value = '';
+            document.getElementById('squadName').value = '';
+            document.getElementById('squadLeader').value = '';
+            document.getElementById('squadMembers').value = '';
+            document.getElementById('squadRestaurants').innerHTML = restaurants.length ? restaurants.map(r=>`<label class="restaurant-checkbox"><input type="checkbox" value="${r.id}"><span>${r.name}</span></label>`).join('') : '<div class="empty-state">Nenhum restaurante</div>';
+            document.getElementById('squadModalTitle').textContent = 'Novo Squad';
+            document.getElementById('squadModal').classList.add('show');
+        }
+        
+        function editSquad(id) {
+            const s = squads.find(x=>x.id===id); if(!s) return;
+            document.getElementById('squadId').value = s.id;
+            document.getElementById('squadName').value = s.name;
+            document.getElementById('squadLeader').value = s.leader;
+            document.getElementById('squadMembers').value = s.members.join(', ');
+            document.getElementById('squadRestaurants').innerHTML = restaurants.map(r=>`<label class="restaurant-checkbox"><input type="checkbox" value="${r.id}" ${(s.restaurants||[]).includes(r.id)?'checked':''}><span>${r.name}</span></label>`).join('');
+            document.getElementById('squadModalTitle').textContent = 'Editar Squad';
+            document.getElementById('squadModal').classList.add('show');
+        }
+        
+        function closeSquadModal() { document.getElementById('squadModal').classList.remove('show'); }
+        
+        function saveSquad() {
+            const id = document.getElementById('squadId').value || 'squad_'+Date.now();
+            const name = document.getElementById('squadName').value.trim();
+            const leader = document.getElementById('squadLeader').value.trim();
+            const members = document.getElementById('squadMembers').value.split(',').map(m=>m.trim()).filter(m=>m);
+            const rests = [...document.querySelectorAll('#squadRestaurants input:checked')].map(c=>c.value);
+            if (!name||!leader) { alert('Preencha nome e líder'); return; }
+            const idx = squads.findIndex(s=>s.id===id);
+            const data = { id, name, leader, members, restaurants: rests, active: idx>=0?squads[idx].active:true };
+            if (idx>=0) squads[idx]=data; else squads.push(data);
+            localStorage.setItem('squads', JSON.stringify(squads));
+            closeSquadModal(); renderSquads();
+        }
+        
+        function deleteSquad(id) { if(confirm('Excluir squad?')) { squads=squads.filter(s=>s.id!==id); localStorage.setItem('squads',JSON.stringify(squads)); renderSquads(); } }
+        function toggleSquad(id) { const s=squads.find(x=>x.id===id); if(s){s.active=!s.active; localStorage.setItem('squads',JSON.stringify(squads));} }
+        
+        function openUserModal() {
+            ['newUsername','newUserFullname','newUserPassword'].forEach(id=>document.getElementById(id).value='');
+            document.getElementById('newUserRole').value='user';
+            document.getElementById('userModal').classList.add('show');
+        }
+        function closeUserModal() { document.getElementById('userModal').classList.remove('show'); }
+        function saveUser() {
+            const u=document.getElementById('newUsername').value.trim().toLowerCase();
+            const n=document.getElementById('newUserFullname').value.trim();
+            const p=document.getElementById('newUserPassword').value;
+            const r=document.getElementById('newUserRole').value;
+            if(!u||!n||!p){alert('Preencha todos os campos');return;}
+            if(users[u]){alert('Usuário já existe');return;}
+            users[u]={role:r,name:n,restaurants:[],password:p};
+            localStorage.setItem('users',JSON.stringify(users));
+            closeUserModal(); renderUsers(); renderAssignments();
+        }
+        
+        function toggleAssign(user, restId) {
+            if(!users[user].restaurants) users[user].restaurants=[];
+            const i=users[user].restaurants.indexOf(restId);
+            if(i>=0) users[user].restaurants.splice(i,1); else users[user].restaurants.push(restId);
+            localStorage.setItem('users',JSON.stringify(users));
+            renderUsers();
+        }
+        
+        function logout() { localStorage.removeItem('currentUser'); window.location.href='login.html'; }
+        
+        function toggleTheme() {
+            const t = document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
+            document.documentElement.setAttribute('data-theme',t);
+            localStorage.setItem('theme',t);
+            document.getElementById('sunIcon').style.display=t==='dark'?'block':'none';
+            document.getElementById('moonIcon').style.display=t==='dark'?'none':'block';
+        }
+        (function(){
+            const t=localStorage.getItem('theme')||'light';
+            document.documentElement.setAttribute('data-theme',t);
+            document.getElementById('sunIcon').style.display=t==='dark'?'block':'none';
+            document.getElementById('moonIcon').style.display=t==='dark'?'none':'block';
+        })();
+        
+        renderSquads(); renderUsers(); renderAssignments();
+    </script>
+</body>
+</html>

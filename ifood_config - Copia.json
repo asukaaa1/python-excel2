@@ -1,0 +1,23 @@
+{
+  "client_id": "e9a8b9ad-87af-4e34-a3b6-b6d05c97ee21",
+  "client_secret": "zfytk0q9r1q8q8z82kyr6i17nrfrv0jnfs9hntyhdim31xstvlmr4rsl1k3c9ho5lt4n236t5btsss442u7rr6dcxall8dcd081",
+  "data_fetch_days": 30,
+  "merchants": [
+    {
+      "merchant_id": "d91ad16e-0abc-4149-8e86-b10a477659b8",
+      "name": "Restaurant Name 1",
+      "manager": "Manager Name"
+    }
+  ],
+  "refresh_interval_minutes": 60,
+  "api_notes": {
+    "how_to_get_credentials": [
+      "1. Access iFood Portal Parceiro: https://portal.ifood.com.br",
+      "2. Go to Configurações > Integrações",
+      "3. Create a new API integration",
+      "4. Copy Client ID and Client Secret",
+      "5. Add your merchant IDs from the Portal"
+    ],
+    "api_documentation": "https://developer.ifood.com.br/docs"
+  }
+}

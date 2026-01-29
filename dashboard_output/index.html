@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Restaurantes iFood</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #ffffff; --bg-secondary: #f8fafc; --bg-card: #ffffff;
+            --bg-hover: #f1f5f9; --text-primary: #0f172a; --text-secondary: #64748b;
+            --text-muted: #94a3b8; --border: #e2e8f0; --accent: #ef4444;
+            --accent-hover: #dc2626; --green: #22c55e; --green-bg: rgba(34,197,94,0.1);
+            --red: #ef4444; --red-bg: rgba(239,68,68,0.1);
+            --shadow: 0 1px 3px rgba(0,0,0,0.1); --shadow-lg: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        [data-theme="dark"] {
+            --bg-primary: #000000; --bg-secondary: #0a0a0a; --bg-card: #0f0f0f;
+            --bg-hover: #1a1a1a; --text-primary: #ffffff; --text-secondary: #a0a0a0;
+            --text-muted: #666666; --border: #1f1f1f; --green-bg: rgba(34,197,94,0.15);
+            --red-bg: rgba(239,68,68,0.15); --shadow: 0 1px 3px rgba(0,0,0,0.5);
+        }
+        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; min-height: 100vh; transition: background-color 0.3s, color 0.3s; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
+        .header h1 { font-size: 1.5rem; font-weight: 600; display: flex; align-items: center; gap: 0.75rem; }
+        .header-actions { display: flex; gap: 0.75rem; align-items: center; }
+        .search-box { position: relative; }
+        .search-input { padding: 0.6rem 1rem 0.6rem 2.5rem; font-size: 0.875rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); width: 250px; transition: all 0.2s; }
+        .search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(239,68,68,0.1); }
+        .search-input::placeholder { color: var(--text-muted); }
+        .search-icon { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
+        .btn { padding: 0.6rem 1.2rem; font-size: 0.875rem; font-weight: 500; border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem; }
+        .btn-primary { background: var(--accent); color: white; border: none; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+        .btn-secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .api-status { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; font-size: 0.75rem; color: var(--text-secondary); }
+        .api-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+        .api-status.disconnected .dot { background: var(--red); }
+        .quick-filters { display: flex; gap: 1.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+        .filter-card { display: flex; align-items: center; gap: 1.25rem; padding: 1.5rem 2rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; cursor: pointer; transition: all 0.2s; min-width: 280px; flex: 1; }
+        .filter-card:hover { border-color: var(--text-muted); box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+        .filter-icon { width: 64px; height: 64px; border-radius: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .filter-icon.growth { background: var(--green); box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3); }
+        .filter-icon.decline { background: var(--red); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); }
+        .filter-icon svg { width: 32px; height: 32px; color: white; }
+        .filter-content { display: flex; flex-direction: column; gap: 0.25rem; }
+        .filter-title { font-weight: 600; font-size: 1.125rem; }
+        .filter-subtitle { font-size: 0.875rem; color: var(--text-secondary); }
+        .sidebar { position: fixed; top: 0; left: 0; width: 260px; height: 100vh; background: var(--bg-card); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 100; transform: translateX(-100%); transition: transform 0.3s ease; }
+        .sidebar.open { transform: translateX(0); }
+        .sidebar-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 99; opacity: 0; visibility: hidden; transition: all 0.3s ease; }
+        .sidebar-overlay.show { opacity: 1; visibility: visible; }
+        .sidebar-header { padding: 1.5rem; border-bottom: 1px solid var(--border); }
+        .sidebar-user { display: flex; align-items: center; gap: 0.875rem; }
+        .sidebar-avatar { width: 44px; height: 44px; border-radius: 12px; background: var(--accent); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 1.1rem; }
+        .sidebar-user-info h3 { font-size: 0.95rem; font-weight: 600; }
+        .sidebar-user-info p { font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.35rem; }
+        .sidebar-user-info .role-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+        .sidebar-nav { flex: 1; padding: 1rem 0; overflow-y: auto; }
+        .sidebar-section { padding: 0 1rem; margin-bottom: 1.5rem; }
+        .sidebar-section-title { font-size: 0.65rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 0 0.75rem; margin-bottom: 0.5rem; }
+        .sidebar-link { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border-radius: 10px; color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: all 0.2s; cursor: pointer; border: none; background: none; width: 100%; text-align: left; }
+        .sidebar-link:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .sidebar-link.active { background: var(--accent); color: white; }
+        .sidebar-link svg { width: 20px; height: 20px; }
+        .sidebar-footer { padding: 1rem 1.5rem; border-top: 1px solid var(--border); }
+        .sidebar-footer-btn { display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%; padding: 0.75rem; border-radius: 10px; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+        .sidebar-footer-btn:hover { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+        .menu-toggle { width: 40px; height: 40px; border-radius: 10px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .menu-toggle:hover { border-color: var(--accent); color: var(--text-primary); }
+        .sort-bar { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+        .results-count { font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem; }
+        .results-count::before { content: ''; width: 6px; height: 6px; background: var(--green); border-radius: 50%; }
+        
+        /* Dropdown Filter Styles */
+        .sort-dropdown { position: relative; }
+        .sort-dropdown-btn { 
+            display: flex; 
+            align-items: center; 
+            gap: 0.5rem; 
+            padding: 0.65rem 1rem; 
+            background: var(--bg-card); 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            font-size: 0.875rem; 
+            color: var(--text-primary); 
+            cursor: pointer; 
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+        .sort-dropdown-btn:hover { 
+            border-color: var(--accent); 
+            box-shadow: var(--shadow); 
+        }
+        .sort-dropdown-btn svg { 
+            width: 16px; 
+            height: 16px; 
+            color: var(--text-secondary); 
+            transition: transform 0.2s;
+        }
+        .sort-dropdown.open .sort-dropdown-btn svg {
+            transform: rotate(180deg);
+        }
+        .sort-dropdown-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-right: 0.25rem;
+        }
+        .sort-dropdown-value {
+            color: var(--text-primary);
+        }
+        .sort-dropdown-menu {
+            position: absolute;
+            top: calc(100% + 0.5rem);
+            left: 0;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            min-width: 200px;
+            z-index: 50;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.2s ease;
+        }
+        .sort-dropdown.open .sort-dropdown-menu {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        .sort-dropdown-item {
+            padding: 0.75rem 1rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+        }
+        .sort-dropdown-item:first-child {
+            border-radius: 10px 10px 0 0;
+        }
+        .sort-dropdown-item:last-child {
+            border-radius: 0 0 10px 10px;
+        }
+        .sort-dropdown-item:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        .sort-dropdown-item.active {
+            background: var(--accent);
+            color: white;
+            font-weight: 600;
+        }
+        .sort-dropdown-item.active::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: white;
+        }
+        .restaurant-list { display: flex; flex-direction: column; gap: 1rem; }
+        .restaurant-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; display: grid; grid-template-columns: auto 1fr repeat(4, minmax(100px, 140px)) auto; align-items: center; gap: 1.5rem; transition: all 0.2s; }
+        .restaurant-card:hover { background: var(--bg-hover); border-color: var(--accent); box-shadow: var(--shadow-lg); }
+        .avatar { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 1.25rem; color: white; }
+        .restaurant-info { min-width: 200px; }
+        .restaurant-name { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem; }
+        .restaurant-name h3 { font-size: 1rem; font-weight: 600; }
+        .trend-badge { font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 500; display: flex; align-items: center; gap: 0.25rem; }
+        .trend-badge.positive { background: var(--green-bg); color: var(--green); }
+        .trend-badge.negative { background: var(--red-bg); color: var(--red); }
+        .restaurant-meta { display: flex; align-items: center; gap: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
+        .platforms { display: flex; gap: 0.4rem; }
+        .platform-tag { font-size: 0.7rem; padding: 0.2rem 0.5rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); }
+        .metric { text-align: center; }
+        .metric-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
+        .metric-value { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.15rem; }
+        .metric-trend { font-size: 0.75rem; display: flex; align-items: center; justify-content: center; gap: 0.2rem; }
+        .metric-trend.positive { color: var(--green); }
+        .metric-trend.negative { color: var(--red); }
+        .card-actions { display: flex; align-items: center; gap: 0.5rem; }
+        .btn-dashboard { padding: 0.6rem 1rem; background: var(--accent); color: white; border: none; border-radius: 8px; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.2s; text-decoration: none; display: flex; align-items: center; gap: 0.4rem; }
+        .btn-dashboard:hover { background: var(--accent-hover); }
+        .loading-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
+        .loading-spinner { width: 48px; height: 48px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
+        .empty-state svg { width: 64px; height: 64px; margin-bottom: 1rem; opacity: 0.5; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; width: 100%; max-width: 520px; max-height: 85vh; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.4); }
+        .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); }
+        .modal-title { display: flex; align-items: center; gap: 0.75rem; }
+        .modal-title-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+        .modal-title-icon.growth { background: var(--green); }
+        .modal-title-icon.decline { background: var(--red); }
+        .modal-title-icon svg { width: 20px; height: 20px; color: white; }
+        .modal-title-text h2 { font-size: 1.1rem; font-weight: 600; }
+        .modal-title-text p { font-size: 0.8rem; color: var(--text-secondary); }
+        .modal-close { width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 1.25rem; }
+        .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .modal-body { padding: 0.5rem 0; max-height: calc(85vh - 100px); overflow-y: auto; }
+        .ranking-list { display: flex; flex-direction: column; }
+        .ranking-item { display: flex; align-items: center; gap: 1rem; padding: 0.875rem 1.5rem; cursor: pointer; }
+        .ranking-item:hover { background: var(--bg-hover); }
+        .ranking-position { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; }
+        .ranking-position.growth { background: var(--green); color: white; }
+        .ranking-position.decline { background: var(--red); color: white; }
+        .ranking-info { flex: 1; min-width: 0; }
+        .ranking-name { font-weight: 600; font-size: 0.95rem; }
+        .ranking-values { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--text-secondary); }
+        .ranking-values .current { color: var(--text-primary); font-weight: 500; }
+        .ranking-trend { font-weight: 700; font-size: 0.95rem; }
+        .ranking-trend.positive { color: var(--green); }
+        .ranking-trend.negative { color: var(--red); }
+        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: 0.75rem; z-index: 2000; }
+        .toast.success { border-left: 4px solid var(--green); }
+        .toast.error { border-left: 4px solid var(--red); }
+        @media (max-width: 1200px) { .restaurant-card { grid-template-columns: auto 1fr auto; } .metric { display: none; } }
+        @media (max-width: 768px) { .container { padding: 1rem; } .restaurant-card { grid-template-columns: 1fr; text-align: center; } .avatar { margin: 0 auto; } .restaurant-meta, .platforms, .card-actions { justify-content: center; } .quick-filters { flex-direction: column; } .filter-card { width: 100%; } }
+    </style>
+</head>
+<body>
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-user">
+                <div class="sidebar-avatar" id="sidebarAvatar">U</div>
+                <div class="sidebar-user-info">
+                    <h3 id="sidebarUserName">Usuário</h3>
+                    <p><span class="role-dot"></span> <span id="sidebarUserRole">Carregando...</span></p>
+                </div>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Menu</div>
+                <a href="/dashboard" class="sidebar-link active">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Clientes
+                </a>
+            </div>
+            <div class="sidebar-section" id="adminSection" style="display: none;">
+                <div class="sidebar-section-title">Admin</div>
+                <a href="/comparativo" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    Comparativo
+                </a>
+                <a href="/admin" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    Configurações
+                </a>
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            <button class="sidebar-footer-btn" onclick="logout()">
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                Sair
+            </button>
+        </div>
+    </aside>
+
+    <div class="container">
+        <div class="header">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <button class="menu-toggle" onclick="toggleSidebar()" title="Menu">
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
+                <h1>
+                    Timo Dash
+                </h1>
+            </div>
+            <div class="header-actions">
+                <div class="api-status" id="apiStatus">
+                    <span class="dot"></span>
+                    <span id="apiStatusText">Conectado</span>
+                </div>
+                <div class="search-box">
+                    <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <input type="text" class="search-input" id="searchInput" placeholder="Buscar cliente..." oninput="handleSearch()">
+                </div>
+                <button class="btn btn-secondary" id="themeToggle" onclick="toggleTheme()" title="Alternar tema">
+                    <svg id="sunIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    <svg id="moonIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                </button>
+                <button class="btn btn-secondary" onclick="refreshData()" title="Atualizar dados">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                </button>
+            </div>
+        </div>
+        
+        <div class="quick-filters">
+            <div class="filter-card" id="filterGrowth" onclick="openModal('growth')">
+                <div class="filter-icon growth">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                </div>
+                <div class="filter-content">
+                    <span class="filter-title">Top 10 Crescimento</span>
+                    <span class="filter-subtitle" id="growthCount">0 lojas</span>
+                </div>
+            </div>
+            <div class="filter-card" id="filterDecline" onclick="openModal('decline')">
+                <div class="filter-icon decline">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
+                </div>
+                <div class="filter-content">
+                    <span class="filter-title">Top 10 Queda</span>
+                    <span class="filter-subtitle" id="declineCount">0 lojas</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="sort-bar">
+            <span class="results-count" id="resultsCount">Carregando...</span>
+            
+            <!-- Month Filter Dropdown -->
+            <div class="sort-dropdown" id="monthDropdown">
+                <button class="sort-dropdown-btn" onclick="toggleMonthDropdown()">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <span class="sort-dropdown-label">Mês:</span>
+                    <span class="sort-dropdown-value" id="monthValue">Todos</span>
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div class="sort-dropdown-menu">
+                    <button class="sort-dropdown-item active" onclick="filterByMonth('all')">Todos</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('01')">Janeiro</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('02')">Fevereiro</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('03')">Março</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('04')">Abril</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('05')">Maio</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('06')">Junho</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('07')">Julho</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('08')">Agosto</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('09')">Setembro</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('10')">Outubro</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('11')">Novembro</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('12')">Dezembro</button>
+                </div>
+            </div>
+            
+            <div class="sort-dropdown" id="sortDropdown">
+                <button class="sort-dropdown-btn" onclick="toggleSortDropdown()">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
+                    </svg>
+                    <span class="sort-dropdown-label">Ordenado por:</span>
+                    <span class="sort-dropdown-value" id="sortDropdownValue">Nome (A–Z)</span>
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div class="sort-dropdown-menu">
+                    <button class="sort-dropdown-item" onclick="setSortOrder('name-asc')">Nome (A–Z)</button>
+                    <button class="sort-dropdown-item" onclick="setSortOrder('name-desc')">Nome (Z–A)</button>
+                    <button class="sort-dropdown-item" onclick="setSortOrder('vendas')">Vendas</button>
+                    <button class="sort-dropdown-item" onclick="setSortOrder('ticket-medio')">Ticket Médio</button>
+                    <button class="sort-dropdown-item" onclick="setSortOrder('valor-bruto')">Valor Bruto</button>
+                    <button class="sort-dropdown-item" onclick="setSortOrder('liquido')">Líquido</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="restaurant-list" id="restaurantList">
+            <div class="loading-state">
+                <div class="loading-spinner"></div>
+                <p>Carregando restaurantes...</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal-overlay" id="top10Modal" onclick="closeModalOnBackdrop(event)">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <div class="modal-title-icon" id="modalIcon">
+                        <svg id="modalIconSvg" fill="none" stroke="currentColor" viewBox="0 0 24 24"></svg>
+                    </div>
+                    <div class="modal-title-text">
+                        <h2 id="modalTitle">Top 10</h2>
+                        <p id="modalSubtitle">10 lojas</p>
+                    </div>
+                </div>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="ranking-list" id="rankingList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let restaurantsData = [];
+        let searchQuery = '';
+        let currentSortOrder = 'name-asc';
+        let currentMonthFilter = 'all';
+        const AVATAR_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#6366f1','#a855f7','#ec4899','#64748b'];
+        
+        const formatCurrency = (v) => v ? 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'R$ 0,00';
+        const formatNumber = (v) => v ? v.toLocaleString('pt-BR', {maximumFractionDigits: 0}) : '0';
+        const formatTrend = (v) => v ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '+0%';
+        const getAvatarColor = (i) => AVATAR_COLORS[i % AVATAR_COLORS.length];
+        
+        async function loadRestaurants(month = 'all') {
+            try {
+                let url = '/api/restaurants';
+                if (month !== 'all') {
+                    url += `?month=${month}`;
+                }
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data.success) {
+                    restaurantsData = data.restaurants || [];
+                    updateFilterCounts();
+                    renderRestaurants();
+                    updateApiStatus(true);
+                } else {
+                    showToast('Erro ao carregar dados', 'error');
+                    updateApiStatus(false);
+                }
+            } catch (error) {
+                console.error('Error loading restaurants:', error);
+                showToast('Erro de conexão com o servidor', 'error');
+                updateApiStatus(false);
+                document.getElementById('restaurantList').innerHTML = '<div class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><h3>Erro ao carregar dados</h3><p>Verifique a conexão com o servidor</p></div>';
+            }
+        }
+        
+        function updateApiStatus(connected) {
+            const status = document.getElementById('apiStatus');
+            const text = document.getElementById('apiStatusText');
+            if (connected) {
+                status.classList.remove('disconnected');
+                text.textContent = 'iFood Conectado';
+            } else {
+                status.classList.add('disconnected');
+                text.textContent = 'Desconectado';
+            }
+        }
+        
+        function updateFilterCounts() {
+            const growth = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) > 0).length;
+            const decline = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) < 0).length;
+            document.getElementById('growthCount').textContent = `${Math.min(growth, 10)} lojas`;
+            document.getElementById('declineCount').textContent = `${Math.min(decline, 10)} lojas`;
+        }
+        
+        function handleSearch() {
+            searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
+            renderRestaurants();
+        }
+        
+        function toggleSortDropdown() {
+            const dropdown = document.getElementById('sortDropdown');
+            dropdown.classList.toggle('open');
+            
+            // Close month dropdown if open
+            const monthDropdown = document.getElementById('monthDropdown');
+            monthDropdown.classList.remove('open');
+            
+            // Close dropdown when clicking outside
+            if (dropdown.classList.contains('open')) {
+                setTimeout(() => {
+                    document.addEventListener('click', closeSortDropdownOutside);
+                }, 0);
+            }
+        }
+        
+        function closeSortDropdownOutside(e) {
+            const dropdown = document.getElementById('sortDropdown');
+            if (!dropdown.contains(e.target)) {
+                dropdown.classList.remove('open');
+                document.removeEventListener('click', closeSortDropdownOutside);
+            }
+        }
+        
+        function toggleMonthDropdown() {
+            const dropdown = document.getElementById('monthDropdown');
+            dropdown.classList.toggle('open');
+            
+            // Close sort dropdown if open
+            const sortDropdown = document.getElementById('sortDropdown');
+            sortDropdown.classList.remove('open');
+            
+            // Close dropdown when clicking outside
+            if (dropdown.classList.contains('open')) {
+                setTimeout(() => {
+                    document.addEventListener('click', closeMonthDropdownOutside);
+                }, 0);
+            }
+        }
+        
+        function closeMonthDropdownOutside(e) {
+            const dropdown = document.getElementById('monthDropdown');
+            if (!dropdown.contains(e.target)) {
+                dropdown.classList.remove('open');
+                document.removeEventListener('click', closeMonthDropdownOutside);
+            }
+        }
+        
+        function filterByMonth(month) {
+            currentMonthFilter = month;
+            
+            const dropdown = document.getElementById('monthDropdown');
+            dropdown.classList.remove('open');
+            document.removeEventListener('click', closeMonthDropdownOutside);
+            
+            // Update dropdown value text
+            const monthNames = {
+                'all': 'Todos',
+                '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março',
+                '04': 'Abril', '05': 'Maio', '06': 'Junho',
+                '07': 'Julho', '08': 'Agosto', '09': 'Setembro',
+                '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
+            };
+            document.getElementById('monthValue').textContent = monthNames[month];
+            
+            // Update active state on dropdown items
+            document.querySelectorAll('#monthDropdown .sort-dropdown-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.sort-dropdown-item').classList.add('active');
+            
+            // Reload data from backend with month filter
+            loadRestaurants(month);
+        }
+        
+        
+        function setSortOrder(order) {
+            currentSortOrder = order;
+            const dropdown = document.getElementById('sortDropdown');
+            dropdown.classList.remove('open');
+            document.removeEventListener('click', closeSortDropdownOutside);
+            
+            // Update dropdown value text
+            const valueText = {
+                'name-asc': 'Nome (A–Z)',
+                'name-desc': 'Nome (Z–A)',
+                'vendas': 'Vendas',
+                'ticket-medio': 'Ticket Médio',
+                'valor-bruto': 'Valor Bruto',
+                'liquido': 'Líquido'
+            };
+            document.getElementById('sortDropdownValue').textContent = valueText[order];
+            
+            // Update active state on dropdown items
+            document.querySelectorAll('.sort-dropdown-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            renderRestaurants();
+        }
+        
+        function getDisplayData() {
+            let data = [...restaurantsData];
+            if (searchQuery) {
+                data = data.filter(r => r.name.toLowerCase().includes(searchQuery) || r.manager.toLowerCase().includes(searchQuery));
+            }
+            
+            // Apply sorting based on currentSortOrder
+            switch(currentSortOrder) {
+                case 'name-asc':
+                    data.sort((a, b) => a.name.localeCompare(b.name));
+                    break;
+                case 'name-desc':
+                    data.sort((a, b) => b.name.localeCompare(a.name));
+                    break;
+                case 'vendas':
+                    data.sort((a, b) => (b.metrics?.vendas ?? 0) - (a.metrics?.vendas ?? 0));
+                    break;
+                case 'ticket-medio':
+                    data.sort((a, b) => (b.metrics?.ticket_medio ?? 0) - (a.metrics?.ticket_medio ?? 0));
+                    break;
+                case 'valor-bruto':
+                    data.sort((a, b) => (b.metrics?.valor_bruto ?? 0) - (a.metrics?.valor_bruto ?? 0));
+                    break;
+                case 'liquido':
+                    data.sort((a, b) => (b.metrics?.liquido ?? 0) - (a.metrics?.liquido ?? 0));
+                    break;
+                default:
+                    data.sort((a, b) => a.name.localeCompare(b.name));
+            }
+            
+            return data;
+        }
+        
+        function renderRestaurants() {
+            const container = document.getElementById('restaurantList');
+            const data = getDisplayData();
+            document.getElementById('resultsCount').textContent = `${data.length} clientes`;
+            
+            if (!data.length) {
+                container.innerHTML = '<div class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg><h3>Nenhum restaurante encontrado</h3><p>' + (searchQuery ? 'Tente uma busca diferente' : 'Configure os merchants no iFood') + '</p></div>';
+                return;
+            }
+            
+            container.innerHTML = data.map((r, i) => {
+                const m = r.metrics || {};
+                const t = m.trends || {};
+                const trend = t.vendas ?? 0;
+                return `<div class="restaurant-card" data-id="${r.id}">
+                    <div class="avatar" style="background:${getAvatarColor(i)}">${r.name.charAt(0).toUpperCase()}</div>
+                    <div class="restaurant-info">
+                        <div class="restaurant-name">
+                            <h3>${r.name}</h3>
+                            <span class="trend-badge ${trend >= 0 ? 'positive' : 'negative'}">
+                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trend >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/></svg>
+                                ${formatTrend(trend)}
+                            </span>
+                        </div>
+                        <div class="restaurant-meta"><span>👤 ${r.manager}</span></div>
+                        <div class="platforms">${(r.platforms || []).map(p => `<span class="platform-tag">${p}</span>`).join('')}</div>
+                    </div>
+                    <div class="metric"><div class="metric-label">Vendas</div><div class="metric-value">${formatNumber(m.vendas)}</div><div class="metric-trend ${(t.vendas ?? 0) >= 0 ? 'positive' : 'negative'}">~${formatTrend(t.vendas)}</div></div>
+                    <div class="metric"><div class="metric-label">Ticket Médio</div><div class="metric-value">${formatCurrency(m.ticket_medio)}</div><div class="metric-trend ${(t.ticket_medio ?? 0) >= 0 ? 'positive' : 'negative'}">~${formatTrend(t.ticket_medio)}</div></div>
+                    <div class="metric"><div class="metric-label">Valor Bruto</div><div class="metric-value">${formatCurrency(m.valor_bruto)}</div><div class="metric-trend ${(t.valor_bruto ?? 0) >= 0 ? 'positive' : 'negative'}">~${formatTrend(t.valor_bruto)}</div></div>
+                    <div class="metric"><div class="metric-label">Líquido</div><div class="metric-value">${formatCurrency(m.liquido)}</div><div class="metric-trend ${(t.liquido ?? 0) >= 0 ? 'positive' : 'negative'}">~${formatTrend(t.liquido)}</div></div>
+                    <div class="card-actions"><a href="/restaurant/${r.id}" class="btn-dashboard">Ver Dashboard</a></div>
+                </div>`;
+            }).join('');
+        }
+        
+        function openModal(type) {
+            const modal = document.getElementById('top10Modal');
+            const icon = document.getElementById('modalIcon');
+            const iconSvg = document.getElementById('modalIconSvg');
+            const title = document.getElementById('modalTitle');
+            const subtitle = document.getElementById('modalSubtitle');
+            const list = document.getElementById('rankingList');
+            
+            const isGrowth = type === 'growth';
+            let data = [...restaurantsData].filter(r => isGrowth ? (r.metrics?.trends?.vendas ?? 0) > 0 : (r.metrics?.trends?.vendas ?? 0) < 0);
+            data.sort((a, b) => isGrowth ? (b.metrics?.trends?.vendas ?? 0) - (a.metrics?.trends?.vendas ?? 0) : (a.metrics?.trends?.vendas ?? 0) - (b.metrics?.trends?.vendas ?? 0));
+            data = data.slice(0, 10);
+            
+            icon.className = `modal-title-icon ${type}`;
+            iconSvg.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${isGrowth ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>`;
+            title.textContent = isGrowth ? 'Top 10 Crescimento' : 'Top 10 Queda';
+            subtitle.textContent = `${data.length} lojas`;
+            
+            list.innerHTML = data.map((r, i) => {
+                const t = r.metrics?.trends?.vendas ?? 0;
+                const v = r.metrics?.valor_bruto ?? 0;
+                return `<div class="ranking-item" onclick="window.location.href='/restaurant/${r.id}'">
+                    <div class="ranking-position ${type}">${i + 1}</div>
+                    <div class="ranking-info">
+                        <div class="ranking-name">${r.name}</div>
+                        <div class="ranking-values"><span class="current">${formatCurrency(v)}</span></div>
+                    </div>
+                    <div class="ranking-trend ${t >= 0 ? 'positive' : 'negative'}">${formatTrend(t)}</div>
+                </div>`;
+            }).join('');
+            
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeModal() { document.getElementById('top10Modal').classList.remove('show'); document.body.style.overflow = ''; }
+        function closeModalOnBackdrop(e) { if (e.target === e.currentTarget) closeModal(); }
+        
+        async function refreshData() {
+            showToast('Atualizando dados do iFood...', 'success');
+            try {
+                const response = await fetch('/api/refresh-data', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    await loadRestaurants();
+                    showToast(`${data.restaurant_count || 0} restaurantes atualizados`, 'success');
+                } else {
+                    showToast(data.error || 'Erro ao atualizar', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+        
+        function showToast(message, type = 'success') {
+            document.querySelectorAll('.toast').forEach(t => t.remove());
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/></svg><span>${message}</span>`;
+            toast.style.color = type === 'success' ? 'var(--green)' : 'var(--red)';
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+        
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebarOverlay').classList.toggle('show'); }
+        function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('show'); }
+        
+        function logout() {
+            fetch('/api/logout', { method: 'POST' }).then(() => { localStorage.removeItem('currentUser'); window.location.href = '/login'; }).catch(() => { window.location.href = '/login'; });
+        }
+        
+        function toggleTheme() {
+            const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+        }
+        
+        function checkUser() {
+            fetch('/api/me').then(r => r.json()).then(data => {
+                if (data.success && data.user) {
+                    const u = data.user;
+                    document.getElementById('sidebarUserName').textContent = u.name || u.username || 'Usuário';
+                    document.getElementById('sidebarAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase();
+                    document.getElementById('sidebarUserRole').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
+                    if (u.role === 'admin') document.getElementById('adminSection').style.display = 'block';
+                }
+            }).catch(() => {});
+        }
+        
+        (function init() {
+            const theme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+            
+            // Set first dropdown item as active
+            const firstDropdownItem = document.querySelector('.sort-dropdown-item');
+            if (firstDropdownItem) firstDropdownItem.classList.add('active');
+            
+            checkUser();
+            loadRestaurants();
+        })();
+        
+        document.addEventListener('keydown', e => { 
+            if (e.key === 'Escape') {
+                closeModal();
+                
+                // Close sort dropdown
+                const dropdown = document.getElementById('sortDropdown');
+                if (dropdown.classList.contains('open')) {
+                    dropdown.classList.remove('open');
+                    document.removeEventListener('click', closeSortDropdownOutside);
+                }
+                
+                // Close month dropdown
+                const monthDropdown = document.getElementById('monthDropdown');
+                if (monthDropdown.classList.contains('open')) {
+                    monthDropdown.classList.remove('open');
+                    document.removeEventListener('click', closeMonthDropdownOutside);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

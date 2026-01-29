@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-hover: #f1f5f9;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --border: #e2e8f0;
+            --accent: #ef4444;
+            --accent-hover: #dc2626;
+            --green: #22c55e;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1);
+            --shadow-lg: 0 10px 40px rgba(0,0,0,0.08);
+        }
+        [data-theme="dark"] {
+            --bg-primary: #0a0f1a;
+            --bg-secondary: #111827;
+            --bg-card: #111827;
+            --bg-hover: #1f2937;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: #1f2937;
+            --shadow: 0 1px 3px rgba(0,0,0,0.3);
+            --shadow-lg: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        svg {
+            shape-rendering: geometricPrecision;
+        }
+        * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .restaurant-card,
+        .squad-card,
+        .btn,
+        .modal,
+        .login-card {
+            transform: translateZ(0);
+            backface-visibility: hidden;
+        }
+
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .login-container { width: 100%; max-width: 400px; padding: 2rem; }
+        .login-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2.5rem;
+            box-shadow: var(--shadow-lg);
+        }
+        .logo { text-align: center; margin-bottom: 2rem; }
+        .logo-icon {
+            width: 56px; height: 56px;
+            background: var(--accent);
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 1rem;
+        }
+        .logo-icon svg { width: 28px; height: 28px; color: white; }
+        .logo h1 { font-size: 1.25rem; font-weight: 600; }
+        .logo p { color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.25rem; }
+        .form-group { margin-bottom: 1.25rem; }
+        .form-label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--text-secondary); margin-bottom: 0.5rem; }
+        .form-input {
+            width: 100%; padding: 0.75rem 1rem; font-size: 0.9rem; font-family: inherit;
+            background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;
+            color: var(--text-primary); transition: all 0.2s;
+        }
+        .form-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(239,68,68,0.1); }
+        .form-input::placeholder { color: var(--text-muted); }
+        .btn-login {
+            width: 100%; padding: 0.875rem; font-size: 0.9rem; font-weight: 600; font-family: inherit;
+            background: var(--accent); color: white; border: none; border-radius: 8px;
+            cursor: pointer; transition: all 0.2s; margin-top: 0.5rem;
+        }
+        .btn-login:hover { background: var(--accent-hover); }
+        .error-message {
+            background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+            color: var(--accent); padding: 0.75rem; border-radius: 8px;
+            font-size: 0.875rem; margin-bottom: 1rem; display: none; text-align: center;
+        }
+        .error-message.show { display: block; animation: shake 0.4s ease; }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-5px)} 75%{transform:translateX(5px)} }
+        .demo-credentials { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+        .demo-credentials h3 { font-size: 0.7rem; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+        .credential-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0.6rem 0.75rem; background: var(--bg-secondary); border-radius: 6px;
+            margin-bottom: 0.5rem; font-size: 0.8rem; color: var(--text-secondary);
+        }
+        .credential-item .role { background: var(--accent); color: white; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; }
+        .credential-item .role.user { background: #3b82f6; }
+        .theme-toggle {
+            position: absolute; top: 1rem; right: 1rem;
+            width: 40px; height: 40px; border-radius: 8px;
+            background: var(--bg-card); border: 1px solid var(--border);
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            color: var(--text-secondary); transition: all 0.2s;
+        }
+        .theme-toggle:hover { border-color: var(--accent); color: var(--text-primary); }
+    </style>
+</head>
+<body>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Alternar tema">
+        <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+        <svg id="moonIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+    </button>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                </div>
+                <h1>Dashboard</h1>
+                <p>Faça login para continuar</p>
+            </div>
+            <div class="error-message" id="errorMessage">Usuário ou senha incorretos</div>
+            <form onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label class="form-label">Usuário</label>
+                    <input type="text" class="form-input" id="username" placeholder="Digite seu usuário" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Senha</label>
+                    <input type="password" class="form-input" id="password" placeholder="Digite sua senha" required>
+                </div>
+                <button type="submit" class="btn-login">Entrar</button>
+            </form>
+            <div class="demo-credentials">
+                <h3>Credenciais de Demonstração</h3>
+                <div class="credential-item"><span>admin / admin123</span><span class="role">ADMIN</span></div>
+                <div class="credential-item"><span>usuario / user123</span><span class="role user">USER</span></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        if (localStorage.getItem('currentUser')) window.location.href = 'index.html';
+        
+        if (!localStorage.getItem('users')) {
+            localStorage.setItem('users', JSON.stringify({
+                'admin': { role: 'admin', name: 'Administrador', restaurants: [] },
+                'usuario': { role: 'user', name: 'Usuário Padrão', restaurants: [] }
+            }));
+        }
+        if (!localStorage.getItem('squads')) {
+            localStorage.setItem('squads', JSON.stringify([
+                { id: 'squad1', name: 'Rebeca + Ana', leader: 'Rebeca', members: ['Ana'], restaurants: [], active: true },
+                { id: 'squad2', name: 'Vinicius + Paola + Gleyson', leader: 'Vinicius', members: ['Paola', 'Gleyson'], restaurants: [], active: true }
+            ]));
+        }
+        
+        function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const users = { 'admin': { password: 'admin123', role: 'admin', name: 'Administrador' }, 'usuario': { password: 'user123', role: 'user', name: 'Usuário Padrão' } };
+            const user = users[username];
+            if (user && user.password === password) {
+                localStorage.setItem('currentUser', JSON.stringify({ username, role: user.role, name: user.name }));
+                window.location.href = 'index.html';
+            } else {
+                document.getElementById('errorMessage').classList.add('show');
+                setTimeout(() => document.getElementById('errorMessage').classList.remove('show'), 3000);
+            }
+        }
+        
+        function toggleTheme() {
+            const html = document.documentElement;
+            const newTheme = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        }
+        function updateThemeIcon(theme) {
+            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+        }
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+        })();
+    </script>
+</body>
+</html>
