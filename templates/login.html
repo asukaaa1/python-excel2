@@ -11,10 +11,10 @@
             --bg-primary: #ffffff;
             --bg-secondary: #f8fafc;
             --bg-card: #ffffff;
-            --bg-hover: #f1f5f9;
-            --text-primary: #0f172a;
-            --text-secondary: #64748b;
-            --text-muted: #94a3b8;
+            --bg-hover: #ffffff;
+            --text-primary: #000000;
+            --text-secondary: #666666;
+            --text-muted: #a0a0a0;
             --border: #e2e8f0;
             --accent: #ef4444;
             --accent-hover: #dc2626;
@@ -23,24 +23,17 @@
             --shadow-lg: 0 10px 40px rgba(0,0,0,0.08);
         }
         [data-theme="dark"] {
-            --bg-primary: #0a0f1a;
-            --bg-secondary: #111827;
-            --bg-card: #111827;
-            --bg-hover: #1f2937;
-            --text-primary: #f1f5f9;
-            --text-secondary: #94a3b8;
-            --text-muted: #64748b;
-            --border: #1f2937;
+            --bg-primary: #000000;
+            --bg-secondary: #0a0a0a;
+            --bg-card: #0a0a0a;
+            --bg-hover: #1a1a1a;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+            --text-muted: #666666;
+            --border: #1a1a1a;
             --shadow: 0 1px 3px rgba(0,0,0,0.3);
             --shadow-lg: 0 10px 40px rgba(0,0,0,0.3);
         }
-        svg { shape-rendering: geometricPrecision; }
-        * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-        .restaurant-card, .squad-card, .btn, .modal, .login-card {
-            transform: translateZ(0);
-            backface-visibility: hidden;
-        }
-
         body {
             font-family: 'Inter', system-ui, sans-serif;
             background: var(--bg-secondary);
@@ -85,7 +78,7 @@
             cursor: pointer; transition: all 0.2s; margin-top: 0.5rem;
         }
         .btn-login:hover { background: var(--accent-hover); }
-        .btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-login:disabled { opacity: 0.7; cursor: not-allowed; }
         .error-message {
             background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
             color: var(--accent); padding: 0.75rem; border-radius: 8px;
@@ -93,18 +86,6 @@
         }
         .error-message.show { display: block; animation: shake 0.4s ease; }
         @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-5px)} 75%{transform:translateX(5px)} }
-        .demo-credentials { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
-        .demo-credentials h3 { font-size: 0.7rem; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
-        .credential-item {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 0.6rem 0.75rem; background: var(--bg-secondary); border-radius: 6px;
-            margin-bottom: 0.5rem; font-size: 0.8rem; color: var(--text-secondary);
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .credential-item:hover { background: var(--bg-hover); }
-        .credential-item .role { background: var(--accent); color: white; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; }
-        .credential-item .role.user { background: #3b82f6; }
         .theme-toggle {
             position: absolute; top: 1rem; right: 1rem;
             width: 40px; height: 40px; border-radius: 8px;
@@ -127,94 +108,74 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
                 </div>
                 <h1>Timo Dash</h1>
-                <p>Faça login para continuar</p>
+                <p>Faca login para continuar</p>
             </div>
             <div class="error-message" id="errorMessage">Email ou senha incorretos</div>
-            <form onsubmit="handleLogin(event)">
+            <form id="loginForm">
                 <div class="form-group">
                     <label class="form-label">Email</label>
-                    <input type="email" class="form-input" id="email" placeholder="Digite seu email" required autocomplete="email">
+                    <input type="email" class="form-input" id="email" name="email" placeholder="Digite seu email" required autocomplete="email">
                 </div>
                 <div class="form-group">
                     <label class="form-label">Senha</label>
-                    <input type="password" class="form-input" id="password" placeholder="Digite sua senha" required autocomplete="current-password">
+                    <input type="password" class="form-input" id="password" name="password" placeholder="Digite sua senha" required autocomplete="current-password">
                 </div>
                 <button type="submit" class="btn-login" id="loginBtn">Entrar</button>
             </form>
-                
-                </div>
-            </div>
         </div>
     </div>
-    <script>
-    // Quick-fill credentials when clicking demo boxes
-    function fillCredentials(email, password) {
-        document.getElementById('email').value = email;
-        document.getElementById('password').value = password;
-    }
-    
-    async function handleLogin(e) {
+    <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         
-        const email = document.getElementById('email').value.trim();
+        const email = document.getElementById('email').value;
         const password = document.getElementById('password').value;
-        const loginBtn = document.getElementById('loginBtn');
+        const btn = document.getElementById('loginBtn');
         const errorMsg = document.getElementById('errorMessage');
         
-        // Disable button during login
-        loginBtn.disabled = true;
-        loginBtn.textContent = 'Entrando...';
+        if (!email || !password) {
+            errorMsg.textContent = 'Preencha email e senha';
+            errorMsg.classList.add('show');
+            setTimeout(() => errorMsg.classList.remove('show'), 3000);
+            return;
+        }
+        
+        btn.disabled = true;
+        btn.textContent = 'Entrando...';
         
         try {
-            console.log('Attempting login with email:', email);
-            
             const response = await fetch('/api/login', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password })
             });
             
-            console.log('Response status:', response.status);
-            
             const data = await response.json();
-            console.log('Response data:', data);
             
             if (data.success) {
-                // Store user in localStorage for sidebar display
                 if (data.user) {
-                    localStorage.setItem('currentUser', JSON.stringify(data.user));
+                    localStorage.setItem('currentUser', JSON.stringify({
+                        ...data.user,
+                        last_login: new Date().toISOString()
+                    }));
                 }
-                // Redirect to dashboard on success
                 window.location.href = data.redirect || '/dashboard';
             } else {
-                // Show error message
-                errorMsg.textContent = data.message || 'Email ou senha incorretos';
+                errorMsg.textContent = data.error || 'Email ou senha incorretos';
                 errorMsg.classList.add('show');
-                setTimeout(() => {
-                    errorMsg.classList.remove('show');
-                }, 4000);
-                
-                // Re-enable button
-                loginBtn.disabled = false;
-                loginBtn.textContent = 'Entrar';
+                setTimeout(() => errorMsg.classList.remove('show'), 3000);
             }
         } catch (error) {
             console.error('Login error:', error);
-            errorMsg.textContent = 'Erro ao conectar com o servidor. Verifique se o servidor está rodando.';
+            errorMsg.textContent = 'Erro ao conectar com o servidor';
             errorMsg.classList.add('show');
-            setTimeout(() => {
-                errorMsg.classList.remove('show');
-            }, 4000);
-            
-            // Re-enable button
-            loginBtn.disabled = false;
-            loginBtn.textContent = 'Entrar';
+            setTimeout(() => errorMsg.classList.remove('show'), 3000);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Entrar';
         }
-    }
+    });
     
-    // Theme toggle functions
     function toggleTheme() {
         const html = document.documentElement;
         const newTheme = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
@@ -227,8 +188,6 @@
         document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
         document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
     }
-    
-    // Initialize theme
     (function() {
         const savedTheme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', savedTheme);
