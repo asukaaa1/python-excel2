@@ -86,17 +86,6 @@
         }
         .error-message.show { display: block; animation: shake 0.4s ease; }
         @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-5px)} 75%{transform:translateX(5px)} }
-        .demo-credentials { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
-        .demo-credentials h3 { font-size: 0.7rem; font-weight: 500; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
-        .credential-item {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 0.6rem 0.75rem; background: var(--bg-secondary); border-radius: 6px;
-            margin-bottom: 0.5rem; font-size: 0.8rem; color: var(--text-secondary);
-            cursor: pointer; transition: all 0.2s;
-        }
-        .credential-item:hover { background: var(--bg-hover); }
-        .credential-item .role { background: var(--accent); color: white; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; }
-        .credential-item .role.user { background: #3b82f6; }
         .theme-toggle {
             position: absolute; top: 1rem; right: 1rem;
             width: 40px; height: 40px; border-radius: 8px;
@@ -114,8 +103,11 @@
     </button>
     <div class="login-container">
         <div class="login-card">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
                 </div>
-                <h1>Dashboard</h1>
+                <h1>Timo Dash</h1>
                 <p>Faca login para continuar</p>
             </div>
             <div class="error-message" id="errorMessage">Email ou senha incorretos</div>
@@ -130,16 +122,9 @@
                 </div>
                 <button type="submit" class="btn-login" id="loginBtn">Entrar</button>
             </form>
-                </div>
-            </div>
         </div>
     </div>
     <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
-    function fillCredentials(email, password) {
-        document.getElementById('email').value = email;
-        document.getElementById('password').value = password;
-    }
-    
     document.getElementById('loginForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         
@@ -210,6 +195,4 @@
     })();
     </script>
 </body>
-</html> 
-    
-    
+</html>
