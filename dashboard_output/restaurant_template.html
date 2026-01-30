@@ -18,8 +18,8 @@
             --text-secondary: #64748b;
             --text-muted: #94a3b8;
             --border: #e2e8f0;
-            --accent: #ef4444;
-            --accent-hover: #dc2626;
+            --accent: #f97015;
+            --accent-hover: #ea580c;
             --green: #22c55e;
             --red: #ef4444;
             --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -152,7 +152,7 @@
             pointer-events: none;
             z-index: 1;
             backdrop-filter: blur(1px);
-            box-shadow: inset 0 0 20px rgba(239, 68, 68, 0.1);
+            box-shadow: inset 0 0 20px rgba(249, 112, 21, 0.1);
         }
         .closure-label {
             position: absolute;
@@ -489,7 +489,7 @@
             color: white;
             background: var(--accent);
             border-color: var(--accent);
-            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
+            box-shadow: 0 2px 8px rgba(249, 112, 21, 0.25);
         }
         
         .filter-type-option label:hover {
@@ -567,12 +567,12 @@
             color: white;
             background: var(--accent);
             border-color: var(--accent);
-            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+            box-shadow: 0 4px 12px rgba(249, 112, 21, 0.3);
         }
         
         .filter-quick-btn.active:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+            box-shadow: 0 6px 16px rgba(249, 112, 21, 0.4);
         }
         
         /* Month Selector */
@@ -602,7 +602,7 @@
         
         .filter-month-btn.active {
             color: var(--accent);
-            background: rgba(239, 68, 68, 0.08);
+            background: rgba(249, 112, 21, 0.08);
             border-color: var(--accent);
         }
         
@@ -694,14 +694,14 @@
             cursor: pointer;
             transition: all 0.2s;
             flex: 1;
-            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
+            box-shadow: 0 2px 8px rgba(249, 112, 21, 0.25);
         }
         
         .btn-filter-apply:hover {
             background: var(--accent-hover);
             border-color: var(--accent-hover);
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35);
+            box-shadow: 0 4px 12px rgba(249, 112, 21, 0.35);
         }
         
         .btn-filter-apply:hover {
@@ -914,20 +914,20 @@
         
         .filter-select:hover { 
             border-color: var(--accent); 
-            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.12);
+            box-shadow: 0 2px 8px rgba(249, 112, 21, 0.12);
             transform: translateY(-1px);
         }
         
         .filter-select:focus { 
             outline: none; 
             border-color: var(--accent); 
-            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12), 0 2px 8px rgba(239, 68, 68, 0.15); 
+            box-shadow: 0 0 0 4px rgba(249, 112, 21, 0.12), 0 2px 8px rgba(249, 112, 21, 0.15); 
             transform: translateY(-1px);
         }
         
         .filter-select:active {
             transform: translateY(0);
-            box-shadow: 0 1px 3px rgba(239, 68, 68, 0.15);
+            box-shadow: 0 1px 3px rgba(249, 112, 21, 0.15);
         }
         
         /* Enhanced option styling */
@@ -943,7 +943,7 @@
         }
         
         .filter-select option:checked {
-            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.15) 100%);
+            background: linear-gradient(135deg, rgba(249, 112, 21, 0.1) 0%, rgba(249, 112, 21, 0.15) 100%);
             color: var(--accent);
             font-weight: 600;
         }
@@ -957,11 +957,11 @@
         
         [data-theme="dark"] .filter-select:hover {
             border-color: var(--accent);
-            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
+            box-shadow: 0 2px 8px rgba(249, 112, 21, 0.2);
         }
         
         [data-theme="dark"] .filter-select:focus {
-            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18), 0 2px 8px rgba(239, 68, 68, 0.25);
+            box-shadow: 0 0 0 4px rgba(249, 112, 21, 0.18), 0 2px 8px rgba(239, 68, 68, 0.25);
         }
         
         .view-toggle {
@@ -1054,7 +1054,7 @@
         
         .order-status.concluded { background: rgba(34,197,94,0.1); color: var(--green); }
         .order-status.confirmed { background: rgba(59,130,246,0.1); color: #3b82f6; }
-        .order-status.cancelled { background: rgba(239,68,68,0.1); color: var(--red); }
+        .order-status.cancelled { background: rgba(249,112,21,0.1); color: var(--red); }
         
         .no-data { padding: 3rem; text-align: center; color: var(--text-secondary); }
         
@@ -1495,7 +1495,7 @@
         let availableMonths = []; // List of available months from data
 
         const colorPalette = [
-            { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)' },
+            { border: '#f97015', bg: 'rgba(249, 112, 21, 0.1)' },
             { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)' },
             { border: '#22c55e', bg: 'rgba(34, 197, 94, 0.1)' },
             { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' },
