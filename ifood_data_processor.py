@@ -37,6 +37,7 @@ class IFoodDataProcessor:
             else:
                 manager = 'Gerente'
             
+            
             # Filter concluded orders
             concluded_orders = [o for o in orders if o.get('orderStatus') == 'CONCLUDED']
             all_orders_count = len(orders)

@@ -482,17 +482,7 @@
             }
         }
         
-        function updateApiStatus(connected) {
-            const status = document.getElementById('apiStatus');
-            const text = document.getElementById('apiStatusText');
-            if (connected) {
-                status.classList.remove('disconnected');
-                text.textContent = 'iFood Conectado';
-            } else {
-                status.classList.add('disconnected');
-                text.textContent = 'Desconectado';
-            }
-        }
+
         
         function updateFilterCounts() {
             const growth = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) > 0).length;
