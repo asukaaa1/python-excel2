@@ -1754,11 +1754,23 @@
     // This function would update your Chart.js instance
     // to color bars red during interruptions
     
-    if (!window.hourlyChart) return;
+    // Check if hourlyChart exists and has the required data structure
+    if (!window.hourlyChart || 
+        !window.hourlyChart.data || 
+        !window.hourlyChart.data.datasets || 
+        !window.hourlyChart.data.datasets[0]) {
+        console.log('⏭️ Skipping hourly chart update - chart not ready');
+        return;
+    }
     
     const data = window.hourlyChart.data.datasets[0].data;
+    if (!data || data.length === 0) {
+        console.log('⏭️ Skipping hourly chart update - no data');
+        return;
+    }
+    
     const colors = data.map((value, index) => {
-        const isClosed = restaurantData.interruptions?.some(int => {
+        const isClosed = restaurantData?.interruptions?.some(int => {
             const start = new Date(int.start);
             const end = new Date(int.end);
             return index >= start.getHours() && index < end.getHours();
