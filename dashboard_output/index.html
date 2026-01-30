@@ -178,6 +178,8 @@
         .trend-badge { font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 500; display: flex; align-items: center; gap: 0.25rem; }
         .trend-badge.positive { background: var(--green-bg); color: var(--green); }
         .trend-badge.negative { background: var(--red-bg); color: var(--red); }
+        .rating-badge { font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 6px; font-weight: 600; display: flex; align-items: center; gap: 0.35rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); }
+        .rating-badge svg { width: 14px; height: 14px; fill: #fbbf24; }
         .restaurant-meta { display: flex; align-items: center; gap: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
         .platforms { display: flex; gap: 0.4rem; }
         .platform-tag { font-size: 0.7rem; padding: 0.2rem 0.5rem; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); }
@@ -650,12 +652,18 @@
                     <div class="restaurant-info">
                         <div class="restaurant-name">
                             <h3>${r.name}</h3>
+                            ${r.rating > 0 ? `<span class="rating-badge">
+                                <svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                                ${r.rating.toFixed(1)}
+                            </span>` : ''}
+                        </div>
+                        <div class="restaurant-meta">
+                            <span>👤 ${r.manager}</span>
                             <span class="trend-badge ${trend >= 0 ? 'positive' : 'negative'}">
                                 <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trend >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/></svg>
                                 ${formatTrend(trend)}
                             </span>
                         </div>
-                        <div class="restaurant-meta"><span>👤 ${r.manager}</span></div>
                         <div class="platforms">${(r.platforms || []).map(p => `<span class="platform-tag">${p}</span>`).join('')}</div>
                     </div>
                     <div class="metric"><div class="metric-label">Vendas</div><div class="metric-value">${formatNumber(m.vendas)}</div><div class="metric-trend ${(t.vendas ?? 0) >= 0 ? 'positive' : 'negative'}">~${formatTrend(t.vendas)}</div></div>

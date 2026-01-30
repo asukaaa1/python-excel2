@@ -65,7 +65,6 @@
             position: relative;
             overflow: hidden;
             max-width: fit-content;
-            margin-left: 1rem;
             cursor: pointer;
         }
         .interruption-banner::before {
@@ -215,6 +214,25 @@
             gap: 1rem;
             color: var(--text-secondary);
             font-size: 0.875rem;
+        }
+        
+        .rating-badge {
+            font-size: 0.9rem;
+            padding: 0.3rem 0.7rem;
+            border-radius: 6px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+        
+        .rating-badge svg {
+            width: 16px;
+            height: 16px;
+            fill: #fbbf24;
         }
         
         .platforms { display: flex; gap: 0.4rem; }
@@ -1108,16 +1126,12 @@
         
         <div class="header">
             <div class="header-info">
-                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                     <h1 id="restaurantName">{{restaurant_name}}</h1>
-                    <div class="interruption-banner" id="interruptionBanner" title="">
-                        <div class="interruption-icon">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-                            </svg>
-                        </div>
-                        <div class="interruption-title">Fechado</div>
-                    </div>
+                    <span class="rating-badge" id="restaurantRating" style="display: none;">
+                        <svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                        <span id="ratingValue">0.0</span>
+                    </span>
                 </div>
                 <div class="header-meta">
                     <span id="restaurantManager">👤 {{restaurant_manager}}</span>
@@ -1127,6 +1141,14 @@
                 </div>
             </div>
             <div class="header-actions">
+                <div class="interruption-banner" id="interruptionBanner" title="">
+                    <div class="interruption-icon">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                    </div>
+                    <div class="interruption-title">Fechado</div>
+                </div>
                 <button class="btn" onclick="refreshData()" title="Atualizar dados">
                     <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 </button>
@@ -2008,6 +2030,12 @@
                     // Get available months for filter modal
                     if (chartsData.available_months) {
                         availableMonths = chartsData.available_months;
+                    }
+                    
+                    // Update rating if available
+                    if (restaurantData.rating && restaurantData.rating > 0) {
+                        document.getElementById('ratingValue').textContent = restaurantData.rating.toFixed(1);
+                        document.getElementById('restaurantRating').style.display = 'inline-flex';
                     }
                     
                     renderMainKpis();

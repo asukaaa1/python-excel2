@@ -71,6 +71,14 @@ class IFoodDataProcessor:
                 if o.get('customer', {}).get('isNewCustomer', False)
             )
             
+            # Calculate average rating from feedback
+            ratings = []
+            for order in concluded_orders:
+                if order.get('feedback') and order['feedback'].get('rating'):
+                    ratings.append(order['feedback']['rating'])
+            
+            average_rating = sum(ratings) / len(ratings) if ratings else 0
+            
             # Calculate metrics
             total_orders = len(concluded_orders)
             average_ticket = net_revenue / total_orders if total_orders > 0 else 0
@@ -223,6 +231,7 @@ class IFoodDataProcessor:
                 'trend': trend,
                 'approval_rate': ((total_orders / all_orders_count * 100) if all_orders_count > 0 else 95.0),
                 'avatar_color': IFoodDataProcessor._generate_color(name),
+                'rating': round(average_rating, 1),  # Average rating from feedback
                 # Complete metrics structure for frontend
                 'metrics': {
                     'vendas': total_orders,
@@ -419,7 +428,9 @@ class IFoodDataProcessor:
                     }]
                 },
                 # Available months for filtering
-                'available_months': available_months
+                'available_months': available_months,
+                # Include all orders data for feedback processing
+                'orders_data': orders
             }
             
         except Exception as e:
