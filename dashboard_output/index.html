@@ -336,13 +336,13 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                     </svg>
                     <span class="sort-dropdown-label">Mês:</span>
-                    <span class="sort-dropdown-value" id="monthValue">Todos</span>
+                    <span class="sort-dropdown-value" id="monthValue">Mês atual</span>
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                     </svg>
                 </button>
                 <div class="sort-dropdown-menu">
-                    <button class="sort-dropdown-item active" onclick="filterByMonth('all')">Todos</button>
+                    <button class="sort-dropdown-item" onclick="filterByMonth('all')">Todos</button>
                     <button class="sort-dropdown-item" onclick="filterByMonth('01')">Janeiro</button>
                     <button class="sort-dropdown-item" onclick="filterByMonth('02')">Fevereiro</button>
                     <button class="sort-dropdown-item" onclick="filterByMonth('03')">Março</button>
@@ -413,9 +413,16 @@
         let hiddenStores = [];
         let searchQuery = '';
         let currentSortOrder = 'name-asc';
-        let currentMonthFilter = 'all';
+        let currentMonthFilter = 'all'; // Will be set to current month
         let isAdmin = false;
         const AVATAR_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#6366f1','#a855f7','#ec4899','#64748b'];
+        
+        // Set default to current month
+        (function setDefaultMonth() {
+            const now = new Date();
+            const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+            currentMonthFilter = currentMonth;
+        })();
         
         const formatCurrency = (v) => v ? 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'R$ 0,00';
         const formatNumber = (v) => v ? v.toLocaleString('pt-BR', {maximumFractionDigits: 0}) : '0';
@@ -787,8 +794,30 @@
             const firstDropdownItem = document.querySelector('.sort-dropdown-item');
             if (firstDropdownItem) firstDropdownItem.classList.add('active');
             
+            // Set current month filter label and active state
+            const monthNames = {
+                'all': 'Todos',
+                '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março',
+                '04': 'Abril', '05': 'Maio', '06': 'Junho',
+                '07': 'Julho', '08': 'Agosto', '09': 'Setembro',
+                '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
+            };
+            document.getElementById('monthValue').textContent = monthNames[currentMonthFilter] || 'Mês atual';
+            
+            // Set the correct month button as active
+            const monthButtons = document.querySelectorAll('#monthDropdown .sort-dropdown-item');
+            monthButtons.forEach(btn => {
+                const btnMonth = btn.getAttribute('onclick')?.match(/filterByMonth\('(.+?)'\)/)?.[1];
+                if (btnMonth === currentMonthFilter) {
+                    btn.classList.remove('active'); // Remove from "Todos" if it had it
+                    btn.classList.add('active');
+                } else if (btnMonth === 'all') {
+                    btn.classList.remove('active'); // Remove active from "Todos"
+                }
+            });
+            
             checkUser();
-            loadRestaurants();
+            loadRestaurants(currentMonthFilter); // Load with current month
         })();
         
         document.addEventListener('keydown', e => { 
