@@ -276,6 +276,16 @@ def hidden_stores_page():
     return "Hidden stores page not found", 404
 
 
+@app.route('/squads')
+@admin_required
+def squads_page():
+    """Serve squads management page"""
+    squads_file = DASHBOARD_OUTPUT / 'squads.html'
+    if squads_file.exists():
+        return send_file(squads_file)
+    return "Squads page not found", 404
+
+
 @app.route('/restaurant/<restaurant_id>')
 @login_required
 def restaurant_page(restaurant_id):
@@ -378,14 +388,22 @@ def api_me():
 @app.route('/api/restaurants')
 @login_required
 def api_restaurants():
-    """Get list of all restaurants with optional month filtering"""
+    """Get list of all restaurants with optional month filtering and squad-based access control"""
     try:
         # Get month filter from query parameters
         month_filter = request.args.get('month', 'all')
         
+        # Get user's allowed restaurants based on squad membership
+        user = session.get('user', {})
+        allowed_ids = get_user_allowed_restaurant_ids(user.get('id'), user.get('role'))
+        
         # Return data without internal caches
         restaurants = []
         for r in RESTAURANTS_DATA:
+            # Skip if user doesn't have access to this restaurant (squad filtering)
+            if allowed_ids is not None and r['id'] not in allowed_ids:
+                continue
+            
             # If month filter is specified, reprocess with filtered orders
             if month_filter != 'all':
                 # Get cached orders
@@ -1353,6 +1371,467 @@ def unhide_store(store_id):
 
 
 # ============================================================================
+# SQUADS API ENDPOINTS
+# ============================================================================
+
+def get_user_allowed_restaurant_ids(user_id, user_role):
+    """Helper function to get allowed restaurant IDs for a user based on squad membership"""
+    if user_role == 'admin':
+        return None  # None means all restaurants allowed
+    
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT DISTINCT sr.restaurant_id
+            FROM squad_restaurants sr
+            JOIN squad_members sm ON sr.squad_id = sm.squad_id
+            WHERE sm.user_id = %s
+        """, (user_id,))
+        
+        restaurant_ids = [row[0] for row in cursor.fetchall()]
+        
+        cursor.close()
+        conn.close()
+        
+        # Return None if user has no squad assignments (sees all by default)
+        return restaurant_ids if restaurant_ids else None
+        
+    except Exception as e:
+        print(f"Error getting user allowed restaurants: {e}")
+        return None  # Default to all on error
+
+
+@app.route('/api/squads', methods=['GET'])
+@login_required
+def api_get_squads():
+    """Get all squads with their members and restaurants"""
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Get all squads
+        cursor.execute("""
+            SELECT id, name, description, created_at, created_by 
+            FROM squads 
+            ORDER BY name
+        """)
+        squads_raw = cursor.fetchall()
+        
+        squads = []
+        for squad in squads_raw:
+            squad_id = squad[0]
+            
+            # Get members for this squad
+            cursor.execute("""
+                SELECT u.id, u.full_name, u.username, u.role
+                FROM squad_members sm
+                JOIN dashboard_users u ON sm.user_id = u.id
+                WHERE sm.squad_id = %s
+                ORDER BY u.full_name
+            """, (squad_id,))
+            members = cursor.fetchall()
+            
+            # Get restaurants for this squad
+            cursor.execute("""
+                SELECT restaurant_id, restaurant_name
+                FROM squad_restaurants
+                WHERE squad_id = %s
+                ORDER BY restaurant_name
+            """, (squad_id,))
+            restaurants = cursor.fetchall()
+            
+            squads.append({
+                'id': squad_id,
+                'name': squad[1],
+                'description': squad[2],
+                'created_at': squad[3].isoformat() if squad[3] else None,
+                'created_by': squad[4],
+                'members': [
+                    {'id': m[0], 'name': m[1] or m[2], 'username': m[2], 'role': m[3]}
+                    for m in members
+                ],
+                'restaurants': [
+                    {'id': r[0], 'name': r[1]}
+                    for r in restaurants
+                ]
+            })
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'squads': squads
+        })
+        
+    except Exception as e:
+        print(f"Error getting squads: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/squads', methods=['POST'])
+@admin_required
+def api_create_squad():
+    """Create a new squad"""
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        description = data.get('description', '').strip()
+        
+        if not name:
+            return jsonify({'success': False, 'error': 'Nome é obrigatório'}), 400
+        
+        created_by = session.get('user', {}).get('username', 'Unknown')
+        
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Check if squad with same name exists
+        cursor.execute("SELECT id FROM squads WHERE name = %s", (name,))
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Já existe um squad com este nome'}), 400
+        
+        # Create squad
+        cursor.execute("""
+            INSERT INTO squads (name, description, created_by)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        """, (name, description or None, created_by))
+        squad_id = cursor.fetchone()[0]
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Squad criado com sucesso',
+            'squad_id': squad_id
+        })
+        
+    except Exception as e:
+        print(f"Error creating squad: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/squads/<int:squad_id>', methods=['PUT'])
+@admin_required
+def api_update_squad(squad_id):
+    """Update a squad"""
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        description = data.get('description', '').strip()
+        
+        if not name:
+            return jsonify({'success': False, 'error': 'Nome é obrigatório'}), 400
+        
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Check if squad exists
+        cursor.execute("SELECT id FROM squads WHERE id = %s", (squad_id,))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Squad não encontrado'}), 404
+        
+        # Check for duplicate name (excluding current squad)
+        cursor.execute("SELECT id FROM squads WHERE name = %s AND id != %s", (name, squad_id))
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Já existe outro squad com este nome'}), 400
+        
+        # Update squad
+        cursor.execute("""
+            UPDATE squads SET name = %s, description = %s WHERE id = %s
+        """, (name, description or None, squad_id))
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Squad atualizado com sucesso'
+        })
+        
+    except Exception as e:
+        print(f"Error updating squad: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/squads/<int:squad_id>', methods=['DELETE'])
+@admin_required
+def api_delete_squad(squad_id):
+    """Delete a squad"""
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Check if squad exists
+        cursor.execute("SELECT name FROM squads WHERE id = %s", (squad_id,))
+        result = cursor.fetchone()
+        if not result:
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Squad não encontrado'}), 404
+        
+        squad_name = result[0]
+        
+        # Delete squad (cascade will delete members and restaurants)
+        cursor.execute("DELETE FROM squads WHERE id = %s", (squad_id,))
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Squad "{squad_name}" excluído com sucesso'
+        })
+        
+    except Exception as e:
+        print(f"Error deleting squad: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/squads/<int:squad_id>/members', methods=['POST'])
+@admin_required
+def api_add_squad_members(squad_id):
+    """Add members to a squad"""
+    try:
+        data = request.get_json()
+        user_ids = data.get('user_ids', [])
+        
+        if not user_ids:
+            return jsonify({'success': False, 'error': 'Nenhum usuário selecionado'}), 400
+        
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Check if squad exists
+        cursor.execute("SELECT id FROM squads WHERE id = %s", (squad_id,))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Squad não encontrado'}), 404
+        
+        added_count = 0
+        for user_id in user_ids:
+            try:
+                cursor.execute("""
+                    INSERT INTO squad_members (squad_id, user_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (squad_id, user_id) DO NOTHING
+                """, (squad_id, user_id))
+                if cursor.rowcount > 0:
+                    added_count += 1
+            except Exception as e:
+                print(f"Error adding member {user_id}: {e}")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'{added_count} membro(s) adicionado(s)',
+            'added_count': added_count
+        })
+        
+    except Exception as e:
+        print(f"Error adding squad members: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/squads/<int:squad_id>/members/<int:user_id>', methods=['DELETE'])
+@admin_required
+def api_remove_squad_member(squad_id, user_id):
+    """Remove a member from a squad"""
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            DELETE FROM squad_members 
+            WHERE squad_id = %s AND user_id = %s
+        """, (squad_id, user_id))
+        
+        if cursor.rowcount == 0:
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Membro não encontrado no squad'}), 404
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Membro removido do squad'
+        })
+        
+    except Exception as e:
+        print(f"Error removing squad member: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/squads/<int:squad_id>/restaurants', methods=['POST'])
+@admin_required
+def api_add_squad_restaurants(squad_id):
+    """Add restaurants to a squad"""
+    try:
+        data = request.get_json()
+        restaurant_ids = data.get('restaurant_ids', [])
+        
+        if not restaurant_ids:
+            return jsonify({'success': False, 'error': 'Nenhum restaurante selecionado'}), 400
+        
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Check if squad exists
+        cursor.execute("SELECT id FROM squads WHERE id = %s", (squad_id,))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Squad não encontrado'}), 404
+        
+        added_count = 0
+        for restaurant_id in restaurant_ids:
+            # Find restaurant name from RESTAURANTS_DATA
+            restaurant_name = 'Unknown'
+            for r in RESTAURANTS_DATA:
+                if r['id'] == restaurant_id:
+                    restaurant_name = r.get('name', 'Unknown')
+                    break
+            
+            try:
+                cursor.execute("""
+                    INSERT INTO squad_restaurants (squad_id, restaurant_id, restaurant_name)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (squad_id, restaurant_id) DO NOTHING
+                """, (squad_id, restaurant_id, restaurant_name))
+                if cursor.rowcount > 0:
+                    added_count += 1
+            except Exception as e:
+                print(f"Error adding restaurant {restaurant_id}: {e}")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'{added_count} restaurante(s) adicionado(s)',
+            'added_count': added_count
+        })
+        
+    except Exception as e:
+        print(f"Error adding squad restaurants: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/squads/<int:squad_id>/restaurants/<restaurant_id>', methods=['DELETE'])
+@admin_required
+def api_remove_squad_restaurant(squad_id, restaurant_id):
+    """Remove a restaurant from a squad"""
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            DELETE FROM squad_restaurants 
+            WHERE squad_id = %s AND restaurant_id = %s
+        """, (squad_id, restaurant_id))
+        
+        if cursor.rowcount == 0:
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Restaurante não encontrado no squad'}), 404
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Restaurante removido do squad'
+        })
+        
+    except Exception as e:
+        print(f"Error removing squad restaurant: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user/allowed-restaurants')
+@login_required
+def api_user_allowed_restaurants():
+    """Get list of restaurant IDs the current user can access based on squad membership"""
+    try:
+        user = session.get('user', {})
+        user_id = user.get('id')
+        user_role = user.get('role')
+        
+        # Admins see all restaurants
+        if user_role == 'admin':
+            return jsonify({
+                'success': True,
+                'allowed_all': True,
+                'restaurant_ids': []
+            })
+        
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Get all restaurant IDs the user has access to through squads
+        cursor.execute("""
+            SELECT DISTINCT sr.restaurant_id
+            FROM squad_restaurants sr
+            JOIN squad_members sm ON sr.squad_id = sm.squad_id
+            WHERE sm.user_id = %s
+        """, (user_id,))
+        
+        restaurant_ids = [row[0] for row in cursor.fetchall()]
+        
+        cursor.close()
+        conn.close()
+        
+        # If user is not in any squad, they see all restaurants (default behavior)
+        if not restaurant_ids:
+            return jsonify({
+                'success': True,
+                'allowed_all': True,
+                'restaurant_ids': []
+            })
+        
+        return jsonify({
+            'success': True,
+            'allowed_all': False,
+            'restaurant_ids': restaurant_ids
+        })
+        
+    except Exception as e:
+        print(f"Error getting allowed restaurants: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
 # ERROR HANDLERS
 # ============================================================================
 
@@ -1503,6 +1982,39 @@ def initialize_database():
                 hidden_by VARCHAR(255)
             )
         """)
+        
+        # Create squads tables
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS squads (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by VARCHAR(255)
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS squad_members (
+                id SERIAL PRIMARY KEY,
+                squad_id INTEGER NOT NULL REFERENCES squads(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES dashboard_users(id) ON DELETE CASCADE,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(squad_id, user_id)
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS squad_restaurants (
+                id SERIAL PRIMARY KEY,
+                squad_id INTEGER NOT NULL REFERENCES squads(id) ON DELETE CASCADE,
+                restaurant_id VARCHAR(255) NOT NULL,
+                restaurant_name VARCHAR(255),
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(squad_id, restaurant_id)
+            )
+        """)
+        
         conn.commit()
         cursor.close()
         conn.close()

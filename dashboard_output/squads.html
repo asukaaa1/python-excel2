@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Squads - Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #ffffff; --bg-secondary: #f8fafc; --bg-card: #ffffff;
+            --bg-hover: #f1f5f9; --text-primary: #0f172a; --text-secondary: #64748b;
+            --text-muted: #94a3b8; --border: #e2e8f0; --accent: #ef4444;
+            --accent-hover: #dc2626; --green: #22c55e; --green-bg: rgba(34,197,94,0.1);
+            --red: #ef4444; --red-bg: rgba(239,68,68,0.1); --blue: #3b82f6;
+            --purple: #8b5cf6; --purple-bg: rgba(139,92,246,0.1);
+            --shadow: 0 1px 3px rgba(0,0,0,0.1); --shadow-lg: 0 4px 6px rgba(0,0,0,0.1);
+            --sidebar-width: 260px;
+        }
+        [data-theme="dark"] {
+            --bg-primary: #000000; --bg-secondary: #0a0a0a; --bg-card: #0f0f0f;
+            --bg-hover: #1a1a1a; --text-primary: #ffffff; --text-secondary: #a0a0a0;
+            --text-muted: #666666; --border: #1f1f1f; --shadow: 0 1px 3px rgba(0,0,0,0.5);
+            --green-bg: rgba(34,197,94,0.15); --red-bg: rgba(239,68,68,0.15);
+            --purple-bg: rgba(139,92,246,0.15);
+        }
+        body { 
+            font-family: 'Inter', system-ui, sans-serif; 
+            background: var(--bg-secondary); 
+            color: var(--text-primary); 
+            line-height: 1.6; 
+            min-height: 100vh;
+            display: flex;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-card);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 100;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+        }
+        .sidebar.open { transform: translateX(0); }
+        
+        .sidebar-header { padding: 1.5rem; border-bottom: 1px solid var(--border); }
+        .user-info { display: flex; align-items: center; gap: 0.75rem; }
+        .user-avatar {
+            width: 36px; height: 36px;
+            background: var(--accent); border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-weight: 600; font-size: 0.875rem;
+        }
+        .user-details { flex: 1; min-width: 0; }
+        .user-name { font-size: 0.875rem; font-weight: 600; color: var(--text-primary); }
+        .user-role { font-size: 0.75rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.35rem; }
+        .user-role .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+        
+        .sidebar-nav { flex: 1; padding: 1rem; overflow-y: auto; }
+        .nav-section { margin-bottom: 1.5rem; }
+        .nav-section-title { font-size: 0.65rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 0 0.75rem; margin-bottom: 0.5rem; }
+        .nav-item {
+            display: flex; align-items: center; gap: 0.75rem;
+            padding: 0.75rem 1rem; margin-bottom: 0.25rem;
+            border-radius: 8px; color: var(--text-secondary);
+            text-decoration: none; transition: all 0.2s; cursor: pointer;
+        }
+        .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .nav-item.active { background: rgba(239,68,68,0.1); color: var(--accent); }
+        .nav-item svg { width: 20px; height: 20px; }
+        
+        .sidebar-footer { padding: 1rem; border-top: 1px solid var(--border); }
+        
+        .sidebar-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5); z-index: 99;
+            opacity: 0; visibility: hidden; transition: all 0.3s ease;
+        }
+        .sidebar-overlay.show { opacity: 1; visibility: visible; }
+        
+        /* Main Content */
+        .main-content { flex: 1; min-height: 100vh; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        
+        .header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; 
+        }
+        .header-left { display: flex; align-items: center; gap: 1rem; }
+        .mobile-menu-btn {
+            display: flex; width: 40px; height: 40px;
+            border: 1px solid var(--border); background: var(--bg-card);
+            border-radius: 8px; cursor: pointer;
+            align-items: center; justify-content: center;
+            color: var(--text-secondary); transition: all 0.2s;
+        }
+        .mobile-menu-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+        .header h1 { 
+            font-size: 1.5rem; font-weight: 600; 
+            display: flex; align-items: center; gap: 0.75rem; 
+        }
+        .header h1 svg { color: var(--purple); }
+        .header-actions { display: flex; gap: 0.75rem; }
+        
+        .btn { 
+            padding: 0.625rem 1.25rem; font-size: 0.875rem; font-weight: 500; 
+            border-radius: 8px; cursor: pointer; transition: all 0.2s; 
+            display: inline-flex; align-items: center; gap: 0.5rem; 
+            text-decoration: none; font-family: inherit;
+        }
+        .btn-primary { background: var(--accent); color: white; border: none; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary { background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--accent); color: var(--text-primary); }
+        .btn-danger { color: var(--red); }
+        .btn-danger:hover { background: var(--red-bg); border-color: var(--red); }
+        .btn-purple { background: var(--purple); color: white; border: none; }
+        .btn-purple:hover { background: #7c3aed; }
+        
+        /* Stats Grid */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+        .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; display: flex; align-items: center; gap: 1rem; }
+        .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+        .stat-icon.purple { background: var(--purple-bg); color: var(--purple); }
+        .stat-icon.blue { background: rgba(59,130,246,0.1); color: var(--blue); }
+        .stat-icon.green { background: var(--green-bg); color: var(--green); }
+        .stat-icon svg { width: 24px; height: 24px; }
+        .stat-info h3 { font-size: 1.5rem; font-weight: 700; }
+        .stat-info p { font-size: 0.8rem; color: var(--text-secondary); }
+        
+        /* Sections */
+        .section { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 1.5rem; overflow: hidden; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); }
+        .section-header h2 { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+        .section-body { padding: 1rem 1.5rem; }
+        
+        /* Squad Cards */
+        .squads-grid { display: grid; gap: 1rem; }
+        .squad-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 1.5rem; transition: all 0.2s;
+        }
+        .squad-card:hover { box-shadow: var(--shadow-lg); }
+        .squad-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
+        .squad-title { display: flex; align-items: center; gap: 0.75rem; }
+        .squad-icon {
+            width: 48px; height: 48px; border-radius: 12px;
+            background: var(--purple); color: white;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 600; font-size: 1.25rem;
+        }
+        .squad-name { font-weight: 600; font-size: 1.1rem; }
+        .squad-description { font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.25rem; }
+        .squad-actions { display: flex; gap: 0.5rem; }
+        .squad-btn {
+            padding: 0.5rem; border-radius: 6px; border: none;
+            background: transparent; color: var(--text-muted);
+            cursor: pointer; transition: all 0.2s;
+        }
+        .squad-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .squad-btn.delete:hover { background: var(--red-bg); color: var(--red); }
+        
+        .squad-content { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        .squad-section h4 { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+        
+        .member-list, .restaurant-list { display: flex; flex-direction: column; gap: 0.5rem; }
+        .member-item, .restaurant-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0.5rem 0.75rem; background: var(--bg-secondary);
+            border-radius: 6px; font-size: 0.875rem;
+        }
+        .member-item .member-info, .restaurant-item .restaurant-info {
+            display: flex; align-items: center; gap: 0.5rem;
+        }
+        .member-avatar {
+            width: 24px; height: 24px; border-radius: 6px;
+            background: var(--blue); color: white;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.7rem; font-weight: 600;
+        }
+        .restaurant-avatar {
+            width: 24px; height: 24px; border-radius: 6px;
+            background: var(--green); color: white;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.7rem; font-weight: 600;
+        }
+        .remove-btn {
+            padding: 0.25rem; border: none; background: transparent;
+            color: var(--text-muted); cursor: pointer; border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .remove-btn:hover { background: var(--red-bg); color: var(--red); }
+        
+        .add-btn {
+            display: flex; align-items: center; justify-content: center;
+            gap: 0.5rem; padding: 0.5rem; border: 1px dashed var(--border);
+            border-radius: 6px; background: transparent; color: var(--text-muted);
+            cursor: pointer; font-size: 0.8rem; transition: all 0.2s;
+            font-family: inherit;
+        }
+        .add-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+        
+        .empty-state { text-align: center; padding: 3rem 2rem; color: var(--text-secondary); }
+        .empty-state svg { width: 64px; height: 64px; margin: 0 auto 1rem; opacity: 0.5; }
+        .empty-state h3 { font-size: 1.125rem; margin-bottom: 0.5rem; color: var(--text-primary); }
+        
+        /* Modal */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+            display: none; align-items: center; justify-content: center;
+            z-index: 1000; padding: 1rem;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 16px; width: 100%; max-width: 500px;
+            max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;
+        }
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border);
+        }
+        .modal-header h2 { font-size: 1.1rem; font-weight: 600; }
+        .modal-close {
+            width: 32px; height: 32px; border: none; background: transparent;
+            color: var(--text-muted); cursor: pointer; font-size: 1.25rem;
+            border-radius: 8px; display: flex; align-items: center; justify-content: center;
+        }
+        .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .modal-body { padding: 1.5rem; overflow-y: auto; }
+        .modal-footer {
+            padding: 1rem 1.5rem; border-top: 1px solid var(--border);
+            display: flex; justify-content: flex-end; gap: 0.75rem;
+        }
+        
+        .form-group { margin-bottom: 1rem; }
+        .form-label { display: block; font-size: 0.8rem; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-secondary); }
+        .form-input, .form-select {
+            width: 100%; padding: 0.75rem 1rem; font-size: 0.9rem;
+            border: 1px solid var(--border); border-radius: 8px;
+            background: var(--bg-secondary); color: var(--text-primary);
+            font-family: inherit;
+        }
+        .form-input:focus, .form-select:focus {
+            outline: none; border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(239,68,68,0.1);
+        }
+        .form-textarea { resize: vertical; min-height: 80px; }
+        
+        .checkbox-list { max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+        .checkbox-item {
+            display: flex; align-items: center; gap: 0.75rem;
+            padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+            cursor: pointer; transition: background 0.2s;
+        }
+        .checkbox-item:last-child { border-bottom: none; }
+        .checkbox-item:hover { background: var(--bg-hover); }
+        .checkbox-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+        .checkbox-item label { flex: 1; cursor: pointer; font-size: 0.875rem; }
+        .checkbox-item .role-badge {
+            font-size: 0.7rem; padding: 0.2rem 0.5rem;
+            background: var(--bg-secondary); border-radius: 4px;
+            color: var(--text-muted);
+        }
+        
+        /* Toast */
+        .toast {
+            position: fixed; bottom: 2rem; right: 2rem;
+            padding: 1rem 1.5rem; background: var(--bg-card);
+            border: 1px solid var(--border); border-radius: 12px;
+            box-shadow: var(--shadow-lg); display: flex;
+            align-items: center; gap: 0.75rem; z-index: 2000;
+        }
+        .toast.success { border-left: 4px solid var(--green); color: var(--green); }
+        .toast.error { border-left: 4px solid var(--red); color: var(--red); }
+        
+        @media (max-width: 768px) {
+            .container { padding: 1rem; }
+            .stats-grid { grid-template-columns: 1fr; }
+            .squad-content { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+    
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="user-info">
+                <div class="user-avatar" id="userAvatar">A</div>
+                <div class="user-details">
+                    <div class="user-name" id="userName">Admin</div>
+                    <div class="user-role">
+                        <span class="dot"></span>
+                        <span id="userRoleText">Administrador</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Menu</div>
+                <a href="/dashboard" class="nav-item">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    <span>Dashboard</span>
+                </a>
+                <a href="/comparativo" class="nav-item">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    <span>Comparativo</span>
+                </a>
+                <a href="/admin" class="nav-item">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    <span>Configurações</span>
+                </a>
+                <a href="/squads" class="nav-item active">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    <span>Squads</span>
+                </a>
+                <a href="/hidden-stores" class="nav-item">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                    <span>Lojas Ocultas</span>
+                </a>
+            </div>
+        </nav>
+        
+        <div class="sidebar-footer">
+            <button class="btn btn-secondary" onclick="logout()" style="width: 100%; justify-content: center;">
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                <span>Sair</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="container">
+            <div class="header">
+                <div class="header-left">
+                    <button class="mobile-menu-btn" onclick="toggleSidebar()">
+                        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                    </button>
+                    <h1>
+                        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                        Squads
+                    </h1>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-secondary" onclick="toggleTheme()">
+                        <svg id="sunIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                        <svg id="moonIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                    </button>
+                    <button class="btn btn-purple" onclick="openModal('createSquadModal')">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                        Criar Squad
+                    </button>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon purple">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3 id="squadCount">0</h3>
+                        <p>Squads</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon blue">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3 id="assignedUsersCount">0</h3>
+                        <p>Usuários Atribuídos</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon green">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                    </div>
+                    <div class="stat-info">
+                        <h3 id="assignedRestaurantsCount">0</h3>
+                        <p>Restaurantes Atribuídos</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2>
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                        Gerenciar Squads
+                    </h2>
+                </div>
+                <div class="section-body">
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.875rem;">
+                        Squads permitem agrupar usuários e restaurantes. Usuários atribuídos a um squad só verão os restaurantes desse squad no dashboard.
+                    </p>
+                    <div class="squads-grid" id="squadsList">
+                        <div class="empty-state">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                            <h3>Nenhum squad criado</h3>
+                            <p>Crie um squad para começar a organizar seus times</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Squad Modal -->
+    <div class="modal-overlay" id="createSquadModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Criar Squad</h2>
+                <button class="modal-close" onclick="closeModal('createSquadModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Nome do Squad</label>
+                    <input type="text" class="form-input" id="squadName" placeholder="Ex: Região Sul">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Descrição (opcional)</label>
+                    <textarea class="form-input form-textarea" id="squadDescription" placeholder="Descreva o squad..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('createSquadModal')">Cancelar</button>
+                <button class="btn btn-purple" onclick="createSquad()">Criar Squad</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Squad Modal -->
+    <div class="modal-overlay" id="editSquadModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Editar Squad</h2>
+                <button class="modal-close" onclick="closeModal('editSquadModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editSquadId">
+                <div class="form-group">
+                    <label class="form-label">Nome do Squad</label>
+                    <input type="text" class="form-input" id="editSquadName" placeholder="Ex: Região Sul">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Descrição (opcional)</label>
+                    <textarea class="form-input form-textarea" id="editSquadDescription" placeholder="Descreva o squad..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('editSquadModal')">Cancelar</button>
+                <button class="btn btn-purple" onclick="updateSquad()">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Members Modal -->
+    <div class="modal-overlay" id="addMembersModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Adicionar Membros</h2>
+                <button class="modal-close" onclick="closeModal('addMembersModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="addMembersSquadId">
+                <div class="form-group">
+                    <label class="form-label">Selecione os usuários</label>
+                    <div class="checkbox-list" id="usersList">
+                        <!-- Users will be loaded here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('addMembersModal')">Cancelar</button>
+                <button class="btn btn-purple" onclick="addMembersToSquad()">Adicionar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Restaurants Modal -->
+    <div class="modal-overlay" id="addRestaurantsModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Adicionar Restaurantes</h2>
+                <button class="modal-close" onclick="closeModal('addRestaurantsModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="addRestaurantsSquadId">
+                <div class="form-group">
+                    <label class="form-label">Selecione os restaurantes</label>
+                    <div class="checkbox-list" id="restaurantsList">
+                        <!-- Restaurants will be loaded here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('addRestaurantsModal')">Cancelar</button>
+                <button class="btn btn-purple" onclick="addRestaurantsToSquad()">Adicionar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let squadsData = [];
+        let usersData = [];
+        let restaurantsData = [];
+
+        async function loadData() {
+            await Promise.all([loadSquads(), loadUsers(), loadRestaurants()]);
+        }
+
+        async function loadSquads() {
+            try {
+                const response = await fetch('/api/squads');
+                const data = await response.json();
+                if (data.success) {
+                    squadsData = data.squads || [];
+                    renderSquads();
+                    updateStats();
+                }
+            } catch (error) {
+                console.error('Error loading squads:', error);
+            }
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/users');
+                const data = await response.json();
+                if (data.success) {
+                    usersData = data.users || [];
+                }
+            } catch (error) {
+                console.error('Error loading users:', error);
+            }
+        }
+
+        async function loadRestaurants() {
+            try {
+                const response = await fetch('/api/restaurants');
+                const data = await response.json();
+                if (data.success) {
+                    restaurantsData = data.restaurants || [];
+                }
+            } catch (error) {
+                console.error('Error loading restaurants:', error);
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('squadCount').textContent = squadsData.length;
+            
+            const assignedUsers = new Set();
+            const assignedRestaurants = new Set();
+            
+            squadsData.forEach(squad => {
+                (squad.members || []).forEach(m => assignedUsers.add(m.id));
+                (squad.restaurants || []).forEach(r => assignedRestaurants.add(r.id));
+            });
+            
+            document.getElementById('assignedUsersCount').textContent = assignedUsers.size;
+            document.getElementById('assignedRestaurantsCount').textContent = assignedRestaurants.size;
+        }
+
+        function renderSquads() {
+            const container = document.getElementById('squadsList');
+            
+            if (!squadsData.length) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                        <h3>Nenhum squad criado</h3>
+                        <p>Crie um squad para começar a organizar seus times</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = squadsData.map(squad => `
+                <div class="squad-card" data-id="${squad.id}">
+                    <div class="squad-header">
+                        <div class="squad-title">
+                            <div class="squad-icon">${squad.name.charAt(0).toUpperCase()}</div>
+                            <div>
+                                <div class="squad-name">${squad.name}</div>
+                                ${squad.description ? `<div class="squad-description">${squad.description}</div>` : ''}
+                            </div>
+                        </div>
+                        <div class="squad-actions">
+                            <button class="squad-btn" onclick="openEditSquadModal(${squad.id})" title="Editar">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            </button>
+                            <button class="squad-btn delete" onclick="deleteSquad(${squad.id}, '${squad.name.replace(/'/g, "\\'")}')" title="Excluir">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="squad-content">
+                        <div class="squad-section">
+                            <h4>👥 Membros (${(squad.members || []).length})</h4>
+                            <div class="member-list">
+                                ${(squad.members || []).map(member => `
+                                    <div class="member-item">
+                                        <div class="member-info">
+                                            <div class="member-avatar">${(member.name || 'U').charAt(0).toUpperCase()}</div>
+                                            <span>${member.name}</span>
+                                        </div>
+                                        <button class="remove-btn" onclick="removeMemberFromSquad(${squad.id}, ${member.id})" title="Remover">
+                                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
+                                `).join('')}
+                                <button class="add-btn" onclick="openAddMembersModal(${squad.id})">
+                                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                                    Adicionar membro
+                                </button>
+                            </div>
+                        </div>
+                        <div class="squad-section">
+                            <h4>🏪 Restaurantes (${(squad.restaurants || []).length})</h4>
+                            <div class="restaurant-list">
+                                ${(squad.restaurants || []).map(restaurant => `
+                                    <div class="restaurant-item">
+                                        <div class="restaurant-info">
+                                            <div class="restaurant-avatar">${(restaurant.name || 'R').charAt(0).toUpperCase()}</div>
+                                            <span>${restaurant.name}</span>
+                                        </div>
+                                        <button class="remove-btn" onclick="removeRestaurantFromSquad(${squad.id}, '${restaurant.id}')" title="Remover">
+                                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
+                                `).join('')}
+                                <button class="add-btn" onclick="openAddRestaurantsModal(${squad.id})">
+                                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                                    Adicionar restaurante
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openModal(id) { document.getElementById(id).classList.add('show'); }
+        function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+        async function createSquad() {
+            const name = document.getElementById('squadName').value.trim();
+            const description = document.getElementById('squadDescription').value.trim();
+
+            if (!name) {
+                showToast('Nome do squad é obrigatório', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/squads', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, description })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Squad criado com sucesso!', 'success');
+                    closeModal('createSquadModal');
+                    document.getElementById('squadName').value = '';
+                    document.getElementById('squadDescription').value = '';
+                    await loadSquads();
+                } else {
+                    showToast(data.error || 'Erro ao criar squad', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        function openEditSquadModal(squadId) {
+            const squad = squadsData.find(s => s.id === squadId);
+            if (!squad) return;
+
+            document.getElementById('editSquadId').value = squadId;
+            document.getElementById('editSquadName').value = squad.name;
+            document.getElementById('editSquadDescription').value = squad.description || '';
+            openModal('editSquadModal');
+        }
+
+        async function updateSquad() {
+            const squadId = document.getElementById('editSquadId').value;
+            const name = document.getElementById('editSquadName').value.trim();
+            const description = document.getElementById('editSquadDescription').value.trim();
+
+            if (!name) {
+                showToast('Nome do squad é obrigatório', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/squads/${squadId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, description })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Squad atualizado!', 'success');
+                    closeModal('editSquadModal');
+                    await loadSquads();
+                } else {
+                    showToast(data.error || 'Erro ao atualizar', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        async function deleteSquad(squadId, squadName) {
+            if (!confirm(`Deseja excluir o squad "${squadName}"?`)) return;
+
+            try {
+                const response = await fetch(`/api/squads/${squadId}`, { method: 'DELETE' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Squad excluído', 'success');
+                    await loadSquads();
+                } else {
+                    showToast(data.error || 'Erro ao excluir', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        function openAddMembersModal(squadId) {
+            document.getElementById('addMembersSquadId').value = squadId;
+            
+            const squad = squadsData.find(s => s.id === squadId);
+            const currentMemberIds = (squad?.members || []).map(m => m.id);
+            const availableUsers = usersData.filter(u => !currentMemberIds.includes(u.id) && u.role !== 'admin');
+
+            const container = document.getElementById('usersList');
+            if (!availableUsers.length) {
+                container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Nenhum usuário disponível</div>';
+            } else {
+                container.innerHTML = availableUsers.map(user => `
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="user_${user.id}" value="${user.id}">
+                        <label for="user_${user.id}">${user.name}</label>
+                        <span class="role-badge">${user.role}</span>
+                    </div>
+                `).join('');
+            }
+            
+            openModal('addMembersModal');
+        }
+
+        async function addMembersToSquad() {
+            const squadId = document.getElementById('addMembersSquadId').value;
+            const checkboxes = document.querySelectorAll('#usersList input[type="checkbox"]:checked');
+            const userIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+            if (!userIds.length) {
+                showToast('Selecione pelo menos um usuário', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/squads/${squadId}/members`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_ids: userIds })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Membros adicionados!', 'success');
+                    closeModal('addMembersModal');
+                    await loadSquads();
+                } else {
+                    showToast(data.error || 'Erro ao adicionar membros', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        async function removeMemberFromSquad(squadId, userId) {
+            if (!confirm('Remover este membro do squad?')) return;
+
+            try {
+                const response = await fetch(`/api/squads/${squadId}/members/${userId}`, { method: 'DELETE' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Membro removido', 'success');
+                    await loadSquads();
+                } else {
+                    showToast(data.error || 'Erro ao remover', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        function openAddRestaurantsModal(squadId) {
+            document.getElementById('addRestaurantsSquadId').value = squadId;
+            
+            const squad = squadsData.find(s => s.id === squadId);
+            const currentRestaurantIds = (squad?.restaurants || []).map(r => r.id);
+            const availableRestaurants = restaurantsData.filter(r => !currentRestaurantIds.includes(r.id));
+
+            const container = document.getElementById('restaurantsList');
+            if (!availableRestaurants.length) {
+                container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Nenhum restaurante disponível</div>';
+            } else {
+                container.innerHTML = availableRestaurants.map(restaurant => `
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="restaurant_${restaurant.id}" value="${restaurant.id}">
+                        <label for="restaurant_${restaurant.id}">${restaurant.name}</label>
+                    </div>
+                `).join('');
+            }
+            
+            openModal('addRestaurantsModal');
+        }
+
+        async function addRestaurantsToSquad() {
+            const squadId = document.getElementById('addRestaurantsSquadId').value;
+            const checkboxes = document.querySelectorAll('#restaurantsList input[type="checkbox"]:checked');
+            const restaurantIds = Array.from(checkboxes).map(cb => cb.value);
+
+            if (!restaurantIds.length) {
+                showToast('Selecione pelo menos um restaurante', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/squads/${squadId}/restaurants`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ restaurant_ids: restaurantIds })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Restaurantes adicionados!', 'success');
+                    closeModal('addRestaurantsModal');
+                    await loadSquads();
+                } else {
+                    showToast(data.error || 'Erro ao adicionar restaurantes', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        async function removeRestaurantFromSquad(squadId, restaurantId) {
+            if (!confirm('Remover este restaurante do squad?')) return;
+
+            try {
+                const response = await fetch(`/api/squads/${squadId}/restaurants/${restaurantId}`, { method: 'DELETE' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Restaurante removido', 'success');
+                    await loadSquads();
+                } else {
+                    showToast(data.error || 'Erro ao remover', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        function showToast(message, type = 'success') {
+            document.querySelectorAll('.toast').forEach(t => t.remove());
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/>
+                </svg>
+                <span>${message}</span>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        function toggleTheme() {
+            const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+            document.getElementById('sidebarOverlay').classList.toggle('show');
+        }
+
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebarOverlay').classList.remove('show');
+        }
+
+        function logout() {
+            if (confirm('Deseja realmente sair?')) {
+                fetch('/api/logout', { method: 'POST' }).then(() => {
+                    localStorage.removeItem('currentUser');
+                    window.location.href = '/login';
+                }).catch(() => {
+                    window.location.href = '/login';
+                });
+            }
+        }
+
+        function loadUserInfo() {
+            fetch('/api/me')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.user) {
+                        const u = data.user;
+                        document.getElementById('userName').textContent = u.name || u.username || 'Usuário';
+                        const initials = (u.name || u.username || 'U').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                        document.getElementById('userAvatar').textContent = initials;
+                        document.getElementById('userRoleText').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
+                        
+                        if (u.role !== 'admin') {
+                            window.location.href = '/dashboard';
+                        }
+                    } else {
+                        window.location.href = '/login';
+                    }
+                })
+                .catch(() => {
+                    window.location.href = '/login';
+                });
+        }
+
+        (function init() {
+            const theme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+            loadUserInfo();
+            loadData();
+        })();
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                closeModal('createSquadModal');
+                closeModal('editSquadModal');
+                closeModal('addMembersModal');
+                closeModal('addRestaurantsModal');
+            }
+        });
+        
+        document.querySelectorAll('.modal-overlay').forEach(m => {
+            m.addEventListener('click', e => {
+                if (e.target === e.currentTarget) closeModal(e.target.id);
+            });
+        });
+    </script>
+</body>
+</html>
