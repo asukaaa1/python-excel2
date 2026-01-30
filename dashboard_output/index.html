@@ -431,6 +431,18 @@
         const formatTrend = (v) => v ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '+0%';
         const getAvatarColor = (i) => AVATAR_COLORS[i % AVATAR_COLORS.length];
         
+        function updateApiStatus(connected) {
+            const status = document.getElementById('apiStatus');
+            const text = document.getElementById('apiStatusText');
+            if (connected) {
+                status.classList.remove('disconnected');
+                text.textContent = 'iFood Conectado';
+            } else {
+                status.classList.add('disconnected');
+                text.textContent = 'Desconectado';
+            }
+        }
+        
         async function loadRestaurants(month = 'all') {
             try {
                 let url = '/api/restaurants';
@@ -470,17 +482,6 @@
             }
         }
         
-        function updateApiStatus(connected) {
-            const status = document.getElementById('apiStatus');
-            const text = document.getElementById('apiStatusText');
-            if (connected) {
-                status.classList.remove('disconnected');
-                text.textContent = 'iFood Conectado';
-            } else {
-                status.classList.add('disconnected');
-                text.textContent = 'Desconectado';
-            }
-        }
         
         function updateFilterCounts() {
             const growth = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) > 0).length;
