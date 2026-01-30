@@ -17,34 +17,27 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 
-
-ASE_DIR = Path(__file__).parent.absolute()
+# Configure paths FIRST - before Flask app creation
+BASE_DIR = Path(__file__).parent.absolute()
 STATIC_DIR = BASE_DIR / 'static'
 DASHBOARD_OUTPUT = BASE_DIR / 'dashboard_output'
 CONFIG_FILE = BASE_DIR / 'ifood_config.json'
 
 # Create directories if they don't exist
 STATIC_DIR.mkdir(exist_ok=True)
+DASHBOARD_OUTPUT.mkdir(exist_ok=True)
 
 # Create Flask app with static folder configured
-app = Flask(__name__, 
+app = Flask(__name__,
            static_folder=str(STATIC_DIR),
            static_url_path='/static')
+
+app.secret_key = os.environ.get('SECRET_KEY', '1a2bfcf2e328076efb65896cfd29b249698f0fe5a355a10a1e80efadc0a8d4bf')
 
 print(f"📁 Base directory: {BASE_DIR}")
 print(f"📁 Static folder: {STATIC_DIR}")
 print(f"📁 Dashboard output: {DASHBOARD_OUTPUT}")
 print(f"📁 Config file: {CONFIG_FILE}")
-
-
-
-
-
-
-app = Flask(__name__)
-app.secret_key = os.environ.get('c475c2bcd14196b4c36d281da27393098cf0b0aca1ab8b8ff1271dbf68617bd0', '1a2bfcf2e328076efb65896cfd29b249698f0fe5a355a10a1e80efadc0a8d4bf')
-
-
 
 # Database configuration
 db = DashboardDatabase()
@@ -55,14 +48,6 @@ IFOOD_API = None
 IFOOD_CONFIG = {}
 LAST_DATA_REFRESH = None
 
-# Configure paths
-BASE_DIR = Path(__file__).parent.absolute()
-DASHBOARD_OUTPUT = BASE_DIR / 'dashboard_output'
-CONFIG_FILE = BASE_DIR / 'ifood_config.json'
-
-print(f"📁 Base directory: {BASE_DIR}")
-print(f"📁 Dashboard output: {DASHBOARD_OUTPUT}")
-print(f"📁 Config file: {CONFIG_FILE}")
 
 
 # ============================================================================
@@ -1595,4 +1580,3 @@ if __name__ == '__main__':
     print("\n⚠️  Running in DEVELOPMENT mode")
     print("   For production, use: python dashboardserver.py --production")
     print()
-    app.run(host='0.0.0.0', port=5000, debug=True)
