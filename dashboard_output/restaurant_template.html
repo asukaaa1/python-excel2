@@ -1596,6 +1596,10 @@
         
         function setLoading(loading) {
             const status = document.getElementById('apiStatus');
+            if (!status) {
+                // Element doesn't exist, skip loading indicator
+                return;
+            }
             if (loading) {
                 status.classList.add('loading');
             } else {
