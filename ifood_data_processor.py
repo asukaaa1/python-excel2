@@ -97,24 +97,103 @@ class IFoodDataProcessor:
             tempo_aberto_hours = len(hours_with_orders) if hours_with_orders else 12
             tempo_aberto_percentage = (tempo_aberto_hours / 24 * 100)
             
-            # Calculate trend (compare first half vs second half)
+            # Calculate trends for each metric (compare first half vs second half)
+            trends = {
+                'vendas': 0,
+                'ticket_medio': 0,
+                'valor_bruto': 0,
+                'liquido': 0,
+                'via_loja': 0,
+                'descontos': 0,
+                'percent_desconto': 0,
+                'novos_clientes': 0,
+                'cancelamentos': 0,
+                'chamados': 0
+            }
+            
             if len(concluded_orders) >= 10:
                 mid = len(concluded_orders) // 2
-                first_half_revenue = sum(
-                    float(o.get('totalPrice', 0) or 0)
-                    for o in concluded_orders[:mid]
+                first_half = concluded_orders[:mid]
+                second_half = concluded_orders[mid:]
+                
+                # Calculate metrics for first half
+                fh_orders = len(first_half)
+                fh_gross = sum(
+                    float(o.get('total', {}).get('subTotal', 0) or 0) +
+                    float(o.get('total', {}).get('deliveryFee', 0) or 0)
+                    for o in first_half
                 )
-                second_half_revenue = sum(
+                fh_discounts = sum(
+                    float(o.get('total', {}).get('benefits', 0) or 0)
+                    for o in first_half
+                )
+                fh_net = fh_gross - fh_discounts
+                fh_ticket = fh_net / fh_orders if fh_orders > 0 else 0
+                fh_via_loja = sum(
                     float(o.get('totalPrice', 0) or 0)
-                    for o in concluded_orders[mid:]
+                    for o in first_half
+                    if o.get('payment', {}).get('liability') == 'MERCHANT'
+                )
+                fh_new_customers = sum(
+                    1 for o in first_half
+                    if o.get('customer', {}).get('isNewCustomer', False)
                 )
                 
-                if first_half_revenue > 0:
-                    trend = ((second_half_revenue - first_half_revenue) / first_half_revenue) * 100
-                else:
-                    trend = 0
-            else:
-                trend = 0
+                # Calculate metrics for second half
+                sh_orders = len(second_half)
+                sh_gross = sum(
+                    float(o.get('total', {}).get('subTotal', 0) or 0) +
+                    float(o.get('total', {}).get('deliveryFee', 0) or 0)
+                    for o in second_half
+                )
+                sh_discounts = sum(
+                    float(o.get('total', {}).get('benefits', 0) or 0)
+                    for o in second_half
+                )
+                sh_net = sh_gross - sh_discounts
+                sh_ticket = sh_net / sh_orders if sh_orders > 0 else 0
+                sh_via_loja = sum(
+                    float(o.get('totalPrice', 0) or 0)
+                    for o in second_half
+                    if o.get('payment', {}).get('liability') == 'MERCHANT'
+                )
+                sh_new_customers = sum(
+                    1 for o in second_half
+                    if o.get('customer', {}).get('isNewCustomer', False)
+                )
+                
+                # Calculate cancelled orders trend
+                mid_all = len(orders) // 2
+                fh_cancelled = len([o for o in orders[:mid_all] if o.get('orderStatus') == 'CANCELLED'])
+                sh_cancelled = len([o for o in orders[mid_all:] if o.get('orderStatus') == 'CANCELLED'])
+                
+                # Calculate percentage changes
+                def calc_trend(old_val, new_val):
+                    if old_val > 0:
+                        return ((new_val - old_val) / old_val) * 100
+                    elif new_val > 0:
+                        return 100.0
+                    return 0.0
+                
+                trends['vendas'] = calc_trend(fh_orders, sh_orders)
+                trends['ticket_medio'] = calc_trend(fh_ticket, sh_ticket)
+                trends['valor_bruto'] = calc_trend(fh_gross, sh_gross)
+                trends['liquido'] = calc_trend(fh_net, sh_net)
+                trends['via_loja'] = calc_trend(fh_via_loja, sh_via_loja)
+                trends['descontos'] = calc_trend(fh_discounts, sh_discounts)
+                trends['novos_clientes'] = calc_trend(fh_new_customers, sh_new_customers)
+                trends['cancelamentos'] = calc_trend(fh_cancelled, sh_cancelled)
+                
+                # Discount percentage trend
+                fh_discount_pct = (fh_discounts / fh_gross * 100) if fh_gross > 0 else 0
+                sh_discount_pct = (sh_discounts / sh_gross * 100) if sh_gross > 0 else 0
+                trends['percent_desconto'] = sh_discount_pct - fh_discount_pct  # Absolute change
+                
+                # Chamados trend (estimated based on order trend)
+                trends['chamados'] = trends['vendas'] * 0.5  # Chamados grow slower than orders
+            
+            # Keep overall trend for backward compatibility
+            trend = trends['liquido']
             
             # Extract platforms
             platforms = set()
@@ -160,16 +239,16 @@ class IFoodDataProcessor:
                     'tempo_aberto': tempo_aberto_percentage,
                     'tempo_aberto_hours': tempo_aberto_hours,
                     'trends': {
-                        'vendas': trend,
-                        'ticket_medio': trend,
-                        'valor_bruto': trend,
-                        'liquido': trend,
-                        'via_loja': trend * 0.8,  # Slightly different trend
-                        'descontos': trend * -0.5,  # Inverse correlation
-                        'percent_desconto': trend * -0.3,
-                        'novos_clientes': trend * 1.2,  # Higher growth
-                        'cancelamentos': trend * -0.4,  # Inverse
-                        'chamados': trend * -0.3  # Should decrease with better service
+                        'vendas': trends['vendas'],
+                        'ticket_medio': trends['ticket_medio'],
+                        'valor_bruto': trends['valor_bruto'],
+                        'liquido': trends['liquido'],
+                        'via_loja': trends['via_loja'],
+                        'descontos': trends['descontos'],
+                        'percent_desconto': trends['percent_desconto'],
+                        'novos_clientes': trends['novos_clientes'],
+                        'cancelamentos': trends['cancelamentos'],
+                        'chamados': trends['chamados']
                     }
                 }
             }
