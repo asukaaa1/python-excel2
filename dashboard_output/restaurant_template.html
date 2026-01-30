@@ -235,6 +235,22 @@
             fill: #fbbf24;
         }
         
+        .super-badge { 
+            width: 24px; 
+            height: 24px; 
+            display: inline-flex; 
+            align-items: center; 
+            justify-content: center; 
+            margin-left: 0.25rem;
+        }
+        
+        .super-badge img { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: contain; 
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+        }
+        
         .platforms { display: flex; gap: 0.4rem; }
         
         .platform-tag {
@@ -431,9 +447,15 @@
         
         /* Filter Type Radio Buttons */
         .filter-type-options {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+        }
+        
+        @media (max-width: 600px) {
+            .filter-type-options {
+                grid-template-columns: 1fr;
+            }
         }
         
         .filter-type-option {
@@ -451,22 +473,23 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 0.5rem;
-            padding: 0.625rem 0.75rem;
-            font-size: 0.8rem;
+            gap: 0.6rem;
+            padding: 0.75rem 1rem;
+            font-size: 0.875rem;
             font-weight: 500;
             color: var(--text-secondary);
-            background: var(--bg-secondary);
+            background: var(--bg-card);
             border: 2px solid var(--border);
-            border-radius: 8px;
+            border-radius: 10px;
             cursor: pointer;
             transition: all 0.2s;
         }
         
         .filter-type-option input:checked + label {
-            color: var(--accent);
-            background: rgba(239, 68, 68, 0.08);
+            color: white;
+            background: var(--accent);
             border-color: var(--accent);
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
         }
         
         .filter-type-option label:hover {
@@ -486,7 +509,8 @@
         }
         
         .filter-type-option input:checked + label .radio-dot {
-            border-color: var(--accent);
+            border-color: white;
+            background: white;
         }
         
         .filter-type-option input:checked + label .radio-dot::after {
@@ -499,32 +523,56 @@
         
         /* Quick Select Buttons */
         .filter-quick-options {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.75rem;
+        }
+        
+        @media (max-width: 600px) {
+            .filter-quick-options {
+                grid-template-columns: 1fr;
+            }
         }
         
         .filter-quick-btn {
-            padding: 0.5rem 1rem;
-            font-size: 0.8rem;
+            padding: 0.75rem 1.25rem;
+            font-size: 0.875rem;
             font-weight: 500;
             color: var(--text-secondary);
-            background: var(--bg-secondary);
+            background: var(--bg-card);
             border: 2px solid var(--border);
-            border-radius: 8px;
+            border-radius: 10px;
             cursor: pointer;
             transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex: 1;
+            justify-content: center;
+            min-width: 140px;
+        }
+        
+        .filter-quick-btn svg {
+            flex-shrink: 0;
         }
         
         .filter-quick-btn:hover {
             border-color: var(--accent);
             color: var(--text-primary);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
         
         .filter-quick-btn.active {
-            color: var(--accent);
-            background: rgba(239, 68, 68, 0.08);
+            color: white;
+            background: var(--accent);
             border-color: var(--accent);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+        
+        .filter-quick-btn.active:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
         }
         
         /* Month Selector */
@@ -611,18 +659,23 @@
             border-top: 1px solid var(--border);
         }
         
-        .btn-filter-cancel {
-            flex: 1;
-            padding: 0.75rem 1rem;
+                .btn-filter-cancel {
+            padding: 0.75rem 1.5rem;
             font-size: 0.875rem;
-            font-weight: 600;
-            font-family: inherit;
+            font-weight: 500;
             color: var(--text-secondary);
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
+            background: transparent;
+            border: 2px solid var(--border);
+            border-radius: 10px;
             cursor: pointer;
             transition: all 0.2s;
+            flex: 1;
+        }
+        
+        .btn-filter-cancel:hover {
+            color: var(--text-primary);
+            border-color: var(--text-muted);
+            background: var(--bg-hover);
         }
         
         .btn-filter-cancel:hover {
@@ -630,18 +683,25 @@
             color: var(--text-primary);
         }
         
-        .btn-filter-apply {
-            flex: 1;
-            padding: 0.75rem 1rem;
+                .btn-filter-apply {
+            padding: 0.75rem 1.5rem;
             font-size: 0.875rem;
             font-weight: 600;
-            font-family: inherit;
             color: white;
             background: var(--accent);
-            border: none;
-            border-radius: 8px;
+            border: 2px solid var(--accent);
+            border-radius: 10px;
             cursor: pointer;
             transition: all 0.2s;
+            flex: 1;
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
+        }
+        
+        .btn-filter-apply:hover {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35);
         }
         
         .btn-filter-apply:hover {
@@ -1128,6 +1188,9 @@
             <div class="header-info">
                 <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                     <h1 id="restaurantName">{{restaurant_name}}</h1>
+                    <span class="super-badge" id="restaurantSuper" style="display: none;" title="iFood Super">
+                        <img src="/static/selo_ifood_super.png" alt="iFood Super">
+                    </span>
                     <span class="rating-badge" id="restaurantRating" style="display: none;">
                         <svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                         <span id="ratingValue">0.0</span>
@@ -1233,9 +1296,24 @@
                     <!-- Current Period Options -->
                     <div class="filter-content active" id="filterContentCurrent">
                         <div class="filter-quick-options">
-                            <button class="filter-quick-btn" data-period="today">Hoje</button>
-                            <button class="filter-quick-btn active" data-period="7days">Ult. 7 dias</button>
-                            <button class="filter-quick-btn" data-period="30days">Ult. 30 dias</button>
+                            <button class="filter-quick-btn active" data-period="7days">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                </svg>
+                                Últimos 7 dias
+                            </button>
+                            <button class="filter-quick-btn" data-period="15days">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                </svg>
+                                Últimos 15 dias
+                            </button>
+                            <button class="filter-quick-btn" data-period="30days">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                </svg>
+                                Último mês (30 dias)
+                            </button>
                         </div>
                     </div>
                     
@@ -1563,6 +1641,9 @@
                     case '7days':
                         startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
                         break;
+                    case '15days':
+                        startDate = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
+                        break;
                     case '30days':
                     default:
                         startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -1608,13 +1689,16 @@
                         text = formatDateForDisplay(today);
                         break;
                     case '7days':
-                        text = 'Ultimos 7 dias';
+                        text = 'Últimos 7 dias';
+                        break;
+                    case '15days':
+                        text = 'Últimos 15 dias';
                         break;
                     case '30days':
-                        text = 'Ultimos 30 dias';
+                        text = 'Último mês';
                         break;
                     default:
-                        text = 'Ultimos 7 dias';
+                        text = 'Últimos 7 dias';
                 }
             } else if (currentFilter.type === 'month' && currentFilter.month) {
                 const [year, month] = currentFilter.month.split('-').map(Number);
@@ -2030,6 +2114,11 @@
                     // Get available months for filter modal
                     if (chartsData.available_months) {
                         availableMonths = chartsData.available_months;
+                    }
+                    
+                    // Update Super badge if applicable
+                    if (restaurantData.isSuper) {
+                        document.getElementById('restaurantSuper').style.display = 'inline-flex';
                     }
                     
                     // Update rating if available

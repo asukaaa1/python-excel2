@@ -219,6 +219,9 @@ class IFoodDataProcessor:
             else:
                 neighborhood = 'Centro'
             
+            # Get Super Restaurant status
+            is_super = merchant_details.get('isSuperRestaurant', False)
+            
             return {
                 'id': restaurant_id,
                 'name': name,
@@ -232,6 +235,7 @@ class IFoodDataProcessor:
                 'approval_rate': ((total_orders / all_orders_count * 100) if all_orders_count > 0 else 95.0),
                 'avatar_color': IFoodDataProcessor._generate_color(name),
                 'rating': round(average_rating, 1),  # Average rating from feedback
+                'isSuper': is_super,  # iFood Super restaurant status
                 # Complete metrics structure for frontend
                 'metrics': {
                     'vendas': total_orders,

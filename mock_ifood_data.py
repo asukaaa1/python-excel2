@@ -57,12 +57,16 @@ class MockIFoodDataGenerator:
         manager = random.choice(MockIFoodDataGenerator.MANAGER_NAMES)
         neighborhood = random.choice(MockIFoodDataGenerator.NEIGHBORHOODS)
         
+        # 30% chance of being an iFood Super restaurant
+        is_super = random.random() < 0.3
+        
         merchant_details = {
             'id': merchant_id,
             'name': name,
             'merchantManager': {'name': manager},
             'address': {'neighborhood': neighborhood},
-            'status': 'ACTIVE'
+            'status': 'ACTIVE',
+            'isSuperRestaurant': is_super
         }
         
         # Generate orders
