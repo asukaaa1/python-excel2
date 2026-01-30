@@ -1994,6 +1994,15 @@ def initialize_database():
             )
         """)
         
+        # Migration: Add description column if it doesn't exist (for existing installations)
+        try:
+            cursor.execute("""
+                ALTER TABLE squads ADD COLUMN IF NOT EXISTS description TEXT
+            """)
+        except Exception as e:
+            # Column might already exist or DB doesn't support IF NOT EXISTS
+            print(f"   Note: description column migration: {e}")
+        
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS squad_members (
                 id SERIAL PRIMARY KEY,
