@@ -256,6 +256,16 @@ def comparativo_page():
     return "Comparativo page not found", 404
 
 
+@app.route('/hidden-stores')
+@admin_required
+def hidden_stores_page():
+    """Serve hidden stores management page"""
+    hidden_stores_file = DASHBOARD_OUTPUT / 'hidden_stores.html'
+    if hidden_stores_file.exists():
+        return send_file(hidden_stores_file)
+    return "Hidden stores page not found", 404
+
+
 @app.route('/restaurant/<restaurant_id>')
 @login_required
 def restaurant_page(restaurant_id):
@@ -1226,6 +1236,113 @@ def api_delete_user(user_id):
 
 
 # ============================================================================
+# HIDDEN STORES API ENDPOINTS
+# ============================================================================
+
+@app.route('/api/hidden-stores', methods=['GET'])
+@login_required
+def get_hidden_stores():
+    """Get list of all hidden stores"""
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT store_id, store_name, hidden_at, hidden_by 
+            FROM hidden_stores 
+            ORDER BY hidden_at DESC
+        """)
+        hidden = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        hidden_list = [{
+            'id': h[0],
+            'name': h[1],
+            'hidden_at': h[2].isoformat() if h[2] else None,
+            'hidden_by': h[3]
+        } for h in hidden]
+        
+        return jsonify({
+            'success': True,
+            'hidden_stores': hidden_list
+        })
+    except Exception as e:
+        print(f"Error getting hidden stores: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/stores/<store_id>/hide', methods=['POST'])
+@admin_required
+def hide_store(store_id):
+    """Hide a store from the main dashboard"""
+    try:
+        data = request.get_json() or {}
+        store_name = data.get('name', 'Unknown Store')
+        hidden_by = session.get('user', {}).get('username', 'Unknown')
+        
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Check if already hidden
+        cursor.execute("SELECT store_id FROM hidden_stores WHERE store_id = %s", (store_id,))
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Store already hidden'}), 400
+        
+        # Insert into hidden stores
+        cursor.execute("""
+            INSERT INTO hidden_stores (store_id, store_name, hidden_by) 
+            VALUES (%s, %s, %s)
+        """, (store_id, store_name, hidden_by))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Store "{store_name}" hidden successfully'
+        })
+    except Exception as e:
+        print(f"Error hiding store: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/stores/<store_id>/unhide', methods=['POST'])
+@admin_required
+def unhide_store(store_id):
+    """Unhide a store and show it on the main dashboard"""
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Get store name before deleting
+        cursor.execute("SELECT store_name FROM hidden_stores WHERE store_id = %s", (store_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Store not found in hidden list'}), 404
+        
+        store_name = result[0]
+        
+        # Remove from hidden stores
+        cursor.execute("DELETE FROM hidden_stores WHERE store_id = %s", (store_id,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Store "{store_name}" is now visible'
+        })
+    except Exception as e:
+        print(f"Error unhiding store: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
 # ERROR HANDLERS
 # ============================================================================
 
@@ -1364,6 +1481,22 @@ def initialize_database():
     print("\n🔧 Initializing database...")
     try:
         db.setup_tables()
+        
+        # Create hidden stores table
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS hidden_stores (
+                store_id VARCHAR(255) PRIMARY KEY,
+                store_name VARCHAR(255),
+                hidden_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                hidden_by VARCHAR(255)
+            )
+        """)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
         users = db.get_all_users()
         if not users:
             print("👤 Creating default users...")

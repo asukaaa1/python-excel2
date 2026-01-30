@@ -190,6 +190,9 @@
         .card-actions { display: flex; align-items: center; gap: 0.5rem; }
         .btn-dashboard { padding: 0.6rem 1rem; background: var(--accent); color: white; border: none; border-radius: 8px; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.2s; text-decoration: none; display: flex; align-items: center; gap: 0.4rem; }
         .btn-dashboard:hover { background: var(--accent-hover); }
+        .btn-hide { padding: 0.5rem; background: transparent; color: var(--text-muted); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+        .btn-hide:hover { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+        .btn-hide svg { width: 18px; height: 18px; }
         .loading-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
         .loading-spinner { width: 48px; height: 48px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -259,6 +262,10 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                     Configurações
                 </a>
+                <button class="sidebar-link" onclick="window.location.href='/hidden-stores'">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                    Lojas Ocultas
+                </button>
             </div>
         </nav>
         <div class="sidebar-footer">
@@ -403,9 +410,11 @@
 
     <script>
         let restaurantsData = [];
+        let hiddenStores = [];
         let searchQuery = '';
         let currentSortOrder = 'name-asc';
         let currentMonthFilter = 'all';
+        let isAdmin = false;
         const AVATAR_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#3b82f6','#6366f1','#a855f7','#ec4899','#64748b'];
         
         const formatCurrency = (v) => v ? 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'R$ 0,00';
@@ -424,6 +433,7 @@
                 const data = await response.json();
                 if (data.success) {
                     restaurantsData = data.restaurants || [];
+                    await loadHiddenStores(); // Load hidden stores
                     updateFilterCounts();
                     renderRestaurants();
                     updateApiStatus(true);
@@ -436,6 +446,18 @@
                 showToast('Erro de conexão com o servidor', 'error');
                 updateApiStatus(false);
                 document.getElementById('restaurantList').innerHTML = '<div class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><h3>Erro ao carregar dados</h3><p>Verifique a conexão com o servidor</p></div>';
+            }
+        }
+        
+        async function loadHiddenStores() {
+            try {
+                const response = await fetch('/api/hidden-stores');
+                const data = await response.json();
+                if (data.success) {
+                    hiddenStores = data.hidden_stores.map(h => h.id);
+                }
+            } catch (error) {
+                console.error('Error loading hidden stores:', error);
             }
         }
         
@@ -567,6 +589,10 @@
         
         function getDisplayData() {
             let data = [...restaurantsData];
+            
+            // Filter out hidden stores
+            data = data.filter(r => !hiddenStores.includes(r.id));
+            
             if (searchQuery) {
                 data = data.filter(r => r.name.toLowerCase().includes(searchQuery) || r.manager.toLowerCase().includes(searchQuery));
             }
@@ -629,7 +655,10 @@
                     <div class="metric"><div class="metric-label">Ticket Médio</div><div class="metric-value">${formatCurrency(m.ticket_medio)}</div><div class="metric-trend ${(t.ticket_medio ?? 0) >= 0 ? 'positive' : 'negative'}">~${formatTrend(t.ticket_medio)}</div></div>
                     <div class="metric"><div class="metric-label">Valor Bruto</div><div class="metric-value">${formatCurrency(m.valor_bruto)}</div><div class="metric-trend ${(t.valor_bruto ?? 0) >= 0 ? 'positive' : 'negative'}">~${formatTrend(t.valor_bruto)}</div></div>
                     <div class="metric"><div class="metric-label">Líquido</div><div class="metric-value">${formatCurrency(m.liquido)}</div><div class="metric-trend ${(t.liquido ?? 0) >= 0 ? 'positive' : 'negative'}">~${formatTrend(t.liquido)}</div></div>
-                    <div class="card-actions"><a href="/restaurant/${r.id}" class="btn-dashboard">Ver Dashboard</a></div>
+                    <div class="card-actions">
+                        <a href="/restaurant/${r.id}" class="btn-dashboard">Ver Dashboard</a>
+                        ${isAdmin ? `<button class="btn-hide" onclick="event.stopPropagation(); hideStore('${r.id}', '${r.name.replace(/'/g, "\\'")}')" title="Ocultar loja"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg></button>` : ''}
+                    </div>
                 </div>`;
             }).join('');
         }
@@ -720,9 +749,32 @@
                     document.getElementById('sidebarUserName').textContent = u.name || u.username || 'Usuário';
                     document.getElementById('sidebarAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase();
                     document.getElementById('sidebarUserRole').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
-                    if (u.role === 'admin') document.getElementById('adminSection').style.display = 'block';
+                    isAdmin = (u.role === 'admin');
+                    if (isAdmin) document.getElementById('adminSection').style.display = 'block';
                 }
             }).catch(() => {});
+        }
+        
+        async function hideStore(storeId, storeName) {
+            if (!confirm(`Deseja ocultar "${storeName}"?`)) return;
+            
+            try {
+                const response = await fetch(`/api/stores/${storeId}/hide`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: storeName })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(`Loja "${storeName}" ocultada com sucesso`, 'success');
+                    await loadRestaurants();
+                } else {
+                    showToast(data.error || 'Erro ao ocultar loja', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
         }
         
         (function init() {

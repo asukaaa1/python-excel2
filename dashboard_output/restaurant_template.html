@@ -1902,11 +1902,6 @@
                     <div class="kpi-value">${formatNumber(m.novos_clientes ?? 0)}</div>
                     <div class="kpi-trend ${(t.novos_clientes || 0) >= 0 ? 'positive' : 'negative'}">${formatTrend(t.novos_clientes)}</div>
                 </div>
-                <div class="kpi-card">
-                    <div class="kpi-label">% de Desconto</div>
-                    <div class="kpi-value">${percentDesconto.toFixed(2)}%</div>
-                    <div class="kpi-trend ${(trendDesconto || 0) <= 0 ? 'positive' : 'negative'}">${formatTrend(trendDesconto)}</div>
-                </div>
             `;
         }
         
