@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lojas Ocultas - Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #ffffff; --bg-secondary: #f8fafc; --bg-card: #ffffff;
+            --bg-hover: #f1f5f9; --text-primary: #0f172a; --text-secondary: #64748b;
+            --text-muted: #94a3b8; --border: #e2e8f0; --accent: #ef4444;
+            --accent-hover: #dc2626; --green: #22c55e; --green-bg: rgba(34,197,94,0.1);
+            --red: #ef4444; --red-bg: rgba(239,68,68,0.1);
+            --shadow: 0 1px 3px rgba(0,0,0,0.1); --shadow-lg: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        [data-theme="dark"] {
+            --bg-primary: #000000; --bg-secondary: #0a0a0a; --bg-card: #0f0f0f;
+            --bg-hover: #1a1a1a; --text-primary: #ffffff; --text-secondary: #a0a0a0;
+            --text-muted: #666666; --border: #1f1f1f; --green-bg: rgba(34,197,94,0.15);
+            --red-bg: rgba(239,68,68,0.15); --shadow: 0 1px 3px rgba(0,0,0,0.5);
+        }
+        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; min-height: 100vh; transition: background-color 0.3s, color 0.3s; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
+        .header-left { display: flex; align-items: center; gap: 1rem; }
+        .back-btn { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-secondary); text-decoration: none; transition: all 0.2s; font-size: 0.875rem; font-weight: 500; }
+        .back-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+        .header h1 { font-size: 1.5rem; font-weight: 600; display: flex; align-items: center; gap: 0.75rem; }
+        .header h1 svg { color: var(--accent); }
+        .info-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
+        .info-card p { color: var(--text-secondary); margin-bottom: 0.5rem; }
+        .info-card strong { color: var(--text-primary); }
+        .stores-grid { display: grid; gap: 1rem; }
+        .store-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; display: flex; align-items: center; gap: 1.5rem; transition: all 0.2s; }
+        .store-card:hover { box-shadow: var(--shadow-lg); }
+        .store-avatar { width: 48px; height: 48px; border-radius: 12px; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 1.25rem; flex-shrink: 0; }
+        .store-info { flex: 1; min-width: 0; }
+        .store-name { font-weight: 600; font-size: 1rem; margin-bottom: 0.25rem; }
+        .store-meta { font-size: 0.875rem; color: var(--text-secondary); display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+        .btn-unhide { padding: 0.6rem 1.2rem; background: var(--green); color: white; border: none; border-radius: 8px; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+        .btn-unhide:hover { background: #16a34a; }
+        .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
+        .empty-state svg { width: 64px; height: 64px; margin: 0 auto 1rem; opacity: 0.5; }
+        .empty-state h3 { font-size: 1.125rem; margin-bottom: 0.5rem; }
+        .loading-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
+        .loading-spinner { width: 48px; height: 48px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: 0.75rem; z-index: 2000; transition: opacity 0.3s; }
+        .toast.success { border-left: 4px solid var(--green); color: var(--green); }
+        .toast.error { border-left: 4px solid var(--red); color: var(--red); }
+        @media (max-width: 768px) { .container { padding: 1rem; } .store-card { flex-direction: column; text-align: center; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <a href="/dashboard" class="back-btn">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    Voltar
+                </a>
+                <h1>
+                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                    Lojas Ocultas
+                </h1>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <p>Lojas ocultas não aparecem no dashboard principal. Você pode restaurá-las a qualquer momento clicando no botão "Mostrar".</p>
+            <p><strong>Total de lojas ocultas:</strong> <span id="hiddenCount">0</span></p>
+        </div>
+
+        <div class="stores-grid" id="hiddenStoresList">
+            <div class="loading-state">
+                <div class="loading-spinner"></div>
+                <p>Carregando lojas ocultas...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let hiddenStores = [];
+
+        async function loadHiddenStores() {
+            try {
+                const response = await fetch('/api/hidden-stores');
+                const data = await response.json();
+                
+                if (data.success) {
+                    hiddenStores = data.hidden_stores || [];
+                    renderHiddenStores();
+                } else {
+                    showError('Erro ao carregar lojas ocultas');
+                }
+            } catch (error) {
+                console.error('Error loading hidden stores:', error);
+                showError('Erro de conexão com o servidor');
+            }
+        }
+
+        function renderHiddenStores() {
+            const container = document.getElementById('hiddenStoresList');
+            const count = document.getElementById('hiddenCount');
+            
+            count.textContent = hiddenStores.length;
+
+            if (!hiddenStores.length) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                        </svg>
+                        <h3>Nenhuma loja oculta</h3>
+                        <p>Todas as lojas estão visíveis no dashboard principal</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = hiddenStores.map(store => {
+                const hiddenDate = store.hidden_at ? new Date(store.hidden_at).toLocaleDateString('pt-BR') : 'Data desconhecida';
+                return `
+                    <div class="store-card">
+                        <div class="store-avatar">${store.name.charAt(0).toUpperCase()}</div>
+                        <div class="store-info">
+                            <div class="store-name">${store.name}</div>
+                            <div class="store-meta">
+                                <span>🗓️ Ocultada em ${hiddenDate}</span>
+                                ${store.hidden_by ? `<span>👤 Por ${store.hidden_by}</span>` : ''}
+                            </div>
+                        </div>
+                        <button class="btn-unhide" onclick="unhideStore('${store.id}', '${store.name.replace(/'/g, "\\'")}')">
+                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: inline-block; vertical-align: middle; margin-right: 0.5rem;">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                            </svg>
+                            Mostrar
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function unhideStore(storeId, storeName) {
+            if (!confirm(`Deseja mostrar "${storeName}" no dashboard?`)) return;
+            
+            try {
+                const response = await fetch(`/api/stores/${storeId}/unhide`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(`Loja "${storeName}" agora está visível`, 'success');
+                    await loadHiddenStores();
+                } else {
+                    showToast(data.error || 'Erro ao restaurar loja', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('hiddenStoresList').innerHTML = `
+                <div class="empty-state">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    </svg>
+                    <h3>Erro</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+
+        function showToast(message, type = 'success') {
+            document.querySelectorAll('.toast').forEach(t => t.remove());
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/>
+                </svg>
+                <span>${message}</span>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function checkAuth() {
+            fetch('/api/me')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.user && data.user.role === 'admin') {
+                        loadHiddenStores();
+                    } else {
+                        window.location.href = '/dashboard';
+                    }
+                })
+                .catch(() => {
+                    window.location.href = '/login';
+                });
+        }
+
+        (function init() {
+            const theme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+            checkAuth();
+        })();
+    </script>
+</body>
+</html>
