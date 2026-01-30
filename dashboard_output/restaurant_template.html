@@ -54,19 +54,19 @@
 
         .interruption-banner {
             background: linear-gradient(135deg, #dc2626 0%, #b91c1c 50%, #991b1b 100%);
-            border: 2px solid #fca5a5;
-            border-radius: 16px;
-            padding: 1.25rem 1.75rem;
-            margin-bottom: 1.5rem;
+            border: 1.5px solid #fca5a5;
+            border-radius: 8px;
+            padding: 0.5rem 0.75rem;
             display: none;
             align-items: center;
-            gap: 1.25rem;
-            animation: slideDown 0.5s ease, pulse 2s ease-in-out infinite;
-            box-shadow: 0 10px 25px rgba(220, 38, 38, 0.3), 
-                        0 4px 10px rgba(220, 38, 38, 0.2),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            gap: 0.5rem;
+            animation: pulse 2s ease-in-out infinite;
+            box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
             position: relative;
             overflow: hidden;
+            max-width: fit-content;
+            margin-left: 1rem;
+            cursor: pointer;
         }
         .interruption-banner::before {
             content: '';
@@ -81,14 +81,14 @@
                 transparent);
             animation: shine 3s infinite;
         }
-        .interruption-banner.active { display: flex; }
+        .interruption-banner.active { display: inline-flex; }
         @keyframes slideDown {
             from { transform: translateY(-20px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
         @keyframes pulse {
-            0%, 100% { box-shadow: 0 10px 25px rgba(220, 38, 38, 0.3), 0 4px 10px rgba(220, 38, 38, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1); }
-            50% { box-shadow: 0 10px 30px rgba(220, 38, 38, 0.5), 0 4px 15px rgba(220, 38, 38, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15); }
+            0%, 100% { box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3); }
+            50% { box-shadow: 0 2px 12px rgba(220, 38, 38, 0.5); }
         }
         @keyframes shine {
             0% { left: -100%; }
@@ -98,34 +98,30 @@
 
 
         .interruption-icon {
-            width: 48px;
-            height: 48px;
+            width: 20px;
+            height: 20px;
             color: #ffffff;
             flex-shrink: 0;
-            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: linear-gradient(135deg, #fca5a5 0%, #f87171 100%);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2),
-                        inset 0 -2px 4px rgba(0, 0, 0, 0.1);
             position: relative;
             z-index: 1;
         }
         .interruption-icon svg {
-            width: 28px;
-            height: 28px;
+            width: 16px;
+            height: 16px;
             color: white;
-            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
         }
         .interruption-title {
-            font-weight: 700;
-            font-size: 1rem;
+            font-weight: 600;
+            font-size: 0.75rem;
             color: #ffffff;
-            margin-bottom: 0.25rem;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
             position: relative;
             z-index: 1;
+            white-space: nowrap;
         }
         .interruption-details {
             font-size: 0.875em;
@@ -999,17 +995,6 @@
     </style>
 </head>
 <body>
-    <div class="interruption-banner" id="interruptionBanner">
-    <div class="interruption-icon">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-        </svg>
-    </div>
-    <div class="interruption-content">
-        <div class="interruption-title">Restaurante Fechado Temporariamente</div>
-        <div class="interruption-details" id="interruptionDetails"></div>
-    </div>
-    </div>
     <div class="dashboard">
         <a href="/dashboard" class="back-link">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1020,7 +1005,17 @@
         
         <div class="header">
             <div class="header-info">
-                <h1 id="restaurantName">{{restaurant_name}}</h1>
+                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <h1 id="restaurantName">{{restaurant_name}}</h1>
+                    <div class="interruption-banner" id="interruptionBanner" title="">
+                        <div class="interruption-icon">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                            </svg>
+                        </div>
+                        <div class="interruption-title">Fechado</div>
+                    </div>
+                </div>
                 <div class="header-meta">
                     <span id="restaurantManager">👤 {{restaurant_manager}}</span>
                     <div class="platforms" id="platforms">
@@ -1029,10 +1024,6 @@
                 </div>
             </div>
             <div class="header-actions">
-                <div class="api-status" id="apiStatus">
-                    <span class="dot"></span>
-                    <span>iFood API</span>
-                </div>
                 <button class="btn" onclick="refreshData()" title="Atualizar dados">
                     <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 </button>
@@ -1677,7 +1668,6 @@
         }
         function displayInterruptions() {
             const banner = document.getElementById('interruptionBanner');
-            const details = document.getElementById('interruptionDetails');
             
             // Safety check
             if (!restaurantData || !restaurantData.interruptions || restaurantData.interruptions.length === 0) {
@@ -1685,7 +1675,7 @@
                 return;
             }
             
-            if (!banner || !details) return; // Elements not found
+            if (!banner) return; // Element not found
             
             banner.classList.add('active');
             
@@ -1693,18 +1683,12 @@
             const start = new Date(interruption.start);
             const end = new Date(interruption.end);
             
-            details.innerHTML = `
-                <span class="interruption-time">
-                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                    ${start.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})} - 
-                    ${end.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}
-                </span>
-                <span>${interruption.description || 'Fechado temporariamente'}</span>
-        <span style="color: var(--text-muted);">• ${start.toLocaleDateString('pt-BR')}</span>
-    `;
- }
+            // Set the tooltip with full details
+            const timeRange = `${start.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})} - ${end.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}`;
+            const date = start.toLocaleDateString('pt-BR');
+            const description = interruption.description || 'Pausa para manutenção';
+            banner.title = `${description}\n${timeRange}\n${date}`;
+        }
 
  function addClosureOverlays() {
     const container = document.querySelector('.chart-container');
