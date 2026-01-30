@@ -30,9 +30,15 @@
             font-family: 'Inter', 'Horizon', sans-serif; 
             font-size: 2.5rem; 
             font-weight: 900; 
-            color: #ffffff; 
+            color: #000000; 
             letter-spacing: 0.05em; 
             text-transform: uppercase;
+            -webkit-text-stroke: 1px #000000;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: color 0.3s, -webkit-text-stroke 0.3s, text-shadow 0.3s;
+        }
+        [data-theme="dark"] .logo {
+            color: #ffffff;
             -webkit-text-stroke: 1px #ffffff;
             text-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
@@ -70,9 +76,10 @@
         .sidebar-nav { flex: 1; padding: 1rem 0; overflow-y: auto; }
         .sidebar-section { padding: 0 1rem; margin-bottom: 1.5rem; }
         .sidebar-section-title { font-size: 0.65rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 0 0.75rem; margin-bottom: 0.5rem; }
-        .sidebar-link { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border-radius: 10px; color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: all 0.2s; cursor: pointer; border: none; background: none; width: 100%; text-align: left; }
+        .sidebar-link { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0.875rem; border-radius: 10px; color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: all 0.2s; cursor: pointer; border: none; background: none; width: 100%; text-align: left; }
         .sidebar-link:hover { background: var(--bg-hover); color: var(--text-primary); }
-        .sidebar-link.active { background: var(--accent); color: white; }
+        .sidebar-link.active { background: rgba(249, 112, 21, 0.1); color: var(--accent); }
+        [data-theme="dark"] .sidebar-link.active { background: rgba(249, 112, 21, 0.15); }
         .sidebar-link svg { width: 20px; height: 20px; }
         .sidebar-footer { padding: 1rem 1.5rem; border-top: 1px solid var(--border); }
         .sidebar-footer-btn { display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%; padding: 0.75rem; border-radius: 10px; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
