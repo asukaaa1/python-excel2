@@ -1472,7 +1472,15 @@
         }
         
         function filterChartsDataByDateRange(startDate, endDate) {
-            if (!chartsData || !chartsData.revenue_chart) return;
+            console.log('🔍 Filtering chart data by date range...');
+            console.log('   Start:', startDate);
+            console.log('   End:', endDate);
+            console.log('   chartsData before filter:', chartsData);
+            
+            if (!chartsData || !chartsData.revenue_chart) {
+                console.warn('⚠️ No chart data to filter');
+                return;
+            }
             
             const start = new Date(startDate);
             const end = new Date(endDate);
@@ -1481,7 +1489,10 @@
             // Filter daily data
             ['revenue_chart', 'orders_chart'].forEach(chartKey => {
                 const chart = chartsData[chartKey];
-                if (!chart || !chart.dates) return;
+                if (!chart || !chart.dates) {
+                    console.warn(`⚠️ No dates array in ${chartKey}`);
+                    return;
+                }
                 
                 const filteredIndices = [];
                 chart.dates.forEach((dateStr, idx) => {
@@ -1490,6 +1501,8 @@
                         filteredIndices.push(idx);
                     }
                 });
+                
+                console.log(`   ${chartKey}: ${filteredIndices.length} points in range (of ${chart.dates.length} total)`);
                 
                 if (filteredIndices.length > 0) {
                     chartsData[chartKey] = {
@@ -1501,8 +1514,19 @@
                         dates: filteredIndices.map(i => chart.dates[i]),
                         months: chart.months ? filteredIndices.map(i => chart.months[i]) : []
                     };
+                } else {
+                    // No data in range - set to empty chart
+                    console.warn(`⚠️ No data points in date range for ${chartKey}`);
+                    chartsData[chartKey] = {
+                        labels: [],
+                        datasets: [{ ...chart.datasets[0], data: [] }],
+                        dates: [],
+                        months: []
+                    };
                 }
             });
+            
+            console.log('   chartsData after filter:', chartsData);
         }
         
         // ============================================================================
@@ -1761,8 +1785,18 @@
                 const startStr = formatDateForInput(startDate);
                 const endStr = formatDateForInput(endDate);
                 
+                console.log('📡 Fetching restaurant data...');
+                console.log('   Restaurant ID:', restaurantId);
+                console.log('   Date range:', startStr, 'to', endStr);
+                
                 const response = await fetch(`/api/restaurant/${restaurantId}?start_date=${startStr}&end_date=${endStr}`);
                 const data = await response.json();
+                
+                console.log('📥 API Response:', data);
+                console.log('   Success:', data.success);
+                console.log('   Restaurant:', data.restaurant);
+                console.log('   Has metrics:', data.restaurant?.metrics ? 'Yes' : 'No');
+                console.log('   Charts:', data.charts);
                 
                 if (data.success) {
                     restaurantData = data.restaurant;
@@ -1783,9 +1817,13 @@
                     
                     // Fetch interruptions AFTER restaurant data is loaded
                     fetchInterruptions();
+                } else {
+                    // Handle API error response
+                    console.error('❌ API returned success: false', data.error);
+                    document.getElementById('mainKpis').innerHTML = `<div class="no-data">Erro: ${data.error || 'Falha ao carregar dados'}</div>`;
                 }
             } catch (error) {
-                console.error('Error loading restaurant data:', error);
+                console.error('❌ Error loading restaurant data:', error);
                 document.getElementById('mainKpis').innerHTML = '<div class="no-data">Erro ao carregar dados</div>';
             } finally {
                 setLoading(false);
@@ -1812,13 +1850,21 @@
         
         function renderMainKpis() {
             const container = document.getElementById('mainKpis');
+            console.log('🎯 renderMainKpis called');
+            console.log('   restaurantData:', restaurantData);
+            console.log('   metrics:', restaurantData?.metrics);
+            
             if (!restaurantData || !restaurantData.metrics) {
+                console.warn('⚠️ No metrics data available');
                 container.innerHTML = '<div class="no-data">Sem dados disponiveis</div>';
                 return;
             }
             
             const m = restaurantData.metrics;
             const t = m.trends || {};
+            
+            console.log('📊 Metrics:', m);
+            console.log('📈 Trends:', t);
             
             // Calculate % de desconto if not provided
             const percentDesconto = m.percent_desconto ?? (m.valor_bruto > 0 ? (m.descontos / m.valor_bruto * 100) : 0);
@@ -2079,17 +2125,17 @@
                     </thead>
                     <tbody>
                         ${ordersData.slice(0, 50).map(order => {
-                            const status = (order.status || '').toLowerCase();
+                            const status = (order.orderStatus || order.status || '').toLowerCase();
                             const statusClass = status.includes('conclu') || status.includes('delivered') ? 'concluded' : 
                                                status.includes('confirm') ? 'confirmed' : 
                                                status.includes('cancel') ? 'cancelled' : '';
                             const total = order.total?.orderAmount || order.totalPrice || 0;
-                            const deliveryFee = order.total?.deliveryFee || 0;
+                            const deliveryFee = order.total?.deliveryFee || order.deliveryFee || 0;
                             
                             return `<tr>
                                 <td>${formatDate(order.createdAt)}</td>
-                                <td>${order.id?.slice(0, 8) || '-'}...</td>
-                                <td><span class="order-status ${statusClass}">${order.status || '-'}</span></td>
+                                <td>${order.displayId || (order.id?.slice(0, 8) + '...') || '-'}</td>
+                                <td><span class="order-status ${statusClass}">${order.orderStatus || order.status || '-'}</span></td>
                                 <td>${formatCurrency(total)}</td>
                                 <td>${formatCurrency(deliveryFee)}</td>
                             </tr>`;
