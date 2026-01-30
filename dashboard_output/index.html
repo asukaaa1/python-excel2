@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Restaurantes iFood</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.cdnfonts.com/css/horizon" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -25,6 +26,16 @@
         .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
         .header h1 { font-size: 1.5rem; font-weight: 600; display: flex; align-items: center; gap: 0.75rem; }
+        .logo { 
+            font-family: 'Inter', 'Horizon', sans-serif; 
+            font-size: 2.5rem; 
+            font-weight: 900; 
+            color: #ffffff; 
+            letter-spacing: 0.05em; 
+            text-transform: uppercase;
+            -webkit-text-stroke: 1px #ffffff;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
         .header-actions { display: flex; gap: 0.75rem; align-items: center; }
         .search-box { position: relative; }
         .search-input { padding: 0.6rem 1rem 0.6rem 2.5rem; font-size: 0.875rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); width: 250px; transition: all 0.2s; }
@@ -286,7 +297,7 @@
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
                 </button>
                 <h1>
-                    Timo Dash
+                    <span class="logo">Timo</span>
                 </h1>
             </div>
             <div class="header-actions">
