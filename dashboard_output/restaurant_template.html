@@ -986,11 +986,114 @@
         
         .hourly-chart { margin-top: 1.5rem; }
         
+        /* Feedback Analytics Styles */
+        .feedback-analytics-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+        }
+        
+        .feedback-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .feedback-header svg {
+            color: var(--accent);
+        }
+        
+        .feedback-header h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        .feedback-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .cancellation-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .feedback-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        
+        .feedback-card-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .feedback-card-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        
+        .feedback-card-icon.compliments {
+            background: var(--green);
+        }
+        
+        .feedback-card-icon.complaints {
+            background: var(--red);
+        }
+        
+        .feedback-card-icon.cancellations {
+            background: #f59e0b;
+        }
+        
+        .feedback-card-icon.origins {
+            background: #3b82f6;
+        }
+        
+        .feedback-card-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        
+        .feedback-chart-container {
+            position: relative;
+            height: 300px;
+        }
+        
+        @media (max-width: 1024px) {
+            .feedback-grid,
+            .cancellation-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
         @media (max-width: 768px) {
             .dashboard { padding: 1rem; }
             .chart-wrapper { height: 250px; }
             .view-tabs { flex-wrap: wrap; }
             .main-kpis { grid-template-columns: repeat(2, 1fr); }
+            .feedback-analytics-section {
+                padding: 1rem;
+            }
+            .feedback-grid,
+            .cancellation-grid {
+                gap: 1rem;
+            }
         }
     </style>
 </head>
@@ -1038,6 +1141,7 @@
             <button class="view-tab active" data-view="dashboard">Dashboard</button>
             <button class="view-tab" data-view="orders">Pedidos</button>
             <button class="view-tab" data-view="hourly">Por Hora</button>
+            <button class="view-tab" data-view="feedback">Feedback</button>
         </div>
         
         <!-- Filter Bar -->
@@ -1191,6 +1295,82 @@
                     Analise por Horario
                 </div>
                 <div class="metrics-section-grid" id="hourlyStats"></div>
+            </div>
+        </div>
+        
+        <!-- Feedback Analytics View -->
+        <div id="feedbackView" class="view-container">
+            <div class="feedback-analytics-section">
+                <div class="feedback-header">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <h2>Informações de Cancelamento</h2>
+                </div>
+                
+                <div class="feedback-grid">
+                    <!-- Compliments Section -->
+                    <div class="feedback-card">
+                        <div class="feedback-card-header">
+                            <div class="feedback-card-icon compliments">
+                                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <h3>Elogios</h3>
+                        </div>
+                        <div class="feedback-chart-container">
+                            <canvas id="complimentsChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Complaints Section -->
+                    <div class="feedback-card">
+                        <div class="feedback-card-header">
+                            <div class="feedback-card-icon complaints">
+                                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <h3>Reclamações</h3>
+                        </div>
+                        <div class="feedback-chart-container">
+                            <canvas id="complaintsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="cancellation-grid">
+                    <!-- Cancellation Reasons -->
+                    <div class="feedback-card">
+                        <div class="feedback-card-header">
+                            <div class="feedback-card-icon cancellations">
+                                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <h3>Motivos de Cancelamento</h3>
+                        </div>
+                        <div class="feedback-chart-container">
+                            <canvas id="cancellationReasonsChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Cancellation Origins -->
+                    <div class="feedback-card">
+                        <div class="feedback-card-header">
+                            <div class="feedback-card-icon origins">
+                                <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <h3>Origem dos Cancelamentos</h3>
+                        </div>
+                        <div class="feedback-chart-container">
+                            <canvas id="cancellationOriginsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1640,6 +1820,10 @@
                 // Render hourly chart when switching to hourly tab
                 console.log('Rendering hourly chart...');
                 renderHourlyChart();
+            } else if (tabName === 'feedback' && chartsData) {
+                // Render feedback charts when switching to feedback tab
+                console.log('Rendering feedback charts...');
+                renderFeedbackCharts();
             }
         }
         
@@ -2367,6 +2551,194 @@
                     ${interruptionHtml}
                 `;
             }
+        }
+        
+        // ============================================================================
+        // FEEDBACK ANALYTICS FUNCTIONS
+        // ============================================================================
+        
+        let feedbackCharts = {
+            compliments: null,
+            complaints: null,
+            cancellationReasons: null,
+            cancellationOrigins: null
+        };
+        
+        function processFeedbackData() {
+            if (!chartsData || !chartsData.orders_data) return null;
+            
+            const orders = chartsData.orders_data;
+            
+            // Process compliments
+            const complimentsMap = {};
+            orders.forEach(order => {
+                if (order.feedback && order.feedback.compliments) {
+                    order.feedback.compliments.forEach(compliment => {
+                        complimentsMap[compliment] = (complimentsMap[compliment] || 0) + 1;
+                    });
+                }
+            });
+            
+            // Process complaints
+            const complaintsMap = {};
+            orders.forEach(order => {
+                if (order.feedback && order.feedback.complaints) {
+                    order.feedback.complaints.forEach(complaint => {
+                        complaintsMap[complaint] = (complaintsMap[complaint] || 0) + 1;
+                    });
+                }
+            });
+            
+            // Process cancellation reasons
+            const cancellationReasonsMap = {};
+            orders.forEach(order => {
+                if (order.orderStatus === 'CANCELLED' && order.cancellation && order.cancellation.reason) {
+                    const reason = order.cancellation.reason;
+                    cancellationReasonsMap[reason] = (cancellationReasonsMap[reason] || 0) + 1;
+                }
+            });
+            
+            // Process cancellation origins
+            const cancellationOriginsMap = {};
+            orders.forEach(order => {
+                if (order.orderStatus === 'CANCELLED' && order.cancellation && order.cancellation.origin) {
+                    const origin = order.cancellation.origin;
+                    const originLabel = origin === 'CONSUMER' ? 'Consumidor' : 
+                                       origin === 'MERCHANT' ? 'Loja' : 'iFood';
+                    cancellationOriginsMap[originLabel] = (cancellationOriginsMap[originLabel] || 0) + 1;
+                }
+            });
+            
+            return {
+                compliments: complimentsMap,
+                complaints: complaintsMap,
+                cancellationReasons: cancellationReasonsMap,
+                cancellationOrigins: cancellationOriginsMap
+            };
+        }
+        
+        function renderFeedbackCharts() {
+            const feedbackData = processFeedbackData();
+            if (!feedbackData) return;
+            
+            // Destroy existing charts
+            Object.keys(feedbackCharts).forEach(key => {
+                if (feedbackCharts[key]) {
+                    feedbackCharts[key].destroy();
+                    feedbackCharts[key] = null;
+                }
+            });
+            
+            // Render compliments chart
+            renderHorizontalBarChart(
+                'complimentsChart',
+                feedbackData.compliments,
+                'compliments',
+                '#22c55e'
+            );
+            
+            // Render complaints chart
+            renderHorizontalBarChart(
+                'complaintsChart',
+                feedbackData.complaints,
+                'complaints',
+                '#ef4444'
+            );
+            
+            // Render cancellation reasons chart
+            renderHorizontalBarChart(
+                'cancellationReasonsChart',
+                feedbackData.cancellationReasons,
+                'cancellationReasons',
+                '#f59e0b'
+            );
+            
+            // Render cancellation origins chart
+            renderHorizontalBarChart(
+                'cancellationOriginsChart',
+                feedbackData.cancellationOrigins,
+                'cancellationOrigins',
+                '#3b82f6'
+            );
+        }
+        
+        function renderHorizontalBarChart(canvasId, dataMap, chartType, color) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            
+            // Convert map to arrays
+            const labels = Object.keys(dataMap);
+            const data = Object.values(dataMap);
+            
+            // Handle empty data
+            if (labels.length === 0) {
+                // Show message
+                const container = canvas.parentElement;
+                container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:300px;color:var(--text-muted)">Nenhum dado disponível</div>';
+                return;
+            }
+            
+            // Create chart
+            feedbackCharts[chartType] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Quantidade',
+                        data: data,
+                        backgroundColor: color + '33',
+                        borderColor: color,
+                        borderWidth: 2,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            padding: 12,
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Quantidade: ' + context.parsed.x;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            grid: {
+                                color: document.documentElement.getAttribute('data-theme') === 'dark' ? '#1f1f1f' : '#f1f5f9'
+                            },
+                            ticks: {
+                                stepSize: 1,
+                                color: document.documentElement.getAttribute('data-theme') === 'dark' ? '#a0a0a0' : '#64748b'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: document.documentElement.getAttribute('data-theme') === 'dark' ? '#a0a0a0' : '#64748b',
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         }
         
         // Initialize on page load

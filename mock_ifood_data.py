@@ -104,6 +104,54 @@ class MockIFoodDataGenerator:
         else:
             status = random.choice(['PLACED', 'CONFIRMED', 'DISPATCHED'])
         
+        # Generate cancellation data if cancelled
+        cancellation_data = None
+        if status == 'CANCELLED':
+            cancellation_reasons = [
+                "Ninguém poderá receber",
+                "A forma de pagamento mudou",
+                "Item indisponível",
+                "Tempo de preparo muito longo",
+                "Desistência do pedido"
+            ]
+            cancellation_origins = ["CONSUMER", "MERCHANT", "IFOOD"]
+            cancellation_data = {
+                "reason": random.choice(cancellation_reasons),
+                "code": f"CANCEL_{random.randint(100, 999)}",
+                "origin": random.choice(cancellation_origins)
+            }
+        
+        # Generate feedback data if concluded (60% of orders get feedback)
+        feedback_data = None
+        if status == 'CONCLUDED' and random.random() < 0.6:
+            # Compliments (positive feedback)
+            compliments = []
+            if random.random() < 0.7:  # 70% chance of compliments
+                possible_compliments = [
+                    "Qualidade de comida excelente",
+                    "Satisfação em geral",
+                    "Entrega rápida"
+                ]
+                num_compliments = random.randint(1, len(possible_compliments))
+                compliments = random.sample(possible_compliments, num_compliments)
+            
+            # Complaints (negative feedback)
+            complaints = []
+            if random.random() < 0.3:  # 30% chance of complaints
+                possible_complaints = [
+                    "Embalagem danificada",
+                    "Falta de item",
+                    "Outro"
+                ]
+                num_complaints = random.randint(1, 2)
+                complaints = random.sample(possible_complaints, num_complaints)
+            
+            feedback_data = {
+                "rating": random.randint(3, 5) if not complaints else random.randint(1, 3),
+                "compliments": compliments,
+                "complaints": complaints
+            }
+        
         # Generate items
         num_items = random.randint(1, 5)
         items = []
@@ -169,8 +217,8 @@ class MockIFoodDataGenerator:
         customer_id = f"customer-{random.randint(1000, 9999)}"
         is_new_customer = random.random() < 0.3  # 30% are new customers
         
-        # Generate customer info (anonymized)
-        return {
+        # Build order object
+        order = {
             'id': f"order-{order_num:06d}",
             'displayId': f"#{random.randint(1000, 9999)}",
             'createdAt': order_date.isoformat(),
@@ -197,6 +245,16 @@ class MockIFoodDataGenerator:
             'platform': 'iFood',
             'orderType': random.choice(['DELIVERY', 'INDOOR', 'TAKEOUT'])
         }
+        
+        # Add cancellation data if applicable
+        if cancellation_data:
+            order['cancellation'] = cancellation_data
+        
+        # Add feedback data if applicable
+        if feedback_data:
+            order['feedback'] = feedback_data
+        
+        return order
     
     @staticmethod
     def generate_financial_data(start_date: str, end_date: str) -> Dict:
