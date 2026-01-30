@@ -15,6 +15,7 @@ from typing import Dict, List, Optional
 import traceback
 from datetime import datetime, timedelta
 from functools import wraps
+import uuid
 
 
 # Configure paths FIRST - before Flask app creation
@@ -1411,10 +1412,11 @@ def api_get_squads():
         conn = db.get_connection()
         cursor = conn.cursor()
         
-        # Get all squads
+        # Get all squads - using actual database schema columns
         cursor.execute("""
-            SELECT id, name, description, created_at, created_by 
+            SELECT id, squad_id, name, leader, members, restaurants, active, created_at
             FROM squads 
+            WHERE active = true
             ORDER BY name
         """)
         squads_raw = cursor.fetchall()
@@ -1423,7 +1425,18 @@ def api_get_squads():
         for squad in squads_raw:
             squad_id = squad[0]
             
-            # Get members for this squad
+            # Parse members and restaurants from JSON text fields
+            try:
+                members_list = json.loads(squad[4]) if squad[4] else []
+            except:
+                members_list = []
+            
+            try:
+                restaurants_list = json.loads(squad[5]) if squad[5] else []
+            except:
+                restaurants_list = []
+            
+            # Get members for this squad (if using squad_members table)
             cursor.execute("""
                 SELECT u.id, u.full_name, u.username, u.role
                 FROM squad_members sm
@@ -1431,31 +1444,34 @@ def api_get_squads():
                 WHERE sm.squad_id = %s
                 ORDER BY u.full_name
             """, (squad_id,))
-            members = cursor.fetchall()
+            members_from_table = cursor.fetchall()
             
-            # Get restaurants for this squad
+            # Get restaurants for this squad (if using squad_restaurants table)
             cursor.execute("""
                 SELECT restaurant_id, restaurant_name
                 FROM squad_restaurants
                 WHERE squad_id = %s
                 ORDER BY restaurant_name
             """, (squad_id,))
-            restaurants = cursor.fetchall()
+            restaurants_from_table = cursor.fetchall()
             
             squads.append({
                 'id': squad_id,
-                'name': squad[1],
-                'description': squad[2],
-                'created_at': squad[3].isoformat() if squad[3] else None,
-                'created_by': squad[4],
+                'squad_id': squad[1],
+                'name': squad[2],
+                'leader': squad[3],
+                'description': '',  # Not in current schema, but kept for frontend compatibility
+                'created_at': squad[7].isoformat() if squad[7] else None,
+                'created_by': squad[3],  # Using leader as created_by for compatibility
+                'active': squad[6],
                 'members': [
                     {'id': m[0], 'name': m[1] or m[2], 'username': m[2], 'role': m[3]}
-                    for m in members
-                ],
+                    for m in members_from_table
+                ] if members_from_table else members_list,
                 'restaurants': [
                     {'id': r[0], 'name': r[1]}
-                    for r in restaurants
-                ]
+                    for r in restaurants_from_table
+                ] if restaurants_from_table else restaurants_list
             })
         
         cursor.close()
@@ -1496,12 +1512,14 @@ def api_create_squad():
             conn.close()
             return jsonify({'success': False, 'error': 'Já existe um squad com este nome'}), 400
         
-        # Create squad
+        # Create squad - Generate unique squad_id and use created_by as leader
+        squad_uid = str(uuid.uuid4())[:8]  # Short unique ID
+        
         cursor.execute("""
-            INSERT INTO squads (name, description, created_by)
-            VALUES (%s, %s, %s)
+            INSERT INTO squads (squad_id, name, leader, members, restaurants)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING id
-        """, (name, description or None, created_by))
+        """, (squad_uid, name, created_by, '[]', '[]'))
         squad_id = cursor.fetchone()[0]
         conn.commit()
         
@@ -1549,10 +1567,10 @@ def api_update_squad(squad_id):
             conn.close()
             return jsonify({'success': False, 'error': 'Já existe outro squad com este nome'}), 400
         
-        # Update squad
+        # Update squad - only update name since description doesn't exist in current schema
         cursor.execute("""
-            UPDATE squads SET name = %s, description = %s WHERE id = %s
-        """, (name, description or None, squad_id))
+            UPDATE squads SET name = %s WHERE id = %s
+        """, (name, squad_id))
         conn.commit()
         
         cursor.close()
