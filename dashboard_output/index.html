@@ -36,9 +36,6 @@
         .btn-primary:hover { background: var(--accent-hover); }
         .btn-secondary { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
         .btn-secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
-        .api-status { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; font-size: 0.75rem; color: var(--text-secondary); }
-        .api-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
-        .api-status.disconnected .dot { background: var(--red); }
         .quick-filters { display: flex; gap: 1.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
         .filter-card { display: flex; align-items: center; gap: 1.25rem; padding: 1.5rem 2rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; cursor: pointer; transition: all 0.2s; min-width: 280px; flex: 1; }
         .filter-card:hover { border-color: var(--text-muted); box-shadow: var(--shadow-lg); transform: translateY(-2px); }
@@ -289,10 +286,6 @@
                 </h1>
             </div>
             <div class="header-actions">
-                <div class="api-status" id="apiStatus">
-                    <span class="dot"></span>
-                    <span id="apiStatusText">Conectado</span>
-                </div>
                 <div class="search-box">
                     <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                     <input type="text" class="search-input" id="searchInput" placeholder="Buscar cliente..." oninput="handleSearch()">
@@ -431,16 +424,22 @@
         const formatTrend = (v) => v ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '+0%';
         const getAvatarColor = (i) => AVATAR_COLORS[i % AVATAR_COLORS.length];
         
+        // API status indicator removed from UI
+        // function updateApiStatus(connected) {
+        //     const status = document.getElementById('apiStatus');
+        //     const text = document.getElementById('apiStatusText');
+        //     if (connected) {
+        //         status.classList.remove('disconnected');
+        //         text.textContent = 'iFood Conectado';
+        //     } else {
+        //         status.classList.add('disconnected');
+        //         text.textContent = 'Desconectado';
+        //     }
+        // }
+        
+        // No-op function to prevent errors
         function updateApiStatus(connected) {
-            const status = document.getElementById('apiStatus');
-            const text = document.getElementById('apiStatusText');
-            if (connected) {
-                status.classList.remove('disconnected');
-                text.textContent = 'iFood Conectado';
-            } else {
-                status.classList.add('disconnected');
-                text.textContent = 'Desconectado';
-            }
+            // Status indicator removed - function kept for compatibility
         }
         
         async function loadRestaurants(month = 'all') {

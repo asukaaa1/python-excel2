@@ -264,35 +264,85 @@
             gap: 1rem;
             margin-bottom: 2rem;
             flex-wrap: wrap;
+            align-items: center;
+            background: var(--bg-card);
+            padding: 1.25rem;
+            border-radius: 12px;
+            border: 1px solid var(--border);
         }
         .filter-select {
             position: relative;
+            flex: 1;
+            min-width: 200px;
+        }
+        .filter-select label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
         .filter-select select {
             appearance: none;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 0.75rem 2.5rem 0.75rem 1rem;
-            font-size: 0.875rem;
+            background: var(--bg-secondary);
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            padding: 0.875rem 2.75rem 0.875rem 1.125rem;
+            font-size: 0.9rem;
             font-family: inherit;
+            font-weight: 500;
             color: var(--text-primary);
             cursor: pointer;
             transition: all 0.2s;
-            min-width: 150px;
+            width: 100%;
         }
-        .filter-select select:hover { border-color: var(--accent); }
-        .filter-select select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(239,68,68,0.1); }
+        .filter-select select:hover { 
+            border-color: var(--accent); 
+            background: var(--bg-card);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .filter-select select:focus { 
+            outline: none; 
+            border-color: var(--accent); 
+            box-shadow: 0 0 0 3px rgba(239,68,68,0.1), 0 2px 8px rgba(0,0,0,0.08); 
+        }
         .filter-select::after {
             content: '';
             position: absolute;
-            right: 1rem;
-            top: 50%;
+            right: 1.125rem;
+            top: calc(50% + 0.625rem);
             transform: translateY(-50%);
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-top: 5px solid var(--text-secondary);
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 6px solid var(--text-secondary);
             pointer-events: none;
+            transition: all 0.2s;
+        }
+        .filter-reset {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.875rem 1.25rem;
+            background: transparent;
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .filter-reset:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(239,68,68,0.05);
+        }
+        .filter-reset svg {
+            width: 16px;
+            height: 16px;
         }
         
         /* Summary Cards */
@@ -613,18 +663,26 @@
         <!-- Filters -->
         <div class="filters-bar">
             <div class="filter-select">
+                <label for="monthFilter">📅 Período</label>
                 <select id="monthFilter" onchange="applyFilters()">
                     <option value="">Todos os meses</option>
                 </select>
             </div>
             <div class="filter-select">
+                <label for="serviceFilter">🍔 Tipo de Serviço</label>
                 <select id="serviceFilter" onchange="applyFilters()">
                     <option value="">Todos os serviços</option>
-                    <option value="delivery">Delivery</option>
-                    <option value="takeout">Retirada</option>
-                    <option value="indoor">Salão</option>
+                    <option value="delivery">🛵 Delivery</option>
+                    <option value="takeout">🥡 Retirada</option>
+                    <option value="indoor">🍽️ Salão</option>
                 </select>
             </div>
+            <button class="filter-reset" onclick="resetFilters()" title="Limpar filtros">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                Limpar
+            </button>
         </div>
         
         <!-- Summary Cards -->
@@ -709,6 +767,7 @@
     
     <script>
         let managersData = [];
+        let allRestaurants = [];
         const servicesMap = {
             'delivery': 'Delivery',
             'takeout': 'Retirada',
@@ -739,7 +798,8 @@
                 const data = await response.json();
                 
                 if (data.success && data.restaurants) {
-                    processManagersData(data.restaurants);
+                    allRestaurants = data.restaurants; // Store all restaurants
+                    processManagersData(allRestaurants);
                     renderManagersTable();
                 } else {
                     document.getElementById('managersTable').innerHTML = '<tr><td colspan="6" class="empty-state">Nenhum dado disponível</td></tr>';
@@ -936,6 +996,34 @@
         
         // Apply filters
         function applyFilters() {
+            const monthFilter = document.getElementById('monthFilter').value;
+            const serviceFilter = document.getElementById('serviceFilter').value;
+            
+            // Filter restaurants based on selected criteria
+            const filteredRestaurants = allRestaurants.filter(r => {
+                // Month filter logic would require date field from orders
+                // For now, we'll keep all restaurants
+                let matchesMonth = true;
+                
+                // Service filter
+                let matchesService = true;
+                if (serviceFilter) {
+                    matchesService = r.services && r.services.includes(serviceFilter);
+                }
+                
+                return matchesMonth && matchesService;
+            });
+            
+            // Reprocess managers data with filtered restaurants
+            processManagersData(filteredRestaurants);
+            renderManagersTable();
+        }
+        
+        // Reset filters
+        function resetFilters() {
+            document.getElementById('monthFilter').value = '';
+            document.getElementById('serviceFilter').value = '';
+            processManagersData(allRestaurants);
             renderManagersTable();
         }
         
