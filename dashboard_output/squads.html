@@ -68,13 +68,12 @@
         .nav-section-title { font-size: 0.65rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 0 0.75rem; margin-bottom: 0.5rem; }
         .nav-item {
             display: flex; align-items: center; gap: 0.75rem;
-            padding: 0.75rem 0.875rem; margin-bottom: 0.25rem;
-            border-radius: 10px; color: var(--text-secondary);
+            padding: 0.75rem 1rem; margin-bottom: 0.25rem;
+            border-radius: 8px; color: var(--text-secondary);
             text-decoration: none; transition: all 0.2s; cursor: pointer;
         }
         .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
         .nav-item.active { background: rgba(249,112,21,0.1); color: var(--accent); }
-        [data-theme="dark"] .nav-item.active { background: rgba(249,112,21,0.15); }
         .nav-item svg { width: 20px; height: 20px; }
         
         .sidebar-footer { padding: 1rem; border-top: 1px solid var(--border); }
@@ -123,7 +122,7 @@
         .btn-danger { color: var(--red); }
         .btn-danger:hover { background: var(--red-bg); border-color: var(--red); }
         .btn-purple { background: var(--purple); color: white; border: none; }
-        .btn-purple:hover { background: var(--accent-hover); }
+        .btn-purple:hover { background: #7c3aed; }
         
         /* Stats Grid */
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
@@ -314,8 +313,11 @@
                 <div class="nav-section-title">Menu</div>
                 <a href="/dashboard" class="nav-item">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                    <span>Dashboard</span>
+                    <span>Clientes</span>
                 </a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Admin</div>
                 <a href="/comparativo" class="nav-item">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
                     <span>Comparativo</span>
