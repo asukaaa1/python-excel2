@@ -1267,10 +1267,10 @@
                 switch(currentSortOrder) {
                     case 'name-asc': return a.name.localeCompare(b.name);
                     case 'name-desc': return b.name.localeCompare(a.name);
-                    case 'vendas': return (b.metrics?.totals?.vendas ?? 0) - (a.metrics?.totals?.vendas ?? 0);
-                    case 'ticket-medio': return (b.metrics?.totals?.ticketMedio ?? 0) - (a.metrics?.totals?.ticketMedio ?? 0);
-                    case 'valor-bruto': return (b.metrics?.totals?.valorBruto ?? 0) - (a.metrics?.totals?.valorBruto ?? 0);
-                    case 'liquido': return (b.metrics?.totals?.liquido ?? 0) - (a.metrics?.totals?.liquido ?? 0);
+                    case 'vendas': return (b.metrics?.totals?.vendas ?? b.metrics?.vendas ?? b.orders ?? 0) - (a.metrics?.totals?.vendas ?? a.metrics?.vendas ?? a.orders ?? 0);
+                    case 'ticket-medio': return (b.metrics?.totals?.ticketMedio ?? b.metrics?.ticket_medio ?? b.ticket ?? 0) - (a.metrics?.totals?.ticketMedio ?? a.metrics?.ticket_medio ?? a.ticket ?? 0);
+                    case 'valor-bruto': return (b.metrics?.totals?.valorBruto ?? b.metrics?.valor_bruto ?? b.revenue ?? 0) - (a.metrics?.totals?.valorBruto ?? a.metrics?.valor_bruto ?? a.revenue ?? 0);
+                    case 'liquido': return (b.metrics?.totals?.liquido ?? b.metrics?.liquido ?? b.revenue ?? 0) - (a.metrics?.totals?.liquido ?? a.metrics?.liquido ?? a.revenue ?? 0);
                     default: return 0;
                 }
             });
@@ -1283,7 +1283,23 @@
             }
 
             list.innerHTML = filtered.map((r, i) => {
-                const trend = r.metrics?.trends?.vendas ?? 0;
+                // FIXED: Better fallback handling for metrics
+                const m = r.metrics || {};
+                const totals = m.totals || {};
+                const trends = m.trends || {};
+                
+                // Use metrics values, fallback to top-level values if needed
+                const vendas = totals.vendas ?? m.vendas ?? r.orders ?? 0;
+                const ticketMedio = totals.ticketMedio ?? m.ticket_medio ?? r.ticket ?? 0;
+                const valorBruto = totals.valorBruto ?? m.valor_bruto ?? r.revenue ?? 0;
+                const liquido = totals.liquido ?? m.liquido ?? r.revenue ?? 0;
+                
+                const trend = trends.vendas ?? m.trend ?? r.trend ?? 0;
+                const trendVendas = trends.vendas ?? 0;
+                const trendTicket = trends.ticketMedio ?? m.trends?.ticket_medio ?? 0;
+                const trendBruto = trends.valorBruto ?? m.trends?.valor_bruto ?? 0;
+                const trendLiquido = trends.liquido ?? m.trends?.liquido ?? 0;
+                
                 const trendClass = trend >= 0 ? 'positive' : 'negative';
                 const trendIcon = trend >= 0 ? '<i class="fas fa-arrow-up"></i>' : '<i class="fas fa-arrow-down"></i>';
 
@@ -1310,23 +1326,23 @@
                         <div class="restaurant-metrics">
                             <div class="metric">
                                 <div class="metric-label">Vendas</div>
-                                <div class="metric-value">${formatNumber(r.metrics?.totals?.vendas ?? 0)}</div>
-                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(trend)}</div>
+                                <div class="metric-value">${formatNumber(vendas)}</div>
+                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(trendVendas)}</div>
                             </div>
                             <div class="metric">
                                 <div class="metric-label">Ticket Médio</div>
-                                <div class="metric-value">${formatCurrency(r.metrics?.totals?.ticketMedio ?? 0)}</div>
-                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(r.metrics?.trends?.ticketMedio ?? 0)}</div>
+                                <div class="metric-value">${formatCurrency(ticketMedio)}</div>
+                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(trendTicket)}</div>
                             </div>
                             <div class="metric">
                                 <div class="metric-label">Valor Bruto</div>
-                                <div class="metric-value">${formatCurrency(r.metrics?.totals?.valorBruto ?? 0)}</div>
-                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(r.metrics?.trends?.valorBruto ?? 0)}</div>
+                                <div class="metric-value">${formatCurrency(valorBruto)}</div>
+                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(trendBruto)}</div>
                             </div>
                             <div class="metric">
                                 <div class="metric-label">Líquido</div>
-                                <div class="metric-value">${formatCurrency(r.metrics?.totals?.liquido ?? 0)}</div>
-                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(r.metrics?.trends?.liquido ?? 0)}</div>
+                                <div class="metric-value">${formatCurrency(liquido)}</div>
+                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(trendLiquido)}</div>
                             </div>
                         </div>
                         <div class="restaurant-actions">
