@@ -91,25 +91,25 @@
         }
 
         [data-theme="dark"] {
-            --bg-primary: #0f0f12;
-            --bg-secondary: #16161a;
-            --bg-tertiary: #1e1e24;
-            --bg-elevated: #1a1a1f;
+            --bg-primary: #000000;
+            --bg-secondary: #0a0a0a;
+            --bg-tertiary: #0f0f0f;
+            --bg-elevated: #0a0a0a;
             
-            --text-primary: #f4f4f5;
-            --text-secondary: #a1a1aa;
-            --text-tertiary: #71717a;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+            --text-tertiary: #666666;
             
-            --border-light: #27272a;
-            --border-medium: #3f3f46;
-            --border-heavy: #52525b;
+            --border-light: #1a1a1a;
+            --border-medium: #262626;
+            --border-heavy: #333333;
             
-            --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.5);
-            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.6);
-            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.6);
-            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.7);
-            --shadow-glow: 0 0 40px rgba(249, 115, 22, 0.2);
+            --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.7);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.8);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.9);
+            --shadow-glow: 0 0 40px rgba(249, 115, 22, 0.15);
         }
 
         body {
@@ -435,7 +435,7 @@
         }
 
         .page-title h1 {
-            font-size: 1.75rem;
+            font-size: 2.25rem;
             font-weight: 800;
             color: var(--text-primary);
             letter-spacing: -0.02em;
@@ -1293,21 +1293,25 @@
                 <div class="sidebar-section-title">Menu</div>
                 <a href="/" class="sidebar-link active">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
-                    Dashboard
+                    TIMO
                 </a>
-                <a href="/charts" class="sidebar-link">
+                <a href="/comparativo" class="sidebar-link">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                    Gráficos
+                    Comparativo
+                </a>
+                <a href="/squads" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    Squads
                 </a>
             </div>
             
             <div class="sidebar-section" id="adminSection" style="display: none;">
                 <div class="sidebar-section-title">Administração</div>
-                <a href="/admin/users" class="sidebar-link">
+                <a href="/admin" class="sidebar-link">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
                     Usuários
                 </a>
-                <a href="/admin/hidden" class="sidebar-link">
+                <a href="/hidden-stores" class="sidebar-link">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
                     Lojas Ocultas
                 </a>
@@ -1332,7 +1336,7 @@
                     </svg>
                 </button>
                 <div class="page-title">
-                    <h1>Dashboard</h1>
+                    <h1>TIMO</h1>
                     <p>Visão geral das suas lojas</p>
                 </div>
             </div>
