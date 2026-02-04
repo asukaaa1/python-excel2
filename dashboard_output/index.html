@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TIMO - Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -14,63 +15,152 @@
         }
 
         :root {
-            /* Light theme */
+            /* Typography */
+            --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+            
+            /* Refined Color Palette - Light Mode */
             --bg-primary: #ffffff;
-            --bg-secondary: #f8fafc;
-            --bg-card: #ffffff;
-            --bg-hover: #f1f5f9;
-            --text-primary: #0f172a;
-            --text-secondary: #64748b;
-            --text-muted: #94a3b8;
-            --border: #e2e8f0;
-            --accent: #f97015;
-            --accent-hover: #ea580c;
-            --green: #22c55e;
-            --green-bg: rgba(34,197,94,0.1);
-            --red: #ef4444;
-            --red-bg: rgba(239,68,68,0.1);
-            --shadow: 0 1px 3px rgba(0,0,0,0.1);
-            --shadow-lg: 0 4px 6px rgba(0,0,0,0.1);
+            --bg-secondary: #fafafa;
+            --bg-tertiary: #f5f5f5;
+            --bg-elevated: #ffffff;
+            
+            --text-primary: #171717;
+            --text-secondary: #525252;
+            --text-tertiary: #a3a3a3;
+            
+            --border-light: #e5e5e5;
+            --border-medium: #d4d4d4;
+            --border-heavy: #a3a3a3;
+            
+            /* Brand Colors - Refined */
+            --primary-50: #fff7ed;
+            --primary-100: #ffedd5;
+            --primary-500: #f97316;
+            --primary-600: #ea580c;
+            --primary-700: #c2410c;
+            
+            /* Semantic Colors */
+            --success-50: #f0fdf4;
+            --success-500: #10b981;
+            --success-700: #047857;
+            
+            --error-50: #fef2f2;
+            --error-500: #ef4444;
+            --error-700: #b91c1c;
+            
+            --warning-50: #fffbeb;
+            --warning-500: #f59e0b;
+            
+            /* Shadows - More Sophisticated */
+            --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            
+            /* Spacing */
+            --space-1: 0.25rem;
+            --space-2: 0.5rem;
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-5: 1.25rem;
+            --space-6: 1.5rem;
+            --space-8: 2rem;
+            --space-10: 2.5rem;
+            --space-12: 3rem;
+            
+            /* Border Radius */
+            --radius-sm: 0.375rem;
+            --radius-md: 0.5rem;
+            --radius-lg: 0.75rem;
+            --radius-xl: 1rem;
+            --radius-2xl: 1.5rem;
+            --radius-full: 9999px;
+            
+            /* Gradients */
+            --gradient-primary: linear-gradient(135deg, #fb923c 0%, #f97316 100%);
+            --gradient-success: linear-gradient(135deg, #34d399 0%, #10b981 100%);
         }
 
         [data-theme="dark"] {
-            --bg-primary: #000000;
-            --bg-secondary: #0a0a0a;
-            --bg-card: #0f0f0f;
-            --bg-hover: #1a1a1a;
-            --text-primary: #ffffff;
-            --text-secondary: #a0a0a0;
-            --text-muted: #666666;
-            --border: #1f1f1f;
-            --green-bg: rgba(34,197,94,0.15);
-            --red-bg: rgba(239,68,68,0.15);
-            --shadow: 0 1px 3px rgba(0,0,0,0.5);
-            --shadow-lg: 0 4px 6px rgba(0,0,0,0.3);
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #121212;
+            --bg-tertiary: #1a1a1a;
+            --bg-elevated: #1f1f1f;
+            
+            --text-primary: #fafafa;
+            --text-secondary: #a3a3a3;
+            --text-tertiary: #737373;
+            
+            --border-light: #262626;
+            --border-medium: #404040;
+            --border-heavy: #525252;
+            
+            --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
         }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-family: var(--font-body);
             background: var(--bg-primary);
             color: var(--text-primary);
             line-height: 1.6;
             min-height: 100vh;
             transition: background-color 0.3s, color 0.3s;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.2); }
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .animate-in {
+            animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            animation-fill-mode: both;
+        }
+
+        .animate-in:nth-child(1) { animation-delay: 0.1s; }
+        .animate-in:nth-child(2) { animation-delay: 0.2s; }
+        .animate-in:nth-child(3) { animation-delay: 0.3s; }
+        .animate-in:nth-child(4) { animation-delay: 0.4s; }
 
         /* Sidebar */
         .sidebar {
             position: fixed;
             top: 0;
             left: 0;
-            width: 260px;
+            width: 280px;
             height: 100vh;
-            background: var(--bg-card);
-            border-right: 1px solid var(--border);
+            background: var(--bg-elevated);
+            border-right: 1px solid var(--border-light);
             display: flex;
             flex-direction: column;
             z-index: 100;
             transform: translateX(-100%);
-            transition: transform 0.3s ease;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: var(--shadow-sm);
         }
 
         .sidebar.open {
@@ -79,15 +169,13 @@
 
         .sidebar-overlay {
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
             z-index: 99;
             opacity: 0;
             visibility: hidden;
-            transition: all 0.3s ease;
+            transition: all 0.3s;
         }
 
         .sidebar-overlay.show {
@@ -96,136 +184,176 @@
         }
 
         .sidebar-header {
-            padding: 1.5rem;
-            border-bottom: 1px solid var(--border);
+            padding: var(--space-6);
+            border-bottom: 1px solid var(--border-light);
         }
 
         .sidebar-user {
             display: flex;
             align-items: center;
-            gap: 0.875rem;
+            gap: var(--space-3);
         }
 
         .sidebar-avatar {
-            width: 44px;
-            height: 44px;
-            border-radius: 12px;
-            background: var(--accent);
+            width: 48px;
+            height: 48px;
+            border-radius: var(--radius-xl);
+            background: var(--gradient-primary);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-weight: 600;
-            font-size: 1.1rem;
+            font-weight: 700;
+            font-size: 1.125rem;
+            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
         }
 
         .sidebar-user-info h3 {
-            font-size: 0.95rem;
+            font-size: 0.9375rem;
             font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: var(--space-1);
         }
 
         .sidebar-user-info p {
             font-size: 0.75rem;
-            color: var(--text-muted);
+            color: var(--text-tertiary);
             display: flex;
             align-items: center;
-            gap: 0.35rem;
+            gap: var(--space-2);
         }
 
         .role-dot {
             width: 6px;
             height: 6px;
             border-radius: 50%;
-            background: var(--green);
+            background: var(--success-500);
+            box-shadow: 0 0 4px var(--success-500);
         }
 
         .sidebar-nav {
             flex: 1;
-            padding: 1rem 0;
+            padding: var(--space-4) var(--space-3);
             overflow-y: auto;
         }
 
         .sidebar-section {
-            padding: 0 1rem;
-            margin-bottom: 1.5rem;
+            margin-bottom: var(--space-8);
         }
 
         .sidebar-section-title {
-            font-size: 0.65rem;
+            font-size: 0.6875rem;
             font-weight: 600;
-            color: var(--text-muted);
+            color: var(--text-tertiary);
             text-transform: uppercase;
-            letter-spacing: 0.08em;
-            padding: 0 0.75rem;
-            margin-bottom: 0.5rem;
+            letter-spacing: 0.1em;
+            padding: 0 var(--space-4);
+            margin-bottom: var(--space-2);
         }
 
         .sidebar-link {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            padding: 0.75rem;
-            border-radius: 10px;
+            gap: var(--space-3);
+            padding: var(--space-3) var(--space-4);
+            margin: var(--space-1) 0;
+            border-radius: var(--radius-lg);
             color: var(--text-secondary);
             text-decoration: none;
-            font-size: 0.9rem;
+            font-size: 0.875rem;
             font-weight: 500;
-            transition: all 0.2s;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             cursor: pointer;
             border: none;
             background: none;
             width: 100%;
             text-align: left;
+            position: relative;
+        }
+
+        .sidebar-link::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 0;
+            background: var(--primary-500);
+            border-radius: 0 2px 2px 0;
+            transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .sidebar-link:hover {
-            background: var(--bg-hover);
+            background: var(--bg-tertiary);
             color: var(--text-primary);
         }
 
         .sidebar-link.active {
-            background: var(--accent);
-            color: white;
+            background: var(--primary-50);
+            color: var(--primary-600);
+            font-weight: 600;
+        }
+
+        [data-theme="dark"] .sidebar-link.active {
+            background: rgba(249, 115, 22, 0.1);
+            color: var(--primary-500);
+        }
+
+        .sidebar-link.active::before {
+            height: 20px;
         }
 
         .sidebar-link svg {
             width: 20px;
             height: 20px;
+            opacity: 0.7;
+            transition: all 0.2s;
+        }
+
+        .sidebar-link:hover svg,
+        .sidebar-link.active svg {
+            opacity: 1;
+            transform: scale(1.1);
         }
 
         .sidebar-footer {
-            padding: 1rem 1.5rem;
-            border-top: 1px solid var(--border);
+            padding: var(--space-4) var(--space-6);
+            border-top: 1px solid var(--border-light);
         }
 
         .sidebar-footer-btn {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 0.5rem;
+            gap: var(--space-2);
             width: 100%;
-            padding: 0.75rem;
-            border-radius: 10px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
+            padding: var(--space-3);
+            border-radius: var(--radius-lg);
+            background: transparent;
+            border: 2px solid var(--border-medium);
             color: var(--text-secondary);
-            font-size: 0.85rem;
+            font-size: 0.875rem;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
         }
 
         .sidebar-footer-btn:hover {
-            background: var(--red-bg);
-            border-color: var(--red);
-            color: var(--red);
+            background: var(--error-50);
+            border-color: var(--error-500);
+            color: var(--error-500);
+        }
+
+        [data-theme="dark"] .sidebar-footer-btn:hover {
+            background: rgba(239, 68, 68, 0.1);
         }
 
         /* Main Container */
         .container {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 2rem;
+            padding: var(--space-8);
         }
 
         /* Header */
@@ -233,23 +361,23 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1.5rem;
+            margin-bottom: var(--space-6);
             flex-wrap: wrap;
-            gap: 1rem;
+            gap: var(--space-4);
         }
 
         .header-left {
             display: flex;
             align-items: center;
-            gap: 1rem;
+            gap: var(--space-4);
         }
 
         .menu-toggle {
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius-lg);
+            background: var(--bg-elevated);
+            border: 2px solid var(--border-medium);
             color: var(--text-secondary);
             cursor: pointer;
             display: flex;
@@ -259,21 +387,21 @@
         }
 
         .menu-toggle:hover {
-            border-color: var(--accent);
+            border-color: var(--primary-500);
             color: var(--text-primary);
+            background: var(--bg-secondary);
         }
 
         .logo {
-            font-size: 2.5rem;
-            font-weight: 900;
+            font-size: 2rem;
+            font-weight: 800;
             color: var(--text-primary);
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
+            letter-spacing: -0.02em;
         }
 
         .header-actions {
             display: flex;
-            gap: 0.75rem;
+            gap: var(--space-3);
             align-items: center;
         }
 
@@ -282,170 +410,264 @@
         }
 
         .search-input {
-            padding: 0.6rem 1rem 0.6rem 2.5rem;
+            padding: var(--space-3) var(--space-4) var(--space-3) var(--space-10);
             font-size: 0.875rem;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--bg-card);
+            border: 2px solid var(--border-medium);
+            border-radius: var(--radius-lg);
+            background: var(--bg-elevated);
             color: var(--text-primary);
-            width: 250px;
+            width: 280px;
             transition: all 0.2s;
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-body);
+        }
+
+        .search-input:hover {
+            border-color: var(--border-heavy);
         }
 
         .search-input:focus {
             outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(249,112,21,0.1);
+            border-color: var(--primary-500);
+            box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.1);
         }
 
         .search-input::placeholder {
-            color: var(--text-muted);
+            color: var(--text-tertiary);
         }
 
         .search-icon {
             position: absolute;
-            left: 0.75rem;
+            left: var(--space-4);
             top: 50%;
             transform: translateY(-50%);
-            color: var(--text-muted);
+            color: var(--text-tertiary);
+            pointer-events: none;
         }
 
         .btn {
-            padding: 0.6rem 1.2rem;
-            font-size: 0.875rem;
-            font-weight: 500;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 0.5rem;
+            justify-content: center;
+            gap: var(--space-2);
+            padding: var(--space-3) var(--space-5);
+            font-size: 0.875rem;
+            font-weight: 600;
+            font-family: inherit;
+            border-radius: var(--radius-lg);
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            border: none;
+            outline: none;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.15);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .btn:hover::before {
+            opacity: 1;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
         }
 
         .btn-primary {
-            background: var(--accent);
+            background: var(--gradient-primary);
             color: white;
-            border: none;
+            box-shadow: 0 2px 8px rgba(249, 115, 22, 0.25);
         }
 
         .btn-primary:hover {
-            background: var(--accent-hover);
+            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.35);
+            transform: translateY(-1px);
         }
 
         .btn-secondary {
-            background: transparent;
-            color: var(--text-secondary);
-            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+            border: 2px solid var(--border-medium);
         }
 
         .btn-secondary:hover {
-            background: var(--bg-hover);
-            color: var(--text-primary);
+            border-color: var(--border-heavy);
+            background: var(--bg-secondary);
         }
 
-        /* Quick Filters */
-        .quick-filters {
-            display: flex;
-            gap: 1.5rem;
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-        }
-
-        .filter-card {
-            display: flex;
-            align-items: center;
-            gap: 1.25rem;
-            padding: 1.5rem 2rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
+        .icon-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius-lg);
+            background: var(--bg-elevated);
+            border: 2px solid var(--border-medium);
+            color: var(--text-secondary);
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            min-width: 280px;
-            flex: 1;
-        }
-
-        .filter-card:hover {
-            border-color: var(--text-muted);
-            box-shadow: var(--shadow-lg);
-            transform: translateY(-4px);
-        }
-
-        .filter-icon {
-            width: 64px;
-            height: 64px;
-            border-radius: 14px;
             display: flex;
             align-items: center;
             justify-content: center;
-            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+
+        .icon-btn:hover {
+            border-color: var(--primary-500);
+            color: var(--text-primary);
+        }
+
+        /* Quick Filters - Enhanced Metric Cards */
+        .quick-filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: var(--space-5);
+            margin-bottom: var(--space-8);
+        }
+
+        .filter-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-2xl);
+            padding: var(--space-6);
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .filter-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient-primary);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .filter-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-lg);
+            border-color: var(--border-medium);
+        }
+
+        .filter-card:hover::before {
+            opacity: 1;
+        }
+
+        .filter-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: var(--space-4);
+        }
+
+        .filter-card-title {
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .filter-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: var(--radius-xl);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
         }
 
         .filter-icon.growth {
-            background: var(--green);
-            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+            background: var(--success-50);
+            color: var(--success-500);
+        }
+
+        [data-theme="dark"] .filter-icon.growth {
+            background: rgba(16, 185, 129, 0.15);
         }
 
         .filter-icon.decline {
-            background: var(--red);
-            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+            background: var(--error-50);
+            color: var(--error-500);
+        }
+
+        [data-theme="dark"] .filter-icon.decline {
+            background: rgba(239, 68, 68, 0.15);
+        }
+
+        .filter-card:hover .filter-icon {
+            transform: scale(1.1);
+            box-shadow: 0 4px 16px currentColor;
         }
 
         .filter-icon svg {
-            width: 32px;
-            height: 32px;
-            color: white;
+            width: 28px;
+            height: 28px;
         }
 
-        .filter-content {
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-        }
-
-        .filter-title {
-            font-weight: 600;
-            font-size: 1.125rem;
+        .filter-count {
+            font-family: var(--font-mono);
+            font-size: 2.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.2;
+            margin-bottom: var(--space-2);
+            letter-spacing: -0.02em;
         }
 
         .filter-subtitle {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
         }
 
         /* Sort Bar */
         .sort-bar {
             display: flex;
             align-items: center;
-            gap: 1rem;
-            margin-bottom: 1.5rem;
+            justify-content: space-between;
+            gap: var(--space-4);
+            margin-bottom: var(--space-6);
             flex-wrap: wrap;
+            padding: var(--space-4);
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-xl);
         }
 
         .results-count {
-            font-size: 0.8rem;
-            color: var(--text-muted);
+            font-size: 0.875rem;
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: var(--space-2);
+            font-weight: 500;
         }
 
         .results-count::before {
             content: '';
-            width: 6px;
-            height: 6px;
-            background: var(--green);
+            width: 8px;
+            height: 8px;
+            background: var(--success-500);
             border-radius: 50%;
             animation: pulse 2s ease-in-out infinite;
+            box-shadow: 0 0 8px var(--success-500);
         }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.7; transform: scale(1.2); }
+        .sort-controls {
+            display: flex;
+            gap: var(--space-3);
         }
 
-        /* Dropdown Styles */
+        /* Dropdown */
         .sort-dropdown {
             position: relative;
         }
@@ -453,22 +675,22 @@
         .sort-dropdown-btn {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            padding: 0.65rem 1rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
+            gap: var(--space-2);
+            padding: var(--space-3) var(--space-4);
+            background: var(--bg-secondary);
+            border: 2px solid var(--border-medium);
+            border-radius: var(--radius-lg);
             font-size: 0.875rem;
             color: var(--text-primary);
             cursor: pointer;
             transition: all 0.2s;
             font-weight: 500;
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-body);
         }
 
         .sort-dropdown-btn:hover {
-            border-color: var(--text-muted);
-            background: var(--bg-hover);
+            border-color: var(--border-heavy);
+            background: var(--bg-tertiary);
         }
 
         .sort-dropdown-btn svg {
@@ -477,28 +699,29 @@
         }
 
         .sort-dropdown-label {
-            color: var(--text-muted);
+            color: var(--text-tertiary);
         }
 
         .sort-dropdown-value {
             color: var(--text-primary);
+            font-weight: 600;
         }
 
         .sort-dropdown-menu {
             position: absolute;
-            top: 100%;
+            top: calc(100% + var(--space-2));
             left: 0;
-            margin-top: 0.5rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            box-shadow: var(--shadow-lg);
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-xl);
             min-width: 200px;
             z-index: 10;
             opacity: 0;
             visibility: hidden;
             transform: translateY(-10px);
-            transition: all 0.2s;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
         }
 
         .sort-dropdown.open .sort-dropdown-menu {
@@ -510,7 +733,7 @@
         .sort-dropdown-item {
             display: block;
             width: 100%;
-            padding: 0.75rem 1rem;
+            padding: var(--space-3) var(--space-4);
             border: none;
             background: none;
             color: var(--text-primary);
@@ -519,64 +742,80 @@
             text-align: left;
             cursor: pointer;
             transition: all 0.2s;
-            font-family: 'Inter', sans-serif;
-        }
-
-        .sort-dropdown-item:first-child {
-            border-radius: 8px 8px 0 0;
-        }
-
-        .sort-dropdown-item:last-child {
-            border-radius: 0 0 8px 8px;
+            font-family: var(--font-body);
         }
 
         .sort-dropdown-item:hover {
-            background: var(--bg-hover);
+            background: var(--bg-secondary);
         }
 
         .sort-dropdown-item.active {
-            background: var(--accent);
+            background: var(--primary-500);
             color: white;
+            font-weight: 600;
         }
 
         /* Restaurant List */
         .restaurant-list {
             display: flex;
             flex-direction: column;
-            gap: 1rem;
+            gap: var(--space-4);
         }
 
         .restaurant-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-xl);
+            padding: var(--space-6);
             display: grid;
             grid-template-columns: auto 1fr auto auto;
-            gap: 1.5rem;
+            gap: var(--space-5);
             align-items: center;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             cursor: pointer;
+            position: relative;
+        }
+
+        .restaurant-card::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 0;
+            background: var(--primary-500);
+            border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+            transition: width 0.2s ease;
         }
 
         .restaurant-card:hover {
-            border-color: var(--text-muted);
+            border-color: var(--border-medium);
             box-shadow: var(--shadow-lg);
             transform: translateY(-2px);
         }
 
+        .restaurant-card:hover::before {
+            width: 4px;
+        }
+
         .restaurant-avatar {
-            width: 56px;
-            height: 56px;
-            border-radius: 12px;
-            background: var(--accent);
+            width: 64px;
+            height: 64px;
+            border-radius: var(--radius-xl);
+            background: var(--gradient-primary);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
             font-weight: 700;
-            font-size: 1.5rem;
+            font-size: 1.75rem;
             flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+            transition: transform 0.3s;
+        }
+
+        .restaurant-card:hover .restaurant-avatar {
+            transform: scale(1.05);
         }
 
         .restaurant-info {
@@ -587,309 +826,223 @@
         .restaurant-header {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            margin-bottom: 0.5rem;
+            gap: var(--space-3);
+            margin-bottom: var(--space-2);
             flex-wrap: wrap;
         }
 
         .restaurant-name {
-            font-size: 1rem;
+            font-size: 1.125rem;
             font-weight: 600;
+            color: var(--text-primary);
         }
 
         .restaurant-rating {
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 0.3rem;
-            padding: 0.25rem 0.6rem;
-            background: rgba(251, 191, 36, 0.15);
-            border-radius: 6px;
-            font-size: 0.8rem;
+            gap: var(--space-1);
+            padding: var(--space-1) var(--space-2);
+            background: var(--warning-50);
+            color: var(--warning-500);
+            border-radius: var(--radius-md);
+            font-size: 0.75rem;
             font-weight: 600;
-            color: #fbbf24;
+        }
+
+        [data-theme="dark"] .restaurant-rating {
+            background: rgba(245, 158, 11, 0.15);
         }
 
         .restaurant-meta {
-            font-size: 0.85rem;
-            color: var(--text-secondary);
+            display: flex;
+            gap: var(--space-4);
+            color: var(--text-tertiary);
+            font-size: 0.8125rem;
+        }
+
+        .restaurant-meta-item {
             display: flex;
             align-items: center;
-            gap: 1rem;
-            flex-wrap: wrap;
+            gap: var(--space-1);
         }
 
-        .meta-item {
+        .restaurant-stats {
             display: flex;
-            align-items: center;
-            gap: 0.4rem;
+            gap: var(--space-6);
         }
 
-        .growth-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.3rem;
-            padding: 0.25rem 0.6rem;
-            background: var(--green-bg);
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            color: var(--green);
-        }
-
-        .decline-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.3rem;
-            padding: 0.25rem 0.6rem;
-            background: var(--red-bg);
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            color: var(--red);
-        }
-
-        .platform-badge {
-            padding: 0.25rem 0.6rem;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: 0.7rem;
-            font-weight: 600;
-            color: var(--text-secondary);
-        }
-
-        .restaurant-metrics {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 1.5rem;
-            text-align: center;
-        }
-
-        .metric {
+        .stat-item {
             display: flex;
             flex-direction: column;
-            gap: 0.25rem;
+            gap: var(--space-1);
         }
 
-        .metric-label {
-            font-size: 0.7rem;
+        .stat-label {
+            font-size: 0.6875rem;
+            font-weight: 500;
+            color: var(--text-tertiary);
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            color: var(--text-muted);
-            font-weight: 600;
         }
 
-        .metric-value {
+        .stat-value {
+            font-family: var(--font-mono);
             font-size: 1.125rem;
             font-weight: 700;
             color: var(--text-primary);
         }
 
-        .metric-trend {
+        .trend {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-1);
+            padding: var(--space-1) var(--space-2);
+            border-radius: var(--radius-md);
             font-size: 0.75rem;
             font-weight: 600;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.25rem;
+            font-family: var(--font-mono);
         }
 
-        .metric-trend.positive {
-            color: var(--green);
+        .trend.positive {
+            background: var(--success-50);
+            color: var(--success-700);
         }
 
-        .metric-trend.negative {
-            color: var(--red);
+        .trend.negative {
+            background: var(--error-50);
+            color: var(--error-700);
+        }
+
+        [data-theme="dark"] .trend.positive {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success-500);
+        }
+
+        [data-theme="dark"] .trend.negative {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--error-500);
         }
 
         .restaurant-actions {
             display: flex;
-            gap: 0.5rem;
+            gap: var(--space-2);
+            opacity: 0;
+            transition: opacity 0.2s;
         }
 
-        .btn-dashboard {
-            padding: 0.75rem 1.5rem;
-            background: var(--accent);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 0.875rem;
-            cursor: pointer;
-            transition: all 0.2s;
-            white-space: nowrap;
+        .restaurant-card:hover .restaurant-actions {
+            opacity: 1;
         }
 
-        .btn-dashboard:hover {
-            background: var(--accent-hover);
-            transform: translateY(-1px);
-        }
-
-        .btn-icon {
+        .action-btn {
             width: 40px;
             height: 40px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: var(--radius-lg);
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            cursor: pointer;
-            color: var(--text-secondary);
             transition: all 0.2s;
         }
 
-        .btn-icon:hover {
-            background: var(--bg-hover);
-            border-color: var(--accent);
-            color: var(--accent);
+        .action-btn:hover {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
         }
 
-        /* Loading State */
-        .loading-state {
-            text-align: center;
-            padding: 4rem 2rem;
-            color: var(--text-secondary);
+        .action-btn.danger:hover {
+            background: var(--error-50);
+            color: var(--error-500);
         }
 
-        .loading-spinner {
-            width: 48px;
-            height: 48px;
-            border: 3px solid var(--border);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 1rem;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        /* Empty State */
-        .empty-state {
-            text-align: center;
-            padding: 4rem 2rem;
-            color: var(--text-secondary);
-        }
-
-        .empty-state svg {
-            width: 64px;
-            height: 64px;
-            margin: 0 auto 1rem;
-            opacity: 0.5;
-        }
-
-        .empty-state h3 {
-            font-size: 1.125rem;
-            margin-bottom: 0.5rem;
-        }
-
-        /* Toast */
-        .toast {
-            position: fixed;
-            bottom: 2rem;
-            right: 2rem;
-            padding: 1rem 1.5rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            box-shadow: var(--shadow-lg);
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            z-index: 2000;
-            transition: opacity 0.3s;
+        [data-theme="dark"] .action-btn.danger:hover {
+            background: rgba(239, 68, 68, 0.15);
         }
 
         /* Modal */
-        .modal-overlay {
+        .modal {
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.7);
-            backdrop-filter: blur(8px);
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 200;
+            z-index: 1000;
             opacity: 0;
             visibility: hidden;
-            transition: all 0.3s;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .modal-overlay.show {
+        .modal.show {
             opacity: 1;
             visibility: visible;
         }
 
-        .modal {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            width: 90%;
+        .modal-content {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-2xl);
+            box-shadow: var(--shadow-xl);
             max-width: 600px;
-            max-height: 80vh;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            transform: scale(0.9);
-            transition: transform 0.3s;
+            width: 90%;
+            max-height: 85vh;
+            overflow: hidden;
+            transform: scale(0.95) translateY(20px);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .modal-overlay.show .modal {
-            transform: scale(1);
+        .modal.show .modal-content {
+            transform: scale(1) translateY(0);
         }
 
         .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1.5rem;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .modal-title {
+            padding: var(--space-6);
+            border-bottom: 1px solid var(--border-light);
             display: flex;
             align-items: center;
-            gap: 1rem;
+            gap: var(--space-4);
         }
 
-        .modal-title-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
+        .modal-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: var(--radius-xl);
             display: flex;
             align-items: center;
             justify-content: center;
+            flex-shrink: 0;
         }
 
-        .modal-title-icon svg {
-            width: 24px;
-            height: 24px;
+        .modal-icon svg {
+            width: 32px;
+            height: 32px;
             color: white;
         }
 
-        .modal-title-text h2 {
-            font-size: 1.25rem;
+        .modal-title-group h2 {
+            font-size: 1.5rem;
             font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: var(--space-1);
         }
 
-        .modal-title-text p {
+        .modal-title-group p {
             font-size: 0.875rem;
-            color: var(--text-secondary);
+            color: var(--text-tertiary);
         }
 
         .modal-close {
-            width: 36px;
-            height: 36px;
-            border-radius: 8px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
+            margin-left: auto;
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius-lg);
+            background: transparent;
+            border: none;
             color: var(--text-secondary);
-            font-size: 1.5rem;
             cursor: pointer;
             transition: all 0.2s;
             display: flex;
@@ -898,114 +1051,144 @@
         }
 
         .modal-close:hover {
-            background: var(--red-bg);
-            border-color: var(--red);
-            color: var(--red);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
         }
 
         .modal-body {
-            padding: 1.5rem;
+            padding: var(--space-6);
             overflow-y: auto;
-        }
-
-        .ranking-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
+            max-height: calc(85vh - 140px);
         }
 
         .ranking-item {
             display: flex;
             align-items: center;
-            gap: 1rem;
-            padding: 1rem;
+            gap: var(--space-4);
+            padding: var(--space-4);
             background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 10px;
+            border-radius: var(--radius-lg);
+            margin-bottom: var(--space-3);
             transition: all 0.2s;
         }
 
         .ranking-item:hover {
-            background: var(--bg-hover);
+            background: var(--bg-tertiary);
+            transform: translateX(4px);
         }
 
         .ranking-number {
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            background: var(--accent);
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius-lg);
+            background: var(--gradient-primary);
             color: white;
             display: flex;
             align-items: center;
             justify-content: center;
+            font-family: var(--font-mono);
             font-weight: 700;
-            font-size: 0.9rem;
+            font-size: 1.125rem;
             flex-shrink: 0;
         }
 
         .ranking-info {
             flex: 1;
-            min-width: 0;
         }
 
         .ranking-name {
             font-weight: 600;
-            font-size: 0.95rem;
-            margin-bottom: 0.25rem;
+            color: var(--text-primary);
+            margin-bottom: var(--space-1);
         }
 
         .ranking-detail {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
+            font-size: 0.8125rem;
+            color: var(--text-tertiary);
         }
 
         .ranking-value {
+            font-family: var(--font-mono);
             font-weight: 700;
-            font-size: 1rem;
-            color: var(--text-primary);
+            font-size: 1.25rem;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: var(--space-8);
+            right: var(--space-8);
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-xl);
+            padding: var(--space-4) var(--space-5);
+            box-shadow: var(--shadow-xl);
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            z-index: 1001;
+            opacity: 1;
+            transition: opacity 0.3s;
+            font-weight: 500;
+        }
+
+        .toast.success {
+            border-left: 4px solid var(--success-500);
+        }
+
+        .toast.error {
+            border-left: 4px solid var(--error-500);
         }
 
         /* Responsive */
-        @media (max-width: 1024px) {
-            .restaurant-card {
-                grid-template-columns: auto 1fr;
-                gap: 1rem;
-            }
-
-            .restaurant-metrics {
-                grid-column: 1 / -1;
-                grid-template-columns: repeat(2, 1fr);
-                margin-top: 1rem;
-                padding-top: 1rem;
-                border-top: 1px solid var(--border);
-            }
-
-            .restaurant-actions {
-                grid-column: 1 / -1;
-            }
-        }
-
         @media (max-width: 768px) {
             .container {
-                padding: 1rem;
+                padding: var(--space-4);
             }
 
             .quick-filters {
-                flex-direction: column;
+                grid-template-columns: 1fr;
             }
 
-            .restaurant-metrics {
-                grid-template-columns: repeat(2, 1fr);
-                gap: 1rem;
+            .restaurant-card {
+                grid-template-columns: auto 1fr;
+                gap: var(--space-4);
+            }
+
+            .restaurant-stats,
+            .restaurant-actions {
+                grid-column: 1 / -1;
             }
 
             .search-input {
-                width: 180px;
+                width: 100%;
             }
+        }
+
+        /* Loading skeleton */
+        @keyframes shimmer {
+            0% {
+                background-position: -1000px 0;
+            }
+            100% {
+                background-position: 1000px 0;
+            }
+        }
+
+        .skeleton {
+            background: linear-gradient(
+                90deg,
+                var(--bg-secondary) 0%,
+                var(--bg-tertiary) 50%,
+                var(--bg-secondary) 100%
+            );
+            background-size: 2000px 100%;
+            animation: shimmer 2s infinite linear;
+            border-radius: var(--radius-md);
         }
     </style>
 </head>
-<body data-theme="dark">
+<body>
     <!-- Sidebar -->
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
     <aside class="sidebar" id="sidebar">
@@ -1014,41 +1197,60 @@
                 <div class="sidebar-avatar" id="sidebarAvatar">U</div>
                 <div class="sidebar-user-info">
                     <h3 id="sidebarUserName">Usuário</h3>
-                    <p><span class="role-dot"></span> <span id="sidebarUserRole">Carregando...</span></p>
+                    <p>
+                        <span class="role-dot"></span>
+                        <span id="sidebarUserRole">Usuário</span>
+                    </p>
                 </div>
             </div>
         </div>
+        
         <nav class="sidebar-nav">
             <div class="sidebar-section">
-                <div class="sidebar-section-title">Menu</div>
+                <div class="sidebar-section-title">Principal</div>
                 <a href="/dashboard" class="sidebar-link active">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                    Clientes
-                </a>
-            </div>
-            <div class="sidebar-section" id="adminSection" style="display: none;">
-                <div class="sidebar-section-title">Admin</div>
-                <a href="/comparativo" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                    Comparativo
-                </a>
-                <a href="/admin" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                    Configurações
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+                    </svg>
+                    Dashboard
                 </a>
                 <a href="/squads" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                    </svg>
                     Squads
                 </a>
-                <button class="sidebar-link" onclick="window.location.href='/hidden-stores'">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                <a href="/comparativo" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                    Comparativo
+                </a>
+                <a href="/hidden_stores" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
+                    </svg>
                     Lojas Ocultas
-                </button>
+                </a>
+            </div>
+            
+            <div class="sidebar-section" id="adminSection" style="display: none;">
+                <div class="sidebar-section-title">Admin</div>
+                <a href="/admin" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    Admin Panel
+                </a>
             </div>
         </nav>
+        
         <div class="sidebar-footer">
             <button class="sidebar-footer-btn" onclick="logout()">
-                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                </svg>
                 Sair
             </button>
         </div>
@@ -1056,347 +1258,276 @@
 
     <!-- Main Content -->
     <div class="container">
-        <div class="header">
+        <header class="header">
             <div class="header-left">
-                <button class="menu-toggle" onclick="toggleSidebar()" title="Menu">
-                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Menu">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
                 </button>
                 <h1 class="logo">TIMO</h1>
             </div>
+            
             <div class="header-actions">
                 <div class="search-box">
-                    <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                    <input type="text" class="search-input" id="searchInput" placeholder="Buscar cliente..." oninput="handleSearch()">
+                    <input 
+                        type="text" 
+                        class="search-input" 
+                        id="searchInput" 
+                        placeholder="Buscar restaurante..."
+                        oninput="renderRestaurants()"
+                    >
+                    <svg class="search-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
                 </div>
-                <button class="btn btn-secondary" id="themeToggle" onclick="toggleTheme()" title="Alternar tema">
-                    <svg id="sunIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                    <svg id="moonIcon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                <button class="icon-btn" onclick="refreshData()" title="Atualizar dados">
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
                 </button>
-                <button class="btn btn-secondary" onclick="refreshData()" title="Atualizar dados">
-                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                <button class="icon-btn" onclick="toggleTheme()" title="Alternar tema">
+                    <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                    </svg>
+                    <svg id="moonIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                    </svg>
                 </button>
             </div>
-        </div>
+        </header>
 
         <!-- Quick Filters -->
         <div class="quick-filters">
-            <div class="filter-card" id="filterGrowth" onclick="openModal('growth')">
-                <div class="filter-icon growth">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+            <div class="filter-card animate-in" onclick="openModal('growth')">
+                <div class="filter-card-header">
+                    <div class="filter-card-title">Crescimento</div>
+                    <div class="filter-icon growth">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                        </svg>
+                    </div>
                 </div>
-                <div class="filter-content">
-                    <span class="filter-title">Top 10 Crescimento</span>
-                    <span class="filter-subtitle" id="growthCount">0 lojas</span>
-                </div>
+                <div class="filter-count" id="growthCount">0</div>
+                <div class="filter-subtitle">Lojas em crescimento</div>
             </div>
-            <div class="filter-card" id="filterDecline" onclick="openModal('decline')">
-                <div class="filter-icon decline">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
+
+            <div class="filter-card animate-in" onclick="openModal('decline')">
+                <div class="filter-card-header">
+                    <div class="filter-card-title">Queda</div>
+                    <div class="filter-icon decline">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/>
+                        </svg>
+                    </div>
                 </div>
-                <div class="filter-content">
-                    <span class="filter-title">Top 10 Queda</span>
-                    <span class="filter-subtitle" id="declineCount">0 lojas</span>
-                </div>
+                <div class="filter-count" id="declineCount">0</div>
+                <div class="filter-subtitle">Lojas em queda</div>
             </div>
         </div>
 
         <!-- Sort Bar -->
         <div class="sort-bar">
-            <span class="results-count" id="resultsCount">Carregando...</span>
-
-            <!-- Month Filter -->
-            <div class="sort-dropdown" id="monthDropdown">
-                <button class="sort-dropdown-btn" onclick="toggleMonthDropdown()">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                    </svg>
-                    <span class="sort-dropdown-label">Mês:</span>
-                    <span class="sort-dropdown-value" id="monthValue">Mês atual</span>
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-                <div class="sort-dropdown-menu">
-                    <button class="sort-dropdown-item" onclick="filterByMonth('all')">Todos</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('01')">Janeiro</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('02')">Fevereiro</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('03')">Março</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('04')">Abril</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('05')">Maio</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('06')">Junho</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('07')">Julho</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('08')">Agosto</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('09')">Setembro</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('10')">Outubro</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('11')">Novembro</button>
-                    <button class="sort-dropdown-item" onclick="filterByMonth('12')">Dezembro</button>
+            <div class="results-count" id="resultsCount">0 restaurantes</div>
+            
+            <div class="sort-controls">
+                <div class="sort-dropdown" id="monthDropdown">
+                    <button class="sort-dropdown-btn" onclick="document.getElementById('monthDropdown').classList.toggle('open')">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                        <span class="sort-dropdown-label">Mês:</span>
+                        <span class="sort-dropdown-value" id="monthValue">Todos</span>
+                    </button>
+                    <div class="sort-dropdown-menu">
+                        <button class="sort-dropdown-item active" onclick="filterByMonth('all')">Todos</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('01')">Janeiro</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('02')">Fevereiro</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('03')">Março</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('04')">Abril</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('05')">Maio</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('06')">Junho</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('07')">Julho</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('08')">Agosto</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('09')">Setembro</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('10')">Outubro</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('11')">Novembro</button>
+                        <button class="sort-dropdown-item" onclick="filterByMonth('12')">Dezembro</button>
+                    </div>
                 </div>
-            </div>
 
-            <!-- Sort Filter -->
-            <div class="sort-dropdown" id="sortDropdown">
-                <button class="sort-dropdown-btn" onclick="toggleSortDropdown()">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
-                    </svg>
-                    <span class="sort-dropdown-label">Ordenado por:</span>
-                    <span class="sort-dropdown-value" id="sortDropdownValue">Nome (A–Z)</span>
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-                <div class="sort-dropdown-menu">
-                    <button class="sort-dropdown-item active" onclick="setSortOrder('name-asc')">Nome (A–Z)</button>
-                    <button class="sort-dropdown-item" onclick="setSortOrder('name-desc')">Nome (Z–A)</button>
-                    <button class="sort-dropdown-item" onclick="setSortOrder('vendas')">Vendas</button>
-                    <button class="sort-dropdown-item" onclick="setSortOrder('ticket-medio')">Ticket Médio</button>
-                    <button class="sort-dropdown-item" onclick="setSortOrder('valor-bruto')">Valor Bruto</button>
-                    <button class="sort-dropdown-item" onclick="setSortOrder('liquido')">Líquido</button>
+                <div class="sort-dropdown" id="sortDropdown">
+                    <button class="sort-dropdown-btn" onclick="document.getElementById('sortDropdown').classList.toggle('open')">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4"/>
+                        </svg>
+                        <span class="sort-dropdown-label">Ordenar:</span>
+                        <span class="sort-dropdown-value" id="sortDropdownValue">Nome (A–Z)</span>
+                    </button>
+                    <div class="sort-dropdown-menu">
+                        <button class="sort-dropdown-item active" onclick="setSortOrder('name-asc')">Nome (A–Z)</button>
+                        <button class="sort-dropdown-item" onclick="setSortOrder('name-desc')">Nome (Z–A)</button>
+                        <button class="sort-dropdown-item" onclick="setSortOrder('vendas')">Vendas</button>
+                        <button class="sort-dropdown-item" onclick="setSortOrder('ticket-medio')">Ticket Médio</button>
+                        <button class="sort-dropdown-item" onclick="setSortOrder('valor-bruto')">Valor Bruto</button>
+                        <button class="sort-dropdown-item" onclick="setSortOrder('liquido')">Líquido</button>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Restaurant List -->
-        <div class="restaurant-list" id="restaurantList">
-            <div class="loading-state">
-                <div class="loading-spinner"></div>
-                <p>Carregando restaurantes...</p>
-            </div>
-        </div>
+        <div class="restaurant-list" id="restaurantList"></div>
     </div>
 
     <!-- Modal -->
-    <div class="modal-overlay" id="top10Modal" onclick="closeModalOnBackdrop(event)">
-        <div class="modal">
+    <div class="modal" id="top10Modal" onclick="closeModalOnBackdrop(event)">
+        <div class="modal-content">
             <div class="modal-header">
-                <div class="modal-title">
-                    <div class="modal-title-icon" id="modalIcon">
-                        <svg id="modalIconSvg" fill="none" stroke="currentColor" viewBox="0 0 24 24"></svg>
-                    </div>
-                    <div class="modal-title-text">
-                        <h2 id="modalTitle">Top 10</h2>
-                        <p id="modalSubtitle">10 lojas</p>
-                    </div>
+                <div class="modal-icon" id="modalIcon">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" id="modalIconSvg"></svg>
                 </div>
-                <button class="modal-close" onclick="closeModal()">×</button>
+                <div class="modal-title-group">
+                    <h2 id="modalTitle">Top 10</h2>
+                    <p id="modalSubtitle">0 lojas</p>
+                </div>
+                <button class="modal-close" onclick="closeModal()">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
             </div>
             <div class="modal-body">
-                <div class="ranking-list" id="rankingList"></div>
+                <div id="rankingList"></div>
             </div>
         </div>
     </div>
 
     <script>
         let restaurantsData = [];
-        let hiddenStores = [];
-        let searchQuery = '';
         let currentSortOrder = 'name-asc';
         let currentMonthFilter = 'all';
         let isAdmin = false;
-        const AVATAR_COLORS = ['#f97015','#f97015','#f97015','#f97015','#f97015','#f97015','#f97015','#f97015','#f97015','#f97015'];
-
-        // Set default to current month
-        (function setDefaultMonth() {
-            const now = new Date();
-            const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
-            currentMonthFilter = currentMonth;
-        })();
-
-        const formatCurrency = (v) => v ? 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'R$ 0,00';
-        const formatNumber = (v) => v ? v.toLocaleString('pt-BR', {maximumFractionDigits: 0}) : '0';
-        const formatTrend = (v) => v ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '+0%';
-        const getAvatarColor = (i) => AVATAR_COLORS[i % AVATAR_COLORS.length];
 
         async function loadRestaurants(month = 'all') {
             try {
-                let url = '/api/restaurants';
-                if (month !== 'all') {
-                    url += `?month=${month}`;
-                }
-
-                const response = await fetch(url);
+                const response = await fetch(`/api/restaurants?month=${month}`);
                 const data = await response.json();
+                
                 if (data.success) {
                     restaurantsData = data.restaurants || [];
-                    await loadHiddenStores();
-                    updateFilterCounts();
                     renderRestaurants();
-                } else {
-                    showToast('Erro ao carregar dados', 'error');
+                    updateStats();
                 }
             } catch (error) {
                 console.error('Error loading restaurants:', error);
-                showToast('Erro de conexão com o servidor', 'error');
-                document.getElementById('restaurantList').innerHTML = '<div class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><h3>Erro ao carregar dados</h3><p>Verifique a conexão com o servidor</p></div>';
+                showToast('Erro ao carregar restaurantes', 'error');
             }
         }
 
-        async function loadHiddenStores() {
-            try {
-                const response = await fetch('/api/hidden-stores');
-                const data = await response.json();
-                if (data.success) {
-                    hiddenStores = data.hidden_stores.map(h => h.id);
-                }
-            } catch (error) {
-                console.error('Error loading hidden stores:', error);
-            }
-        }
-
-        function updateFilterCounts() {
+        function updateStats() {
             const growth = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) > 0).length;
             const decline = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) < 0).length;
-            document.getElementById('growthCount').textContent = `${Math.min(growth, 10)} lojas`;
-            document.getElementById('declineCount').textContent = `${Math.min(decline, 10)} lojas`;
+            
+            document.getElementById('growthCount').textContent = growth;
+            document.getElementById('declineCount').textContent = decline;
         }
 
         function renderRestaurants() {
-            const list = document.getElementById('restaurantList');
-            let filtered = restaurantsData.filter(r => !hiddenStores.includes(r.id));
-
-            // Search filter
-            if (searchQuery) {
-                filtered = filtered.filter(r => 
-                    r.name.toLowerCase().includes(searchQuery) ||
-                    (r.manager && r.manager.toLowerCase().includes(searchQuery))
-                );
-            }
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            let filtered = restaurantsData.filter(r => 
+                r.name.toLowerCase().includes(searchTerm) ||
+                (r.manager || '').toLowerCase().includes(searchTerm)
+            );
 
             // Sort
             filtered.sort((a, b) => {
-                switch(currentSortOrder) {
+                switch (currentSortOrder) {
                     case 'name-asc': return a.name.localeCompare(b.name);
                     case 'name-desc': return b.name.localeCompare(a.name);
-                    case 'vendas': return (b.metrics?.totals?.vendas ?? b.metrics?.vendas ?? b.orders ?? 0) - (a.metrics?.totals?.vendas ?? a.metrics?.vendas ?? a.orders ?? 0);
-                    case 'ticket-medio': return (b.metrics?.totals?.ticketMedio ?? b.metrics?.ticket_medio ?? b.ticket ?? 0) - (a.metrics?.totals?.ticketMedio ?? a.metrics?.ticket_medio ?? a.ticket ?? 0);
-                    case 'valor-bruto': return (b.metrics?.totals?.valorBruto ?? b.metrics?.valor_bruto ?? b.revenue ?? 0) - (a.metrics?.totals?.valorBruto ?? a.metrics?.valor_bruto ?? a.revenue ?? 0);
-                    case 'liquido': return (b.metrics?.totals?.liquido ?? b.metrics?.liquido ?? b.revenue ?? 0) - (a.metrics?.totals?.liquido ?? a.metrics?.liquido ?? a.revenue ?? 0);
+                    case 'vendas': return (b.metrics?.vendas ?? 0) - (a.metrics?.vendas ?? 0);
+                    case 'ticket-medio': return (b.metrics?.['ticket-medio'] ?? 0) - (a.metrics?.['ticket-medio'] ?? 0);
+                    case 'valor-bruto': return (b.metrics?.['valor-bruto'] ?? 0) - (a.metrics?.['valor-bruto'] ?? 0);
+                    case 'liquido': return (b.metrics?.liquido ?? 0) - (a.metrics?.liquido ?? 0);
                     default: return 0;
                 }
             });
 
-            document.getElementById('resultsCount').textContent = `${filtered.length} clientes`;
+            document.getElementById('resultsCount').textContent = `${filtered.length} restaurante${filtered.length !== 1 ? 's' : ''}`;
 
-            if (!filtered.length) {
-                list.innerHTML = '<div class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><h3>Nenhum resultado encontrado</h3><p>Tente ajustar os filtros</p></div>';
-                return;
-            }
-
-            list.innerHTML = filtered.map((r, i) => {
-                // FIXED: Better fallback handling for metrics
-                const m = r.metrics || {};
-                const totals = m.totals || {};
-                const trends = m.trends || {};
-                
-                // Use metrics values, fallback to top-level values if needed
-                const vendas = totals.vendas ?? m.vendas ?? r.orders ?? 0;
-                const ticketMedio = totals.ticketMedio ?? m.ticket_medio ?? r.ticket ?? 0;
-                const valorBruto = totals.valorBruto ?? m.valor_bruto ?? r.revenue ?? 0;
-                const liquido = totals.liquido ?? m.liquido ?? r.revenue ?? 0;
-                
-                const trend = trends.vendas ?? m.trend ?? r.trend ?? 0;
-                const trendVendas = trends.vendas ?? 0;
-                const trendTicket = trends.ticketMedio ?? m.trends?.ticket_medio ?? 0;
-                const trendBruto = trends.valorBruto ?? m.trends?.valor_bruto ?? 0;
-                const trendLiquido = trends.liquido ?? m.trends?.liquido ?? 0;
-                
-                const trendClass = trend >= 0 ? 'positive' : 'negative';
-                const trendIcon = trend >= 0 ? '<i class="fas fa-arrow-up"></i>' : '<i class="fas fa-arrow-down"></i>';
-
-                return `
-                    <div class="restaurant-card">
-                        <div class="restaurant-avatar" style="background: ${getAvatarColor(i)}">${r.name.charAt(0).toUpperCase()}</div>
-                        <div class="restaurant-info">
-                            <div class="restaurant-header">
-                                <h3 class="restaurant-name">${r.name}</h3>
-                                ${r.rating ? `<span class="restaurant-rating"><i class="fas fa-star"></i> ${r.rating.toFixed(1)}</span>` : ''}
-                            </div>
-                            <div class="restaurant-meta">
-                                <div class="meta-item">
-                                    <i class="fas fa-user"></i>
-                                    <span>${r.manager || 'Sem gerente'}</span>
-                                </div>
-                                <span class="${trend >= 0 ? 'growth-badge' : 'decline-badge'}">
-                                    ${trendIcon}
-                                    ${formatTrend(trend)}
-                                </span>
-                                <span class="platform-badge">iFood</span>
-                            </div>
+            const list = document.getElementById('restaurantList');
+            list.innerHTML = filtered.map(r => `
+                <div class="restaurant-card" onclick="window.location.href='/restaurant/${r.id}'">
+                    <div class="restaurant-avatar">${r.name.charAt(0).toUpperCase()}</div>
+                    <div class="restaurant-info">
+                        <div class="restaurant-header">
+                            <span class="restaurant-name">${r.name}</span>
+                            ${r.rating ? `<span class="restaurant-rating">
+                                <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                                </svg>
+                                ${r.rating.toFixed(1)}
+                            </span>` : ''}
                         </div>
-                        <div class="restaurant-metrics">
-                            <div class="metric">
-                                <div class="metric-label">Vendas</div>
-                                <div class="metric-value">${formatNumber(vendas)}</div>
-                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(trendVendas)}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Ticket Médio</div>
-                                <div class="metric-value">${formatCurrency(ticketMedio)}</div>
-                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(trendTicket)}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Valor Bruto</div>
-                                <div class="metric-value">${formatCurrency(valorBruto)}</div>
-                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(trendBruto)}</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-label">Líquido</div>
-                                <div class="metric-value">${formatCurrency(liquido)}</div>
-                                <div class="metric-trend ${trendClass}">${trendIcon} ${formatTrend(trendLiquido)}</div>
-                            </div>
-                        </div>
-                        <div class="restaurant-actions">
-                            <button class="btn-dashboard" onclick="window.location.href='/restaurant/${r.id}'">Ver Dashboard</button>
-                            ${isAdmin ? `<button class="btn-icon" onclick="hideStore('${r.id}', '${r.name.replace(/'/g, "\\'")}')"><i class="fas fa-eye-slash"></i></button>` : ''}
+                        <div class="restaurant-meta">
+                            <span class="restaurant-meta-item">
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                                </svg>
+                                ${r.manager || 'Sem gerente'}
+                            </span>
+                            <span class="restaurant-meta-item">
+                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                </svg>
+                                ${r.neighborhood || 'Sem bairro'}
+                            </span>
                         </div>
                     </div>
-                `;
-            }).join('');
+                    <div class="restaurant-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Vendas</span>
+                            <span class="stat-value">${r.metrics?.vendas ?? 0}</span>
+                            ${r.metrics?.trends?.vendas ? `<span class="trend ${r.metrics.trends.vendas >= 0 ? 'positive' : 'negative'}">
+                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${r.metrics.trends.vendas >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
+                                </svg>
+                                ${formatTrend(r.metrics.trends.vendas)}
+                            </span>` : ''}
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Ticket Médio</span>
+                            <span class="stat-value">${formatCurrency(r.metrics?.['ticket-medio'] ?? 0)}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Líquido</span>
+                            <span class="stat-value">${formatCurrency(r.metrics?.liquido ?? 0)}</span>
+                        </div>
+                    </div>
+                    <div class="restaurant-actions" onclick="event.stopPropagation()">
+                        ${isAdmin ? `
+                            <button class="action-btn danger" onclick="hideStore('${r.id}', '${r.name}')" title="Ocultar loja">
+                                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
+                                </svg>
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
         }
 
-        function handleSearch() {
-            searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
-            renderRestaurants();
+        function formatCurrency(value) {
+            return new Intl.NumberFormat('pt-BR', {
+                style: 'currency',
+                currency: 'BRL'
+            }).format(value || 0);
         }
 
-        function toggleSortDropdown() {
-            const dropdown = document.getElementById('sortDropdown');
-            dropdown.classList.toggle('open');
-            document.getElementById('monthDropdown').classList.remove('open');
-
-            if (dropdown.classList.contains('open')) {
-                setTimeout(() => {
-                    document.addEventListener('click', closeSortDropdownOutside);
-                }, 0);
-            }
-        }
-
-        function closeSortDropdownOutside(e) {
-            const dropdown = document.getElementById('sortDropdown');
-            if (!dropdown.contains(e.target)) {
-                dropdown.classList.remove('open');
-                document.removeEventListener('click', closeSortDropdownOutside);
-            }
-        }
-
-        function toggleMonthDropdown() {
-            const dropdown = document.getElementById('monthDropdown');
-            dropdown.classList.toggle('open');
-            document.getElementById('sortDropdown').classList.remove('open');
-
-            if (dropdown.classList.contains('open')) {
-                setTimeout(() => {
-                    document.addEventListener('click', closeMonthDropdownOutside);
-                }, 0);
-            }
-        }
-
-        function closeMonthDropdownOutside(e) {
-            const dropdown = document.getElementById('monthDropdown');
-            if (!dropdown.contains(e.target)) {
-                dropdown.classList.remove('open');
-                document.removeEventListener('click', closeMonthDropdownOutside);
-            }
+        function formatTrend(value) {
+            const sign = value >= 0 ? '+' : '';
+            return `${sign}${value.toFixed(1)}%`;
         }
 
         function setSortOrder(order) {
@@ -1450,7 +1581,7 @@
                     .filter(r => (r.metrics?.trends?.vendas ?? 0) > 0)
                     .sort((a, b) => (b.metrics?.trends?.vendas ?? 0) - (a.metrics?.trends?.vendas ?? 0))
                     .slice(0, 10);
-                icon.style.background = 'var(--green)';
+                icon.style.background = 'var(--gradient-success)';
                 iconSvg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>';
                 title.textContent = 'Top 10 Crescimento';
             } else {
@@ -1458,7 +1589,7 @@
                     .filter(r => (r.metrics?.trends?.vendas ?? 0) < 0)
                     .sort((a, b) => (a.metrics?.trends?.vendas ?? 0) - (b.metrics?.trends?.vendas ?? 0))
                     .slice(0, 10);
-                icon.style.background = 'var(--red)';
+                icon.style.background = 'var(--error-500)';
                 iconSvg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/>';
                 title.textContent = 'Top 10 Queda';
             }
@@ -1473,7 +1604,9 @@
                         <div class="ranking-name">${r.name}</div>
                         <div class="ranking-detail">${r.manager || 'Sem gerente'}</div>
                     </div>
-                    <div class="ranking-value">${formatTrend(r.metrics?.trends?.vendas ?? 0)}</div>
+                    <div class="ranking-value ${(r.metrics?.trends?.vendas ?? 0) >= 0 ? 'trend positive' : 'trend negative'}">
+                        ${formatTrend(r.metrics?.trends?.vendas ?? 0)}
+                    </div>
                 </div>
             `).join('');
 
@@ -1516,10 +1649,17 @@
             document.querySelectorAll('.toast').forEach(t => t.remove());
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
-            toast.innerHTML = `<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/></svg><span>${message}</span>`;
-            toast.style.color = type === 'success' ? 'var(--green)' : 'var(--red)';
+            toast.innerHTML = `
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/>
+                </svg>
+                <span>${message}</span>
+            `;
             document.body.appendChild(toast);
-            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+            setTimeout(() => { 
+                toast.style.opacity = '0'; 
+                setTimeout(() => toast.remove(), 300); 
+            }, 3000);
         }
 
         function toggleSidebar() {
@@ -1584,7 +1724,18 @@
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') {
                 closeModal();
+                closeSidebar();
                 document.getElementById('sortDropdown').classList.remove('open');
+                document.getElementById('monthDropdown').classList.remove('open');
+            }
+        });
+
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', e => {
+            if (!e.target.closest('#sortDropdown')) {
+                document.getElementById('sortDropdown').classList.remove('open');
+            }
+            if (!e.target.closest('#monthDropdown')) {
                 document.getElementById('monthDropdown').classList.remove('open');
             }
         });
