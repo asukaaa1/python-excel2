@@ -993,7 +993,7 @@
         <nav class="sidebar-nav">
             <div class="sidebar-section">
                 <div class="sidebar-section-title">Menu</div>
-                <a href="/dashboard" class="sidebar-link">
+                <a href="/" class="sidebar-link">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                     <span>Clientes</span>
                 </a>
@@ -1631,9 +1631,13 @@
                         document.getElementById('sidebarUserRole').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
                         
                         if (u.role === 'admin') {
-                            document.getElementById('adminSection').style.display = 'block';
+                            const adminSection = document.getElementById('adminSection');
+                            if (adminSection) {
+                                adminSection.style.display = 'block';
+                            }
                         } else {
-                            window.location.href = '/dashboard';
+                            // Non-admin users cannot access this page
+                            window.location.href = '/';
                         }
                     } else {
                         window.location.href = '/login';
