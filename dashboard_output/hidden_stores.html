@@ -3,494 +3,144 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lojas Ocultas - Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Lojas Ocultas - TIMO Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg-primary: #ffffff; --bg-secondary: #f8fafc; --bg-card: #ffffff;
-            --bg-hover: #f1f5f9; --text-primary: #0f172a; --text-secondary: #64748b;
-            --text-muted: #94a3b8; --border: #e2e8f0; --accent: #f97015;
-            --accent-hover: #ea580c; --green: #22c55e; --green-bg: rgba(34,197,94,0.1);
-            --red: #ef4444; --red-bg: rgba(239,68,68,0.1);
-            --shadow: 0 1px 3px rgba(0,0,0,0.1); --shadow-lg: 0 4px 6px rgba(0,0,0,0.1);
-            --sidebar-width: 260px;
+            --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            --bg-primary: #fafbfc; --bg-secondary: #f4f5f7; --bg-tertiary: #ebecf0; --bg-elevated: #ffffff;
+            --text-primary: #1a1a2e; --text-secondary: #4a5568; --text-tertiary: #9ca3af;
+            --border-light: #e5e7eb; --border-medium: #d1d5db;
+            --primary-50: #fff8f1; --primary-500: #f97316; --primary-600: #ea580c;
+            --success-50: #ecfdf5; --success-500: #10b981; --error-50: #fef2f2; --error-500: #ef4444;
+            --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.06); --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08);
+            --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.1); --shadow-glow: 0 0 30px rgba(249,115,22,0.15);
+            --radius-lg: 0.75rem; --radius-xl: 1rem; --radius-2xl: 1.25rem;
+            --gradient-primary: linear-gradient(135deg, #ff8c42 0%, #f97316 50%, #ea580c 100%);
         }
         [data-theme="dark"] {
-            --bg-primary: #000000; --bg-secondary: #0a0a0a; --bg-card: #0f0f0f;
-            --bg-hover: #1a1a1a; --text-primary: #ffffff; --text-secondary: #a0a0a0;
-            --text-muted: #666666; --border: #1f1f1f; --green-bg: rgba(34,197,94,0.15);
-            --red-bg: rgba(239,68,68,0.15); --shadow: 0 1px 3px rgba(0,0,0,0.5);
+            --bg-primary: #000000; --bg-secondary: #0a0a0a; --bg-tertiary: #0f0f0f; --bg-elevated: #0a0a0a;
+            --text-primary: #ffffff; --text-secondary: #a0a0a0; --text-tertiary: #666666;
+            --border-light: #1a1a1a; --border-medium: #262626;
+            --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.6); --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.8);
         }
-        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; min-height: 100vh; transition: background-color 0.3s, color 0.3s; }
+        body { font-family: var(--font-body); background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; min-height: 100vh; transition: background-color 0.3s; -webkit-font-smoothing: antialiased; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-in { animation: fadeInUp 0.5s ease both; }
+
+        .sidebar { position: fixed; top: 0; left: 0; width: 280px; height: 100vh; background: var(--bg-elevated); border-right: 1px solid var(--border-light); display: flex; flex-direction: column; z-index: 100; transform: translateX(-100%); transition: transform 0.3s; }
+        .sidebar.open { transform: translateX(0); }
+        .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 99; opacity: 0; visibility: hidden; transition: all 0.3s; }
+        .sidebar-overlay.show { opacity: 1; visibility: visible; }
+        .sidebar-header { padding: 1.5rem; border-bottom: 1px solid var(--border-light); }
+        .sidebar-brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; }
+        .sidebar-logo { width: 40px; height: 40px; border-radius: var(--radius-lg); background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; font-weight: 800; color: white; box-shadow: var(--shadow-sm), var(--shadow-glow); }
+        .sidebar-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--text-primary); }
+        .sidebar-user { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--radius-lg); }
+        .sidebar-avatar { width: 44px; height: 44px; border-radius: var(--radius-lg); background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; }
+        .sidebar-user-info h3 { font-size: 0.875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+        .sidebar-user-info p { font-size: 0.75rem; color: var(--text-tertiary); display: flex; align-items: center; gap: 0.5rem; }
+        .role-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success-500); box-shadow: 0 0 6px var(--success-500); }
+        .sidebar-nav { flex: 1; padding: 1rem 0.75rem; overflow-y: auto; }
+        .sidebar-section { margin-bottom: 1.5rem; }
+        .sidebar-section-title { font-size: 0.6875rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.1em; padding: 0 1rem; margin-bottom: 0.5rem; }
+        .sidebar-link { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; margin: 0.25rem 0; border-radius: var(--radius-lg); color: var(--text-secondary); text-decoration: none; font-size: 0.875rem; font-weight: 500; transition: all 0.2s; }
+        .sidebar-link:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+        .sidebar-link.active { background: var(--primary-50); color: var(--primary-600); font-weight: 600; }
+        [data-theme="dark"] .sidebar-link.active { background: rgba(249,115,22,0.1); color: var(--primary-500); }
+        .sidebar-link svg { width: 20px; height: 20px; opacity: 0.7; }
+        .sidebar-link:hover svg, .sidebar-link.active svg { opacity: 1; }
+        .sidebar-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border-light); }
+        .sidebar-footer-btn { display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%; padding: 0.75rem; border-radius: var(--radius-lg); background: transparent; border: 1px solid var(--border-medium); color: var(--text-secondary); font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.2s; font-family: var(--font-body); }
+        .sidebar-footer-btn:hover { background: var(--error-50); border-color: var(--error-500); color: var(--error-500); }
+        [data-theme="dark"] .sidebar-footer-btn:hover { background: rgba(239,68,68,0.1); }
+
         .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
         .header-left { display: flex; align-items: center; gap: 1rem; }
-        .header h1 { font-size: 1.5rem; font-weight: 600; display: flex; align-items: center; gap: 0.75rem; }
-        .header h1 svg { color: var(--accent); }
-        .info-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; }
-        .info-card p { color: var(--text-secondary); margin-bottom: 0.5rem; }
+        .menu-toggle { width: 44px; height: 44px; border-radius: var(--radius-lg); background: var(--bg-elevated); border: 1px solid var(--border-light); color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .menu-toggle:hover { border-color: var(--primary-500); color: var(--primary-500); }
+        .page-title h1 { font-size: 1.875rem; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 0.75rem; }
+        .page-title h1 svg { color: var(--primary-500); }
+        .page-title p { font-size: 0.875rem; color: var(--text-tertiary); margin-top: 0.25rem; }
+
+        .info-card { background: var(--bg-elevated); border: 1px solid var(--border-light); border-radius: var(--radius-2xl); padding: 1.5rem; margin-bottom: 2rem; box-shadow: var(--shadow-sm); }
+        .info-card p { color: var(--text-secondary); margin-bottom: 0.5rem; font-size: 0.875rem; }
         .info-card strong { color: var(--text-primary); }
-        .stores-grid { display: grid; gap: 1rem; }
-        .store-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; display: flex; align-items: center; gap: 1.5rem; transition: all 0.2s; }
-        .store-card:hover { box-shadow: var(--shadow-lg); }
-        .store-avatar { width: 48px; height: 48px; border-radius: 12px; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 1.25rem; flex-shrink: 0; }
+
+        .stores-grid { display: flex; flex-direction: column; gap: 1rem; }
+        .store-card { background: var(--bg-elevated); border: 1px solid var(--border-light); border-radius: var(--radius-xl); padding: 1.5rem; display: flex; align-items: center; gap: 1.5rem; transition: all 0.2s; box-shadow: var(--shadow-sm); }
+        .store-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+        .store-avatar { width: 56px; height: 56px; border-radius: var(--radius-lg); background: var(--gradient-primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.5rem; flex-shrink: 0; }
         .store-info { flex: 1; min-width: 0; }
-        .store-name { font-weight: 600; font-size: 1rem; margin-bottom: 0.25rem; }
-        .store-meta { font-size: 0.875rem; color: var(--text-secondary); display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-        .btn-unhide { padding: 0.6rem 1.2rem; background: var(--green); color: white; border: none; border-radius: 8px; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
-        .btn-unhide:hover { background: #16a34a; }
-        .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
+        .store-name { font-weight: 700; font-size: 1rem; margin-bottom: 0.25rem; color: var(--text-primary); }
+        .store-meta { font-size: 0.8125rem; color: var(--text-tertiary); display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+        .btn-unhide { padding: 0.625rem 1.25rem; background: var(--success-500); color: white; border: none; border-radius: var(--radius-lg); font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-body); }
+        .btn-unhide:hover { background: #059669; transform: translateY(-1px); }
+
+        .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-tertiary); }
         .empty-state svg { width: 64px; height: 64px; margin: 0 auto 1rem; opacity: 0.5; }
-        .empty-state h3 { font-size: 1.125rem; margin-bottom: 0.5rem; }
-        .loading-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
-        .loading-spinner { width: 48px; height: 48px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: 0.75rem; z-index: 2000; transition: opacity 0.3s; }
-        .toast.success { border-left: 4px solid var(--green); color: var(--green); }
-        .toast.error { border-left: 4px solid var(--red); color: var(--red); }
+        .empty-state h3 { font-size: 1.125rem; margin-bottom: 0.5rem; color: var(--text-secondary); }
+        .loading-state { text-align: center; padding: 4rem 2rem; }
+        .loading-spinner { width: 48px; height: 48px; border: 3px solid var(--border-light); border-top-color: var(--primary-500); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
+
+        .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; background: var(--bg-elevated); border: 1px solid var(--border-light); border-radius: var(--radius-xl); box-shadow: var(--shadow-xl); display: flex; align-items: center; gap: 0.75rem; z-index: 2000; animation: fadeInUp 0.3s ease; }
+        .toast.success { border-left: 4px solid var(--success-500); }
+        .toast.success svg { color: var(--success-500); }
+        .toast.error { border-left: 4px solid var(--error-500); }
+        .toast.error svg { color: var(--error-500); }
+
         @media (max-width: 768px) { .container { padding: 1rem; } .store-card { flex-direction: column; text-align: center; } }
-
-        /* Sidebar */
-        .sidebar {
-            width: var(--sidebar-width);
-            background: var(--bg-card);
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            position: fixed;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            z-index: 100;
-            transform: translateX(-100%);
-            transition: transform 0.3s ease;
-        }
-        .sidebar.open { transform: translateX(0); }
-
-        .sidebar-header { 
-            padding: 1.5rem; 
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .sidebar-brand {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            margin-bottom: 1rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .sidebar-logo {
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            background: linear-gradient(135deg, #ff8c42 0%, var(--accent) 50%, var(--accent-hover) 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 1.125rem;
-            color: white;
-            box-shadow: var(--shadow-lg);
-        }
-        
-        .sidebar-brand-text {
-            font-size: 1.25rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            letter-spacing: -0.01em;
-        }
-        
-        .user-info { 
-            display: flex; 
-            align-items: center; 
-            gap: 0.75rem;
-            padding: 0.75rem;
-            background: var(--bg-secondary);
-            border-radius: 8px;
-        }
-        .user-avatar {
-            width: 40px;
-            height: 40px;
-            background: linear-gradient(135deg, #ff8c42 0%, var(--accent) 50%, var(--accent-hover) 100%);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 700;
-            font-size: 0.95rem;
-        }
-        .user-details { flex: 1; min-width: 0; }
-        .user-name { 
-            font-size: 0.875rem; 
-            font-weight: 600; 
-            color: var(--text-primary);
-            margin-bottom: 2px;
-        }
-        .user-role { 
-            font-size: 0.75rem; 
-            color: var(--text-secondary); 
-            display: flex; 
-            align-items: center; 
-            gap: 0.35rem;
-        }
-        .user-role .dot { 
-            width: 6px; 
-            height: 6px; 
-            border-radius: 50%; 
-            background: var(--green);
-            box-shadow: 0 0 6px var(--green);
-        }
-        
-        .sidebar-nav { flex: 1; padding: 1rem 0.75rem; overflow-y: auto; }
-        .sidebar-section { margin-bottom: 1.5rem; }
-        .sidebar-section-title { 
-            font-size: 0.65rem; 
-            font-weight: 700; 
-            color: var(--text-muted); 
-            text-transform: uppercase; 
-            letter-spacing: 0.08em; 
-            padding: 0 1rem; 
-            margin-bottom: 0.5rem;
-        }
-        .sidebar-link {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 0.75rem 1rem;
-            margin-bottom: 0.25rem;
-            border-radius: 8px;
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 0.875rem;
-            font-weight: 500;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            cursor: pointer;
-        }
-        .sidebar-link:hover { 
-            background: var(--bg-hover); 
-            color: var(--text-primary);
-        }
-        .sidebar-link.active { 
-            background: rgba(249,112,21,0.1); 
-            color: var(--accent);
-            font-weight: 600;
-        }
-        .sidebar-link svg { 
-            width: 20px; 
-            height: 20px;
-            opacity: 0.7;
-            transition: opacity 0.2s;
-        }
-        .sidebar-link:hover svg,
-        .sidebar-link.active svg {
-            opacity: 1;
-        }
-        
-        .sidebar-footer { 
-            padding: 1rem; 
-            border-top: 1px solid var(--border);
-        }
-        
-        .sidebar-footer-btn {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            padding: 0.75rem 1rem;
-            background: transparent;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-secondary);
-            font-size: 0.875rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-family: inherit;
-        }
-        
-        .sidebar-footer-btn:hover {
-            background: var(--bg-secondary);
-            border-color: var(--accent);
-            color: var(--text-primary);
-        }
-        .btn { 
-            padding: 0.625rem 1.25rem; font-size: 0.875rem; font-weight: 500; 
-            border-radius: 8px; cursor: pointer; transition: all 0.2s; 
-            display: inline-flex; align-items: center; gap: 0.5rem; 
-            text-decoration: none; font-family: inherit;
-        }
-        .btn-secondary { background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border); }
-        .btn-secondary:hover { border-color: var(--accent); color: var(--text-primary); }
-
-        .sidebar-overlay {
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.5); z-index: 99;
-            opacity: 0; visibility: hidden; transition: all 0.3s ease;
-        }
-        .sidebar-overlay.show { opacity: 1; visibility: visible; }
-
-        /* Header hamburger */
-        .mobile-menu-btn {
-            display: flex; width: 40px; height: 40px;
-            border: 1px solid var(--border); background: var(--bg-card);
-            border-radius: 8px; cursor: pointer;
-            align-items: center; justify-content: center;
-            color: var(--text-secondary); transition: all 0.2s;
-        }
-        .mobile-menu-btn:hover { border-color: var(--accent); color: var(--text-primary); }
     </style>
 </head>
 <body>
-
-    <!-- Sidebar Overlay -->
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
-
-    <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <div class="sidebar-brand">
-                <div class="sidebar-logo">T</div>
-                <span class="sidebar-brand-text">TIMO</span>
-            </div>
-            <div class="user-info">
-                <div class="user-avatar" id="userAvatar">A</div>
-                <div class="user-details">
-                    <div class="user-name" id="userName">Admin</div>
-                    <div class="user-role">
-                        <span class="dot"></span>
-                        <span id="userRoleText">Administrador</span>
-                    </div>
-                </div>
-            </div>
+            <div class="sidebar-brand"><div class="sidebar-logo">T</div><span class="sidebar-brand-text">TIMO</span></div>
+            <div class="sidebar-user"><div class="sidebar-avatar" id="userAvatar">A</div><div class="sidebar-user-info"><h3 id="userName">Admin</h3><p><span class="role-dot"></span><span id="userRoleText">Administrador</span></p></div></div>
         </div>
-        
         <nav class="sidebar-nav">
-            <div class="sidebar-section">
-                <div class="sidebar-section-title">Menu</div>
-                <a href="/dashboard" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                    <span>Clientes</span>
-                </a>
+            <div class="sidebar-section"><div class="sidebar-section-title">Menu</div>
+                <a href="/dashboard" class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg><span>Dashboard</span></a>
+                <a href="/comparativo" class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg><span>Comparativo</span></a>
             </div>
-            <div class="sidebar-section">
-                <div class="sidebar-section-title">Admin</div>
-                <a href="/comparativo" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                    <span>Comparativo</span>
-                </a>
-                <a href="/admin" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                    <span>Configurações</span>
-                </a>
-                <a href="/squads" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                    <span>Squads</span>
-                </a>
-                <a href="/hidden-stores" class="sidebar-link active">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
-                    <span>Lojas Ocultas</span>
-                </a>
+            <div class="sidebar-section"><div class="sidebar-section-title">Admin</div>
+                <a href="/admin" class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg><span>Configurações</span></a>
+                <a href="/squads" class="sidebar-link"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg><span>Squads</span></a>
+                <a href="/hidden-stores" class="sidebar-link active"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg><span>Lojas Ocultas</span></a>
             </div>
         </nav>
-        
-        <div class="sidebar-footer">
-            <button class="sidebar-footer-btn" onclick="logout()">
-                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-                <span>Sair</span>
-            </button>
-        </div>
+        <div class="sidebar-footer"><button class="sidebar-footer-btn" onclick="logout()"><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg><span>Sair</span></button></div>
     </aside>
 
     <div class="container">
         <div class="header">
             <div class="header-left">
-                <button class="mobile-menu-btn" onclick="toggleSidebar()">
-                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-                </button>
-                <h1>
-                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
-                    Lojas Ocultas
-                </h1>
+                <button class="menu-toggle" onclick="toggleSidebar()"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+                <div class="page-title"><h1><svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>Lojas Ocultas</h1><p>Gerencie lojas removidas do dashboard principal</p></div>
             </div>
         </div>
-
-        <div class="info-card">
-            <p>Lojas ocultas não aparecem no dashboard principal. Você pode restaurá-las a qualquer momento clicando no botão "Mostrar".</p>
-            <p><strong>Total de lojas ocultas:</strong> <span id="hiddenCount">0</span></p>
-        </div>
-
-        <div class="stores-grid" id="hiddenStoresList">
-            <div class="loading-state">
-                <div class="loading-spinner"></div>
-                <p>Carregando lojas ocultas...</p>
-            </div>
-        </div>
+        <div class="info-card animate-in"><p>Lojas ocultas não aparecem no dashboard principal. Você pode restaurá-las a qualquer momento.</p><p><strong>Total de lojas ocultas:</strong> <span id="hiddenCount">0</span></p></div>
+        <div class="stores-grid" id="hiddenStoresList"><div class="loading-state"><div class="loading-spinner"></div><p style="color:var(--text-tertiary)">Carregando...</p></div></div>
     </div>
 
     <script>
         let hiddenStores = [];
-
-        async function loadHiddenStores() {
-            try {
-                const response = await fetch('/api/hidden-stores');
-                const data = await response.json();
-                
-                if (data.success) {
-                    hiddenStores = data.hidden_stores || [];
-                    renderHiddenStores();
-                } else {
-                    showError('Erro ao carregar lojas ocultas');
-                }
-            } catch (error) {
-                console.error('Error loading hidden stores:', error);
-                showError('Erro de conexão com o servidor');
-            }
-        }
-
-        function renderHiddenStores() {
-            const container = document.getElementById('hiddenStoresList');
-            const count = document.getElementById('hiddenCount');
-            
-            count.textContent = hiddenStores.length;
-
-            if (!hiddenStores.length) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                        </svg>
-                        <h3>Nenhuma loja oculta</h3>
-                        <p>Todas as lojas estão visíveis no dashboard principal</p>
-                    </div>
-                `;
-                return;
-            }
-
-            container.innerHTML = hiddenStores.map(store => {
-                const hiddenDate = store.hidden_at ? new Date(store.hidden_at).toLocaleDateString('pt-BR') : 'Data desconhecida';
-                return `
-                    <div class="store-card">
-                        <div class="store-avatar">${store.name.charAt(0).toUpperCase()}</div>
-                        <div class="store-info">
-                            <div class="store-name">${store.name}</div>
-                            <div class="store-meta">
-                                <span>🗓️ Ocultada em ${hiddenDate}</span>
-                                ${store.hidden_by ? `<span>👤 Por ${store.hidden_by}</span>` : ''}
-                            </div>
-                        </div>
-                        <button class="btn-unhide" onclick="unhideStore('${store.id}', '${store.name.replace(/'/g, "\\'")}')">
-                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: inline-block; vertical-align: middle; margin-right: 0.5rem;">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                            </svg>
-                            Mostrar
-                        </button>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        async function unhideStore(storeId, storeName) {
-            if (!confirm(`Deseja mostrar "${storeName}" no dashboard?`)) return;
-            
-            try {
-                const response = await fetch(`/api/stores/${storeId}/unhide`, {
-                    method: 'POST'
-                });
-                const data = await response.json();
-                
-                if (data.success) {
-                    showToast(`Loja "${storeName}" agora está visível`, 'success');
-                    await loadHiddenStores();
-                } else {
-                    showToast(data.error || 'Erro ao restaurar loja', 'error');
-                }
-            } catch (error) {
-                showToast('Erro de conexão', 'error');
-            }
-        }
-
-        function showError(message) {
-            document.getElementById('hiddenStoresList').innerHTML = `
-                <div class="empty-state">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-                    </svg>
-                    <h3>Erro</h3>
-                    <p>${message}</p>
-                </div>
-            `;
-        }
-
-        function showToast(message, type = 'success') {
-            document.querySelectorAll('.toast').forEach(t => t.remove());
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            toast.innerHTML = `
-                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/>
-                </svg>
-                <span>${message}</span>
-            `;
-            document.body.appendChild(toast);
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
-        }
-
-        function checkAuth() {
-            fetch('/api/me')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success && data.user && data.user.role === 'admin') {
-                        const u = data.user;
-                        document.getElementById('userName').textContent = u.name || u.username || 'Usuário';
-                        const initials = (u.name || u.username || 'U').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-                        document.getElementById('userAvatar').textContent = initials;
-                        document.getElementById('userRoleText').textContent = 'Administrador';
-                        loadHiddenStores();
-                    } else {
-                        window.location.href = '/dashboard';
-                    }
-                })
-                .catch(() => {
-                    window.location.href = '/login';
-                });
-        }
-
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('open');
-            document.getElementById('sidebarOverlay').classList.toggle('show');
-        }
-
-        function closeSidebar() {
-            document.getElementById('sidebar').classList.remove('open');
-            document.getElementById('sidebarOverlay').classList.remove('show');
-        }
-
-        function logout() {
-            if (confirm('Deseja realmente sair?')) {
-                fetch('/api/logout', { method: 'POST' }).then(() => {
-                    localStorage.removeItem('currentUser');
-                    window.location.href = '/login';
-                }).catch(() => {
-                    window.location.href = '/login';
-                });
-            }
-        }
-
-        (function init() {
-            const theme = localStorage.getItem('theme') || 'light';
-            document.documentElement.setAttribute('data-theme', theme);
-            checkAuth();
-        })();
+        async function loadHiddenStores() { try { const r = await fetch('/api/hidden-stores'); const d = await r.json(); if(d.success) { hiddenStores = d.hidden_stores || []; renderHiddenStores(); } else { showError('Erro ao carregar'); } } catch(e) { showError('Erro de conexão'); } }
+        function renderHiddenStores() { const c = document.getElementById('hiddenStoresList'); document.getElementById('hiddenCount').textContent = hiddenStores.length; if(!hiddenStores.length) { c.innerHTML = '<div class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg><h3>Nenhuma loja oculta</h3><p>Todas as lojas estão visíveis</p></div>'; return; }
+            c.innerHTML = hiddenStores.map(s => `<div class="store-card animate-in"><div class="store-avatar">${s.name.charAt(0).toUpperCase()}</div><div class="store-info"><div class="store-name">${s.name}</div><div class="store-meta"><span>🗓️ ${s.hidden_at ? new Date(s.hidden_at).toLocaleDateString('pt-BR') : '-'}</span>${s.hidden_by?`<span>👤 ${s.hidden_by}</span>`:''}</div></div><button class="btn-unhide" onclick="unhideStore('${s.id}','${s.name.replace(/'/g,"\\'")}')"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>Mostrar</button></div>`).join(''); }
+        async function unhideStore(id, name) { if(!confirm('Mostrar "'+name+'" no dashboard?')) return; try { const r = await fetch('/api/stores/'+id+'/unhide', { method: 'POST' }); const d = await r.json(); if(d.success) { showToast('Loja restaurada!', 'success'); await loadHiddenStores(); } else { showToast(d.error || 'Erro', 'error'); } } catch(e) { showToast('Erro de conexão', 'error'); } }
+        function showError(m) { document.getElementById('hiddenStoresList').innerHTML = '<div class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><h3>Erro</h3><p>'+m+'</p></div>'; }
+        function showToast(m, t='success') { document.querySelectorAll('.toast').forEach(x=>x.remove()); const el = document.createElement('div'); el.className = 'toast '+t; el.innerHTML = '<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="'+(t==='success'?'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z':'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z')+'"/></svg><span>'+m+'</span>'; document.body.appendChild(el); setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000); }
+        function checkAuth() { fetch('/api/me').then(r => r.json()).then(d => { if(d.success && d.user && d.user.role === 'admin') { const u = d.user; document.getElementById('userName').textContent = u.name || u.username || 'Usuário'; document.getElementById('userAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase(); loadHiddenStores(); } else { window.location.href = '/dashboard'; } }).catch(() => { window.location.href = '/login'; }); }
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebarOverlay').classList.toggle('show'); }
+        function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('show'); }
+        function logout() { if(confirm('Deseja sair?')) { fetch('/api/logout', { method: 'POST' }).then(() => { localStorage.removeItem('currentUser'); window.location.href = '/login'; }).catch(() => { window.location.href = '/login'; }); } }
+        (function() { const t = localStorage.getItem('theme') || 'dark'; document.documentElement.setAttribute('data-theme', t); checkAuth(); })();
     </script>
 </body>
 </html>
