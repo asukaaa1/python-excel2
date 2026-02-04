@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{group_name}} - Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'DM Mono', 'SF Mono', monospace;
+            --bg-primary: #fafbfc; --bg-secondary: #f4f5f7; --bg-tertiary: #ebecf0; --bg-elevated: #ffffff;
+            --text-primary: #1a1a2e; --text-secondary: #4a5568; --text-tertiary: #9ca3af;
+            --border-light: #e5e7eb; --border-medium: #d1d5db;
+            --primary-50: #fff8f1; --primary-500: #f97316; --primary-600: #ea580c;
+            --success-50: #ecfdf5; --success-500: #10b981;
+            --error-50: #fef2f2; --error-500: #ef4444;
+            --blue-50: #eff6ff; --blue-500: #3b82f6;
+            --purple-50: #faf5ff; --purple-500: #a855f7;
+            --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.06); --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08);
+            --shadow-glow: 0 0 30px rgba(249,115,22,0.15);
+            --radius-lg: 0.75rem; --radius-xl: 1rem; --radius-2xl: 1.25rem;
+            --gradient-primary: linear-gradient(135deg, #ff8c42 0%, #f97316 50%, #ea580c 100%);
+        }
+        [data-theme="dark"] {
+            --bg-primary: #000000; --bg-secondary: #0a0a0a; --bg-tertiary: #0f0f0f; --bg-elevated: #0a0a0a;
+            --text-primary: #ffffff; --text-secondary: #a0a0a0; --text-tertiary: #666666;
+            --border-light: #1a1a1a; --border-medium: #262626;
+            --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.6); --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.8);
+        }
+        body { font-family: var(--font-body); background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both; }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+        
+        /* Header */
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
+        .brand { display: flex; align-items: center; gap: 1rem; }
+        .brand-logo { width: 48px; height: 48px; border-radius: var(--radius-lg); background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.25rem; color: white; box-shadow: var(--shadow-sm), var(--shadow-glow); }
+        .brand-info h1 { font-size: 1.5rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em; }
+        .brand-info p { font-size: 0.875rem; color: var(--text-tertiary); }
+        .theme-toggle { width: 44px; height: 44px; border-radius: var(--radius-lg); background: var(--bg-elevated); border: 1px solid var(--border-light); color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .theme-toggle:hover { border-color: var(--primary-500); color: var(--primary-500); }
+
+        /* Summary Stats */
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }
+        .summary-card { background: var(--bg-elevated); border: 1px solid var(--border-light); border-radius: var(--radius-2xl); padding: 1.5rem; box-shadow: var(--shadow-sm); transition: all 0.3s; }
+        .summary-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+        .summary-card .label { font-size: 0.75rem; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+        .summary-card .value { font-family: var(--font-mono); font-size: 1.75rem; font-weight: 500; color: var(--text-primary); }
+        .summary-card .change { font-size: 0.8125rem; margin-top: 0.25rem; }
+        .summary-card .change.positive { color: var(--success-500); }
+        .summary-card .change.negative { color: var(--error-500); }
+
+        /* Stores Grid */
+        .stores-section { margin-bottom: 2rem; }
+        .stores-section h2 { font-size: 1.125rem; font-weight: 700; color: var(--text-primary); margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+        .stores-section h2 svg { color: var(--primary-500); }
+        .stores-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem; }
+        .store-card { background: var(--bg-elevated); border: 1px solid var(--border-light); border-radius: var(--radius-2xl); padding: 1.5rem; box-shadow: var(--shadow-sm); transition: all 0.3s; }
+        .store-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: var(--primary-500); }
+        .store-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+        .store-avatar { width: 48px; height: 48px; border-radius: var(--radius-lg); background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 1.25rem; flex-shrink: 0; }
+        .store-name { font-weight: 700; font-size: 1rem; color: var(--text-primary); }
+        .store-manager { font-size: 0.8125rem; color: var(--text-tertiary); }
+        .store-metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+        .metric { padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--radius-lg); }
+        .metric .metric-label { font-size: 0.6875rem; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
+        .metric .metric-value { font-family: var(--font-mono); font-size: 1rem; font-weight: 500; color: var(--text-primary); margin-top: 0.25rem; }
+
+        /* Chart Section */
+        .chart-section { background: var(--bg-elevated); border: 1px solid var(--border-light); border-radius: var(--radius-2xl); padding: 1.5rem; box-shadow: var(--shadow-sm); margin-bottom: 2rem; }
+        .chart-section h2 { font-size: 1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 1rem; }
+        .chart-container { height: 300px; }
+
+        /* Loading & Empty */
+        .loading { text-align: center; padding: 4rem 2rem; }
+        .loading-spinner { width: 48px; height: 48px; border: 3px solid var(--border-light); border-top-color: var(--primary-500); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-tertiary); }
+        .empty-state h3 { color: var(--text-secondary); margin-bottom: 0.5rem; }
+
+        /* Footer */
+        .footer { text-align: center; padding: 2rem; color: var(--text-tertiary); font-size: 0.8125rem; border-top: 1px solid var(--border-light); margin-top: 2rem; }
+        .footer a { color: var(--primary-500); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+
+        @media (max-width: 768px) {
+            .container { padding: 1rem; }
+            .summary-grid { grid-template-columns: repeat(2, 1fr); }
+            .stores-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="page-header animate-in">
+            <div class="brand">
+                <div class="brand-logo">{{group_initial}}</div>
+                <div class="brand-info">
+                    <h1>{{group_name}}</h1>
+                    <p>Dashboard consolidado</p>
+                </div>
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()" title="Alternar tema">
+                <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                <svg id="moonIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+            </button>
+        </header>
+
+        <div id="content">
+            <div class="loading">
+                <div class="loading-spinner"></div>
+                <p>Carregando dados...</p>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>Powered by <a href="/">TIMO Dashboard</a></p>
+        </footer>
+    </div>
+
+    <script>
+        const GROUP_DATA = {{group_data}};
+
+        function formatCurrency(value) {
+            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+        }
+
+        function formatNumber(value) {
+            return new Intl.NumberFormat('pt-BR').format(value || 0);
+        }
+
+        function renderDashboard() {
+            const content = document.getElementById('content');
+            
+            if (!GROUP_DATA || !GROUP_DATA.stores || !GROUP_DATA.stores.length) {
+                content.innerHTML = '<div class="empty-state"><h3>Nenhuma loja configurada</h3><p>Este grupo ainda não possui lojas associadas</p></div>';
+                return;
+            }
+
+            const stores = GROUP_DATA.stores;
+            
+            // Calculate totals
+            let totalRevenue = 0, totalOrders = 0, totalTicket = 0;
+            stores.forEach(s => {
+                const m = s.metrics || {};
+                totalRevenue += m.valor_bruto || 0;
+                totalOrders += m.total_pedidos || 0;
+            });
+            totalTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+            content.innerHTML = `
+                <div class="summary-grid animate-in">
+                    <div class="summary-card">
+                        <div class="label">Receita Total</div>
+                        <div class="value">${formatCurrency(totalRevenue)}</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="label">Total de Pedidos</div>
+                        <div class="value">${formatNumber(totalOrders)}</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="label">Ticket Médio</div>
+                        <div class="value">${formatCurrency(totalTicket)}</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="label">Lojas</div>
+                        <div class="value">${stores.length}</div>
+                    </div>
+                </div>
+
+                <div class="chart-section animate-in">
+                    <h2>Receita por Loja</h2>
+                    <div class="chart-container">
+                        <canvas id="revenueChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="stores-section animate-in">
+                    <h2><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>Lojas do Grupo</h2>
+                    <div class="stores-grid">
+                        ${stores.map(s => {
+                            const m = s.metrics || {};
+                            return `
+                                <div class="store-card">
+                                    <div class="store-header">
+                                        <div class="store-avatar">${(s.name || 'L').charAt(0).toUpperCase()}</div>
+                                        <div>
+                                            <div class="store-name">${s.name || 'Loja'}</div>
+                                            <div class="store-manager">${s.manager || 'Gerente'}</div>
+                                        </div>
+                                    </div>
+                                    <div class="store-metrics">
+                                        <div class="metric">
+                                            <div class="metric-label">Receita</div>
+                                            <div class="metric-value">${formatCurrency(m.valor_bruto)}</div>
+                                        </div>
+                                        <div class="metric">
+                                            <div class="metric-label">Pedidos</div>
+                                            <div class="metric-value">${formatNumber(m.total_pedidos)}</div>
+                                        </div>
+                                        <div class="metric">
+                                            <div class="metric-label">Ticket Médio</div>
+                                            <div class="metric-value">${formatCurrency(m.ticket_medio)}</div>
+                                        </div>
+                                        <div class="metric">
+                                            <div class="metric-label">Avaliação</div>
+                                            <div class="metric-value">${m.avaliacao_media ? m.avaliacao_media.toFixed(1) + '⭐' : '-'}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+
+            // Render chart
+            const ctx = document.getElementById('revenueChart').getContext('2d');
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: stores.map(s => s.name || 'Loja'),
+                    datasets: [{
+                        label: 'Receita',
+                        data: stores.map(s => (s.metrics?.valor_bruto || 0)),
+                        backgroundColor: 'rgba(249, 115, 22, 0.8)',
+                        borderColor: 'rgb(249, 115, 22)',
+                        borderWidth: 1,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => formatCurrency(ctx.raw)
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: isDark ? '#1a1a1a' : '#e5e7eb' },
+                            ticks: {
+                                color: isDark ? '#a0a0a0' : '#4a5568',
+                                callback: value => formatCurrency(value)
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: isDark ? '#a0a0a0' : '#4a5568' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function toggleTheme() {
+            const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+            localStorage.setItem('theme', t);
+            document.getElementById('sunIcon').style.display = t === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = t === 'dark' ? 'none' : 'block';
+            // Re-render to update chart colors
+            renderDashboard();
+        }
+
+        (function() {
+            const t = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+            document.getElementById('sunIcon').style.display = t === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = t === 'dark' ? 'none' : 'block';
+            renderDashboard();
+        })();
+    </script>
+</body>
+</html>
