@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TIMO - Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -16,48 +16,54 @@
 
         :root {
             /* Typography */
-            --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+            --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'DM Mono', 'SF Mono', monospace;
             
             /* Refined Color Palette - Light Mode */
-            --bg-primary: #ffffff;
-            --bg-secondary: #fafafa;
-            --bg-tertiary: #f5f5f5;
+            --bg-primary: #fafbfc;
+            --bg-secondary: #f4f5f7;
+            --bg-tertiary: #ebecf0;
             --bg-elevated: #ffffff;
             
-            --text-primary: #171717;
-            --text-secondary: #525252;
-            --text-tertiary: #a3a3a3;
+            --text-primary: #1a1a2e;
+            --text-secondary: #4a5568;
+            --text-tertiary: #9ca3af;
             
-            --border-light: #e5e5e5;
-            --border-medium: #d4d4d4;
-            --border-heavy: #a3a3a3;
+            --border-light: #e5e7eb;
+            --border-medium: #d1d5db;
+            --border-heavy: #9ca3af;
             
-            /* Brand Colors - Refined */
-            --primary-50: #fff7ed;
-            --primary-100: #ffedd5;
+            /* Brand Colors - Vibrant Orange */
+            --primary-50: #fff8f1;
+            --primary-100: #feedd6;
+            --primary-200: #fcd8ad;
             --primary-500: #f97316;
             --primary-600: #ea580c;
             --primary-700: #c2410c;
             
             /* Semantic Colors */
-            --success-50: #f0fdf4;
+            --success-50: #ecfdf5;
+            --success-100: #d1fae5;
             --success-500: #10b981;
+            --success-600: #059669;
             --success-700: #047857;
             
             --error-50: #fef2f2;
+            --error-100: #fee2e2;
             --error-500: #ef4444;
+            --error-600: #dc2626;
             --error-700: #b91c1c;
             
             --warning-50: #fffbeb;
             --warning-500: #f59e0b;
             
-            /* Shadows - More Sophisticated */
-            --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
-            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            /* Shadows - Professional depth */
+            --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
+            --shadow-glow: 0 0 30px rgba(249, 115, 22, 0.15);
             
             /* Spacing */
             --space-1: 0.25rem;
@@ -75,33 +81,35 @@
             --radius-md: 0.5rem;
             --radius-lg: 0.75rem;
             --radius-xl: 1rem;
-            --radius-2xl: 1.5rem;
+            --radius-2xl: 1.25rem;
             --radius-full: 9999px;
             
             /* Gradients */
-            --gradient-primary: linear-gradient(135deg, #fb923c 0%, #f97316 100%);
+            --gradient-primary: linear-gradient(135deg, #ff8c42 0%, #f97316 50%, #ea580c 100%);
             --gradient-success: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+            --gradient-surface: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-secondary) 100%);
         }
 
         [data-theme="dark"] {
-            --bg-primary: #0a0a0a;
-            --bg-secondary: #121212;
-            --bg-tertiary: #1a1a1a;
-            --bg-elevated: #1f1f1f;
+            --bg-primary: #0f0f12;
+            --bg-secondary: #16161a;
+            --bg-tertiary: #1e1e24;
+            --bg-elevated: #1a1a1f;
             
-            --text-primary: #fafafa;
-            --text-secondary: #a3a3a3;
-            --text-tertiary: #737373;
+            --text-primary: #f4f4f5;
+            --text-secondary: #a1a1aa;
+            --text-tertiary: #71717a;
             
-            --border-light: #262626;
-            --border-medium: #404040;
-            --border-heavy: #525252;
+            --border-light: #27272a;
+            --border-medium: #3f3f46;
+            --border-heavy: #52525b;
             
-            --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
-            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
-            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+            --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.5);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.6);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.6);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.7);
+            --shadow-glow: 0 0 40px rgba(249, 115, 22, 0.2);
         }
 
         body {
@@ -119,7 +127,7 @@
         @keyframes fadeInUp {
             from {
                 opacity: 0;
-                transform: translateY(20px);
+                transform: translateY(16px);
             }
             to {
                 opacity: 1;
@@ -128,23 +136,34 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.7; transform: scale(1.2); }
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
 
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
 
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
         .animate-in {
-            animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
             animation-fill-mode: both;
         }
 
-        .animate-in:nth-child(1) { animation-delay: 0.1s; }
-        .animate-in:nth-child(2) { animation-delay: 0.2s; }
-        .animate-in:nth-child(3) { animation-delay: 0.3s; }
-        .animate-in:nth-child(4) { animation-delay: 0.4s; }
+        .animate-in:nth-child(1) { animation-delay: 0.05s; }
+        .animate-in:nth-child(2) { animation-delay: 0.1s; }
+        .animate-in:nth-child(3) { animation-delay: 0.15s; }
+        .animate-in:nth-child(4) { animation-delay: 0.2s; }
 
         /* Sidebar */
         .sidebar {
@@ -160,7 +179,6 @@
             z-index: 100;
             transform: translateX(-100%);
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: var(--shadow-sm);
         }
 
         .sidebar.open {
@@ -170,7 +188,7 @@
         .sidebar-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0.6);
             backdrop-filter: blur(4px);
             z-index: 99;
             opacity: 0;
@@ -188,31 +206,61 @@
             border-bottom: 1px solid var(--border-light);
         }
 
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            margin-bottom: var(--space-5);
+        }
+
+        .sidebar-logo {
+            width: 40px;
+            height: 40px;
+            border-radius: var(--radius-lg);
+            background: var(--gradient-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1.125rem;
+            color: white;
+            box-shadow: var(--shadow-md), var(--shadow-glow);
+        }
+
+        .sidebar-brand-text {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
+        }
+
         .sidebar-user {
             display: flex;
             align-items: center;
             gap: var(--space-3);
+            padding: var(--space-3);
+            background: var(--bg-secondary);
+            border-radius: var(--radius-lg);
         }
 
         .sidebar-avatar {
-            width: 48px;
-            height: 48px;
-            border-radius: var(--radius-xl);
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius-lg);
             background: var(--gradient-primary);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
             font-weight: 700;
-            font-size: 1.125rem;
-            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+            font-size: 1rem;
         }
 
         .sidebar-user-info h3 {
-            font-size: 0.9375rem;
+            font-size: 0.875rem;
             font-weight: 600;
             color: var(--text-primary);
-            margin-bottom: var(--space-1);
+            margin-bottom: 2px;
         }
 
         .sidebar-user-info p {
@@ -228,7 +276,7 @@
             height: 6px;
             border-radius: 50%;
             background: var(--success-500);
-            box-shadow: 0 0 4px var(--success-500);
+            box-shadow: 0 0 6px var(--success-500);
         }
 
         .sidebar-nav {
@@ -238,12 +286,12 @@
         }
 
         .sidebar-section {
-            margin-bottom: var(--space-8);
+            margin-bottom: var(--space-6);
         }
 
         .sidebar-section-title {
             font-size: 0.6875rem;
-            font-weight: 600;
+            font-weight: 700;
             color: var(--text-tertiary);
             text-transform: uppercase;
             letter-spacing: 0.1em;
@@ -271,19 +319,6 @@
             position: relative;
         }
 
-        .sidebar-link::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 3px;
-            height: 0;
-            background: var(--primary-500);
-            border-radius: 0 2px 2px 0;
-            transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
         .sidebar-link:hover {
             background: var(--bg-tertiary);
             color: var(--text-primary);
@@ -300,10 +335,6 @@
             color: var(--primary-500);
         }
 
-        .sidebar-link.active::before {
-            height: 20px;
-        }
-
         .sidebar-link svg {
             width: 20px;
             height: 20px;
@@ -314,11 +345,10 @@
         .sidebar-link:hover svg,
         .sidebar-link.active svg {
             opacity: 1;
-            transform: scale(1.1);
         }
 
         .sidebar-footer {
-            padding: var(--space-4) var(--space-6);
+            padding: var(--space-4) var(--space-5);
             border-top: 1px solid var(--border-light);
         }
 
@@ -331,12 +361,13 @@
             padding: var(--space-3);
             border-radius: var(--radius-lg);
             background: transparent;
-            border: 2px solid var(--border-medium);
+            border: 1px solid var(--border-medium);
             color: var(--text-secondary);
             font-size: 0.875rem;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
+            font-family: var(--font-body);
         }
 
         .sidebar-footer-btn:hover {
@@ -351,7 +382,7 @@
 
         /* Main Container */
         .container {
-            max-width: 1400px;
+            max-width: 1440px;
             margin: 0 auto;
             padding: var(--space-8);
         }
@@ -361,7 +392,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: var(--space-6);
+            margin-bottom: var(--space-8);
             flex-wrap: wrap;
             gap: var(--space-4);
         }
@@ -377,26 +408,42 @@
             height: 44px;
             border-radius: var(--radius-lg);
             background: var(--bg-elevated);
-            border: 2px solid var(--border-medium);
+            border: 1px solid var(--border-light);
             color: var(--text-secondary);
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: all 0.2s;
+            box-shadow: var(--shadow-xs);
         }
 
         .menu-toggle:hover {
             border-color: var(--primary-500);
-            color: var(--text-primary);
-            background: var(--bg-secondary);
+            color: var(--primary-500);
+            background: var(--primary-50);
         }
 
-        .logo {
-            font-size: 2rem;
+        [data-theme="dark"] .menu-toggle:hover {
+            background: rgba(249, 115, 22, 0.1);
+        }
+
+        .page-title {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-1);
+        }
+
+        .page-title h1 {
+            font-size: 1.75rem;
             font-weight: 800;
             color: var(--text-primary);
             letter-spacing: -0.02em;
+        }
+
+        .page-title p {
+            font-size: 0.875rem;
+            color: var(--text-tertiary);
         }
 
         .header-actions {
@@ -410,25 +457,26 @@
         }
 
         .search-input {
-            padding: var(--space-3) var(--space-4) var(--space-3) var(--space-10);
+            padding: var(--space-3) var(--space-4) var(--space-3) 44px;
             font-size: 0.875rem;
-            border: 2px solid var(--border-medium);
+            border: 1px solid var(--border-light);
             border-radius: var(--radius-lg);
             background: var(--bg-elevated);
             color: var(--text-primary);
             width: 280px;
             transition: all 0.2s;
             font-family: var(--font-body);
+            box-shadow: var(--shadow-xs);
         }
 
         .search-input:hover {
-            border-color: var(--border-heavy);
+            border-color: var(--border-medium);
         }
 
         .search-input:focus {
             outline: none;
             border-color: var(--primary-500);
-            box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.1);
+            box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1);
         }
 
         .search-input::placeholder {
@@ -458,46 +506,28 @@
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             border: none;
             outline: none;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .btn::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: rgba(255, 255, 255, 0.15);
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-
-        .btn:hover::before {
-            opacity: 1;
-        }
-
-        .btn:active {
-            transform: scale(0.98);
         }
 
         .btn-primary {
             background: var(--gradient-primary);
             color: white;
-            box-shadow: 0 2px 8px rgba(249, 115, 22, 0.25);
+            box-shadow: var(--shadow-sm), 0 0 20px rgba(249, 115, 22, 0.2);
         }
 
         .btn-primary:hover {
-            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.35);
+            box-shadow: var(--shadow-md), 0 0 30px rgba(249, 115, 22, 0.3);
             transform: translateY(-1px);
         }
 
         .btn-secondary {
             background: var(--bg-elevated);
             color: var(--text-primary);
-            border: 2px solid var(--border-medium);
+            border: 1px solid var(--border-light);
+            box-shadow: var(--shadow-xs);
         }
 
         .btn-secondary:hover {
-            border-color: var(--border-heavy);
+            border-color: var(--border-medium);
             background: var(--bg-secondary);
         }
 
@@ -506,24 +536,25 @@
             height: 44px;
             border-radius: var(--radius-lg);
             background: var(--bg-elevated);
-            border: 2px solid var(--border-medium);
+            border: 1px solid var(--border-light);
             color: var(--text-secondary);
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: all 0.2s;
+            box-shadow: var(--shadow-xs);
         }
 
         .icon-btn:hover {
             border-color: var(--primary-500);
-            color: var(--text-primary);
+            color: var(--primary-500);
         }
 
-        /* Quick Filters - Enhanced Metric Cards */
+        /* Quick Filters - Metric Cards */
         .quick-filters {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
             gap: var(--space-5);
             margin-bottom: var(--space-8);
         }
@@ -537,6 +568,7 @@
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             overflow: hidden;
+            box-shadow: var(--shadow-sm);
         }
 
         .filter-card::before {
@@ -546,15 +578,22 @@
             left: 0;
             right: 0;
             height: 3px;
-            background: var(--gradient-primary);
             opacity: 0;
             transition: opacity 0.3s;
+        }
+
+        .filter-card.growth::before {
+            background: var(--gradient-success);
+        }
+
+        .filter-card.decline::before {
+            background: linear-gradient(90deg, var(--error-500), var(--error-600));
         }
 
         .filter-card:hover {
             transform: translateY(-4px);
             box-shadow: var(--shadow-lg);
-            border-color: var(--border-medium);
+            border-color: transparent;
         }
 
         .filter-card:hover::before {
@@ -569,16 +608,16 @@
         }
 
         .filter-card-title {
-            font-size: 0.8125rem;
-            font-weight: 500;
-            color: var(--text-secondary);
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-tertiary);
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.08em;
         }
 
         .filter-icon {
-            width: 56px;
-            height: 56px;
+            width: 52px;
+            height: 52px;
             border-radius: var(--radius-xl);
             display: flex;
             align-items: center;
@@ -606,22 +645,20 @@
 
         .filter-card:hover .filter-icon {
             transform: scale(1.1);
-            box-shadow: 0 4px 16px currentColor;
         }
 
         .filter-icon svg {
-            width: 28px;
-            height: 28px;
+            width: 26px;
+            height: 26px;
         }
 
         .filter-count {
             font-family: var(--font-mono);
-            font-size: 2.25rem;
-            font-weight: 700;
+            font-size: 2.5rem;
+            font-weight: 500;
             color: var(--text-primary);
-            line-height: 1.2;
-            margin-bottom: var(--space-2);
-            letter-spacing: -0.02em;
+            line-height: 1.1;
+            margin-bottom: var(--space-1);
         }
 
         .filter-subtitle {
@@ -635,12 +672,13 @@
             align-items: center;
             justify-content: space-between;
             gap: var(--space-4);
-            margin-bottom: var(--space-6);
+            margin-bottom: var(--space-5);
             flex-wrap: wrap;
-            padding: var(--space-4);
+            padding: var(--space-4) var(--space-5);
             background: var(--bg-elevated);
             border: 1px solid var(--border-light);
             border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-xs);
         }
 
         .results-count {
@@ -659,7 +697,6 @@
             background: var(--success-500);
             border-radius: 50%;
             animation: pulse 2s ease-in-out infinite;
-            box-shadow: 0 0 8px var(--success-500);
         }
 
         .sort-controls {
@@ -676,11 +713,11 @@
             display: flex;
             align-items: center;
             gap: var(--space-2);
-            padding: var(--space-3) var(--space-4);
+            padding: var(--space-2) var(--space-3);
             background: var(--bg-secondary);
-            border: 2px solid var(--border-medium);
-            border-radius: var(--radius-lg);
-            font-size: 0.875rem;
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 0.8125rem;
             color: var(--text-primary);
             cursor: pointer;
             transition: all 0.2s;
@@ -689,13 +726,14 @@
         }
 
         .sort-dropdown-btn:hover {
-            border-color: var(--border-heavy);
+            border-color: var(--border-medium);
             background: var(--bg-tertiary);
         }
 
         .sort-dropdown-btn svg {
             width: 16px;
             height: 16px;
+            color: var(--text-tertiary);
         }
 
         .sort-dropdown-label {
@@ -713,13 +751,13 @@
             left: 0;
             background: var(--bg-elevated);
             border: 1px solid var(--border-light);
-            border-radius: var(--radius-xl);
+            border-radius: var(--radius-lg);
             box-shadow: var(--shadow-xl);
-            min-width: 200px;
+            min-width: 180px;
             z-index: 10;
             opacity: 0;
             visibility: hidden;
-            transform: translateY(-10px);
+            transform: translateY(-8px);
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             overflow: hidden;
         }
@@ -737,11 +775,11 @@
             border: none;
             background: none;
             color: var(--text-primary);
-            font-size: 0.875rem;
+            font-size: 0.8125rem;
             font-weight: 500;
             text-align: left;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.15s;
             font-family: var(--font-body);
         }
 
@@ -752,66 +790,54 @@
         .sort-dropdown-item.active {
             background: var(--primary-500);
             color: white;
-            font-weight: 600;
         }
 
         /* Restaurant List */
         .restaurant-list {
             display: flex;
             flex-direction: column;
-            gap: var(--space-4);
+            gap: var(--space-3);
         }
 
         .restaurant-card {
             background: var(--bg-elevated);
             border: 1px solid var(--border-light);
             border-radius: var(--radius-xl);
-            padding: var(--space-6);
+            padding: var(--space-5);
             display: grid;
             grid-template-columns: auto 1fr auto auto;
             gap: var(--space-5);
             align-items: center;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             cursor: pointer;
             position: relative;
-        }
-
-        .restaurant-card::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 0;
-            background: var(--primary-500);
-            border-radius: var(--radius-xl) 0 0 var(--radius-xl);
-            transition: width 0.2s ease;
+            box-shadow: var(--shadow-xs);
         }
 
         .restaurant-card:hover {
-            border-color: var(--border-medium);
-            box-shadow: var(--shadow-lg);
+            border-color: var(--primary-200);
+            box-shadow: var(--shadow-md);
             transform: translateY(-2px);
         }
 
-        .restaurant-card:hover::before {
-            width: 4px;
+        [data-theme="dark"] .restaurant-card:hover {
+            border-color: var(--primary-700);
         }
 
         .restaurant-avatar {
-            width: 64px;
-            height: 64px;
-            border-radius: var(--radius-xl);
+            width: 56px;
+            height: 56px;
+            border-radius: var(--radius-lg);
             background: var(--gradient-primary);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
             font-weight: 700;
-            font-size: 1.75rem;
+            font-size: 1.5rem;
             flex-shrink: 0;
-            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
-            transition: transform 0.3s;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.2s;
         }
 
         .restaurant-card:hover .restaurant-avatar {
@@ -827,24 +853,24 @@
             display: flex;
             align-items: center;
             gap: var(--space-3);
-            margin-bottom: var(--space-2);
+            margin-bottom: var(--space-1);
             flex-wrap: wrap;
         }
 
         .restaurant-name {
-            font-size: 1.125rem;
-            font-weight: 600;
+            font-size: 1rem;
+            font-weight: 700;
             color: var(--text-primary);
         }
 
         .restaurant-rating {
             display: inline-flex;
             align-items: center;
-            gap: var(--space-1);
-            padding: var(--space-1) var(--space-2);
+            gap: 4px;
+            padding: 2px 8px;
             background: var(--warning-50);
             color: var(--warning-500);
-            border-radius: var(--radius-md);
+            border-radius: var(--radius-sm);
             font-size: 0.75rem;
             font-weight: 600;
         }
@@ -863,24 +889,24 @@
         .restaurant-meta-item {
             display: flex;
             align-items: center;
-            gap: var(--space-1);
+            gap: 4px;
         }
 
         .restaurant-stats {
             display: flex;
-            gap: var(--space-8);
+            gap: var(--space-6);
         }
 
         .stat-item {
             display: flex;
             flex-direction: column;
-            gap: var(--space-1);
-            min-width: 110px;
+            gap: 2px;
+            min-width: 100px;
         }
 
         .stat-label {
             font-size: 0.6875rem;
-            font-weight: 500;
+            font-weight: 600;
             color: var(--text-tertiary);
             text-transform: uppercase;
             letter-spacing: 0.05em;
@@ -888,30 +914,30 @@
 
         .stat-value {
             font-family: var(--font-mono);
-            font-size: 1.125rem;
-            font-weight: 700;
+            font-size: 1rem;
+            font-weight: 500;
             color: var(--text-primary);
         }
 
         .trend {
             display: inline-flex;
             align-items: center;
-            gap: var(--space-1);
-            padding: var(--space-1) var(--space-2);
-            border-radius: var(--radius-md);
-            font-size: 0.75rem;
+            gap: 4px;
+            padding: 2px 6px;
+            border-radius: var(--radius-sm);
+            font-size: 0.6875rem;
             font-weight: 600;
             font-family: var(--font-mono);
         }
 
         .trend.positive {
             background: var(--success-50);
-            color: var(--success-700);
+            color: var(--success-600);
         }
 
         .trend.negative {
             background: var(--error-50);
-            color: var(--error-700);
+            color: var(--error-600);
         }
 
         [data-theme="dark"] .trend.positive {
@@ -936,12 +962,12 @@
         }
 
         .action-btn {
-            width: 40px;
-            height: 40px;
-            border-radius: var(--radius-lg);
+            width: 36px;
+            height: 36px;
+            border-radius: var(--radius-md);
             background: transparent;
             border: none;
-            color: var(--text-secondary);
+            color: var(--text-tertiary);
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -963,11 +989,36 @@
             background: rgba(239, 68, 68, 0.15);
         }
 
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: var(--space-12) var(--space-6);
+            color: var(--text-tertiary);
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: var(--space-4);
+            opacity: 0.5;
+        }
+
+        .empty-state h3 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: var(--space-2);
+        }
+
+        .empty-state p {
+            font-size: 0.875rem;
+        }
+
         /* Modal */
         .modal {
             position: fixed;
             inset: 0;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0.6);
             backdrop-filter: blur(4px);
             display: flex;
             align-items: center;
@@ -988,11 +1039,11 @@
             border: 1px solid var(--border-light);
             border-radius: var(--radius-2xl);
             box-shadow: var(--shadow-xl);
-            max-width: 600px;
+            max-width: 560px;
             width: 90%;
             max-height: 85vh;
             overflow: hidden;
-            transform: scale(0.95) translateY(20px);
+            transform: scale(0.95) translateY(16px);
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
@@ -1001,7 +1052,7 @@
         }
 
         .modal-header {
-            padding: var(--space-6);
+            padding: var(--space-5);
             border-bottom: 1px solid var(--border-light);
             display: flex;
             align-items: center;
@@ -1009,8 +1060,8 @@
         }
 
         .modal-icon {
-            width: 64px;
-            height: 64px;
+            width: 56px;
+            height: 56px;
             border-radius: var(--radius-xl);
             display: flex;
             align-items: center;
@@ -1019,31 +1070,31 @@
         }
 
         .modal-icon svg {
-            width: 32px;
-            height: 32px;
+            width: 28px;
+            height: 28px;
             color: white;
         }
 
         .modal-title-group h2 {
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             font-weight: 700;
             color: var(--text-primary);
-            margin-bottom: var(--space-1);
+            margin-bottom: 2px;
         }
 
         .modal-title-group p {
-            font-size: 0.875rem;
+            font-size: 0.8125rem;
             color: var(--text-tertiary);
         }
 
         .modal-close {
             margin-left: auto;
-            width: 40px;
-            height: 40px;
-            border-radius: var(--radius-lg);
+            width: 36px;
+            height: 36px;
+            border-radius: var(--radius-md);
             background: transparent;
             border: none;
-            color: var(--text-secondary);
+            color: var(--text-tertiary);
             cursor: pointer;
             transition: all 0.2s;
             display: flex;
@@ -1057,20 +1108,20 @@
         }
 
         .modal-body {
-            padding: var(--space-6);
+            padding: var(--space-5);
             overflow-y: auto;
-            max-height: calc(85vh - 140px);
+            max-height: calc(85vh - 120px);
         }
 
         .ranking-item {
             display: flex;
             align-items: center;
-            gap: var(--space-4);
-            padding: var(--space-4);
+            gap: var(--space-3);
+            padding: var(--space-3);
             background: var(--bg-secondary);
             border-radius: var(--radius-lg);
-            margin-bottom: var(--space-3);
-            transition: all 0.2s;
+            margin-bottom: var(--space-2);
+            transition: all 0.15s;
         }
 
         .ranking-item:hover {
@@ -1079,17 +1130,17 @@
         }
 
         .ranking-number {
-            width: 40px;
-            height: 40px;
-            border-radius: var(--radius-lg);
+            width: 36px;
+            height: 36px;
+            border-radius: var(--radius-md);
             background: var(--gradient-primary);
             color: white;
             display: flex;
             align-items: center;
             justify-content: center;
             font-family: var(--font-mono);
-            font-weight: 700;
-            font-size: 1.125rem;
+            font-weight: 500;
+            font-size: 1rem;
             flex-shrink: 0;
         }
 
@@ -1099,29 +1150,30 @@
 
         .ranking-name {
             font-weight: 600;
+            font-size: 0.875rem;
             color: var(--text-primary);
-            margin-bottom: var(--space-1);
+            margin-bottom: 2px;
         }
 
         .ranking-detail {
-            font-size: 0.8125rem;
+            font-size: 0.75rem;
             color: var(--text-tertiary);
         }
 
         .ranking-value {
             font-family: var(--font-mono);
-            font-weight: 700;
-            font-size: 1.25rem;
+            font-weight: 500;
+            font-size: 1rem;
         }
 
         /* Toast */
         .toast {
             position: fixed;
-            bottom: var(--space-8);
-            right: var(--space-8);
+            bottom: var(--space-6);
+            right: var(--space-6);
             background: var(--bg-elevated);
             border: 1px solid var(--border-light);
-            border-radius: var(--radius-xl);
+            border-radius: var(--radius-lg);
             padding: var(--space-4) var(--space-5);
             box-shadow: var(--shadow-xl);
             display: flex;
@@ -1131,17 +1183,36 @@
             opacity: 1;
             transition: opacity 0.3s;
             font-weight: 500;
+            font-size: 0.875rem;
         }
 
         .toast.success {
-            border-left: 4px solid var(--success-500);
+            border-left: 3px solid var(--success-500);
+            color: var(--success-600);
         }
 
         .toast.error {
-            border-left: 4px solid var(--error-500);
+            border-left: 3px solid var(--error-500);
+            color: var(--error-600);
+        }
+
+        [data-theme="dark"] .toast.success {
+            color: var(--success-500);
+        }
+
+        [data-theme="dark"] .toast.error {
+            color: var(--error-500);
         }
 
         /* Responsive */
+        @media (max-width: 1024px) {
+            .restaurant-stats {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: var(--space-3);
+            }
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: var(--space-4);
@@ -1153,33 +1224,37 @@
 
             .restaurant-card {
                 grid-template-columns: auto 1fr;
-                gap: var(--space-4);
+                gap: var(--space-3);
             }
 
             .restaurant-stats {
                 grid-column: 1 / -1;
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: var(--space-4);
             }
             
             .restaurant-actions {
                 grid-column: 1 / -1;
+                opacity: 1;
+                justify-content: flex-end;
             }
 
             .search-input {
                 width: 100%;
             }
+
+            .header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .header-actions {
+                flex-wrap: wrap;
+            }
         }
 
         /* Loading skeleton */
         @keyframes shimmer {
-            0% {
-                background-position: -1000px 0;
-            }
-            100% {
-                background-position: 1000px 0;
-            }
+            0% { background-position: -1000px 0; }
+            100% { background-position: 1000px 0; }
         }
 
         .skeleton {
@@ -1190,7 +1265,7 @@
                 var(--bg-secondary) 100%
             );
             background-size: 2000px 100%;
-            animation: shimmer 2s infinite linear;
+            animation: shimmer 1.5s infinite linear;
             border-radius: var(--radius-md);
         }
     </style>
@@ -1200,101 +1275,84 @@
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
+            <div class="sidebar-brand">
+                <div class="sidebar-logo">T</div>
+                <span class="sidebar-brand-text">TIMO</span>
+            </div>
             <div class="sidebar-user">
                 <div class="sidebar-avatar" id="sidebarAvatar">U</div>
                 <div class="sidebar-user-info">
                     <h3 id="sidebarUserName">Usuário</h3>
-                    <p>
-                        <span class="role-dot"></span>
-                        <span id="sidebarUserRole">Usuário</span>
-                    </p>
+                    <p><span class="role-dot"></span><span id="sidebarUserRole">Carregando...</span></p>
                 </div>
             </div>
         </div>
         
         <nav class="sidebar-nav">
             <div class="sidebar-section">
-                <div class="sidebar-section-title">Principal</div>
-                <a href="/dashboard" class="sidebar-link active">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
-                    </svg>
+                <div class="sidebar-section-title">Menu</div>
+                <a href="/" class="sidebar-link active">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
                     Dashboard
                 </a>
-                <a href="/squads" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
-                    </svg>
-                    Squads
-                </a>
-                <a href="/comparativo" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-                    </svg>
-                    Comparativo
-                </a>
-                <a href="/hidden_stores" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
-                    </svg>
-                    Lojas Ocultas
+                <a href="/charts" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    Gráficos
                 </a>
             </div>
             
             <div class="sidebar-section" id="adminSection" style="display: none;">
-                <div class="sidebar-section-title">Admin</div>
-                <a href="/admin" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                    </svg>
-                    Admin Panel
+                <div class="sidebar-section-title">Administração</div>
+                <a href="/admin/users" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    Usuários
+                </a>
+                <a href="/admin/hidden" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                    Lojas Ocultas
                 </a>
             </div>
         </nav>
         
         <div class="sidebar-footer">
             <button class="sidebar-footer-btn" onclick="logout()">
-                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-                </svg>
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                 Sair
             </button>
         </div>
     </aside>
 
-    <!-- Main Content -->
     <div class="container">
+        <!-- Header -->
         <header class="header">
             <div class="header-left">
-                <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Menu">
-                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <button class="menu-toggle" onclick="toggleSidebar()">
+                    <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                     </svg>
                 </button>
-                <h1 class="logo">TIMO</h1>
+                <div class="page-title">
+                    <h1>Dashboard</h1>
+                    <p>Visão geral das suas lojas</p>
+                </div>
             </div>
             
             <div class="header-actions">
                 <div class="search-box">
-                    <input 
-                        type="text" 
-                        class="search-input" 
-                        id="searchInput" 
-                        placeholder="Buscar restaurante..."
-                        oninput="renderRestaurants()"
-                    >
-                    <svg class="search-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="search-icon" width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                     </svg>
+                    <input type="text" id="searchInput" class="search-input" placeholder="Buscar lojas..." oninput="handleSearch()">
                 </div>
-                <button class="icon-btn" onclick="refreshData()" title="Atualizar dados">
+                
+                <button class="icon-btn" onclick="refreshData()" title="Atualizar">
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                     </svg>
                 </button>
+                
                 <button class="icon-btn" onclick="toggleTheme()" title="Alternar tema">
-                    <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none">
+                    <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
                     </svg>
                     <svg id="moonIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1306,9 +1364,9 @@
 
         <!-- Quick Filters -->
         <div class="quick-filters">
-            <div class="filter-card animate-in" onclick="openModal('growth')">
+            <div class="filter-card growth animate-in" onclick="openModal('growth')">
                 <div class="filter-card-header">
-                    <div class="filter-card-title">Crescimento</div>
+                    <span class="filter-card-title">Em Crescimento</span>
                     <div class="filter-icon growth">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
@@ -1316,12 +1374,12 @@
                     </div>
                 </div>
                 <div class="filter-count" id="growthCount">0</div>
-                <div class="filter-subtitle">Lojas em crescimento</div>
+                <div class="filter-subtitle">lojas com tendência positiva</div>
             </div>
-
-            <div class="filter-card animate-in" onclick="openModal('decline')">
+            
+            <div class="filter-card decline animate-in" onclick="openModal('decline')">
                 <div class="filter-card-header">
-                    <div class="filter-card-title">Queda</div>
+                    <span class="filter-card-title">Em Queda</span>
                     <div class="filter-icon decline">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/>
@@ -1329,13 +1387,13 @@
                     </div>
                 </div>
                 <div class="filter-count" id="declineCount">0</div>
-                <div class="filter-subtitle">Lojas em queda</div>
+                <div class="filter-subtitle">lojas precisando de atenção</div>
             </div>
         </div>
 
         <!-- Sort Bar -->
         <div class="sort-bar">
-            <div class="results-count" id="resultsCount">0 restaurantes</div>
+            <span class="results-count" id="resultsCount">0 clientes</span>
             
             <div class="sort-controls">
                 <div class="sort-dropdown" id="monthDropdown">
@@ -1399,7 +1457,7 @@
                     <p id="modalSubtitle">0 lojas</p>
                 </div>
                 <button class="modal-close" onclick="closeModal()">
-                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
                 </button>
@@ -1411,178 +1469,224 @@
     </div>
 
     <script>
+        // State
         let restaurantsData = [];
+        let hiddenStores = [];
         let currentSortOrder = 'name-asc';
         let currentMonthFilter = 'all';
+        let searchQuery = '';
         let isAdmin = false;
 
+        // Initialize current month filter
+        (function initMonth() {
+            const now = new Date();
+            const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+            currentMonthFilter = currentMonth;
+        })();
+
+        // Formatters
+        const formatCurrency = (v) => v ? 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'R$ 0,00';
+        const formatNumber = (v) => v ? v.toLocaleString('pt-BR', {maximumFractionDigits: 0}) : '0';
+        const formatTrend = (v) => v ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '+0.00%';
+
+        // API Functions - Matching index.html exactly
         async function loadRestaurants(month = 'all') {
             try {
-                const response = await fetch(`/api/restaurants?month=${month}`);
+                let url = '/api/restaurants';
+                if (month !== 'all') {
+                    url += `?month=${month}`;
+                }
+
+                const response = await fetch(url);
                 const data = await response.json();
-                
                 if (data.success) {
                     restaurantsData = data.restaurants || [];
+                    await loadHiddenStores();
+                    updateFilterCounts();
                     renderRestaurants();
-                    updateStats();
+                } else {
+                    showToast('Erro ao carregar dados', 'error');
                 }
             } catch (error) {
                 console.error('Error loading restaurants:', error);
-                showToast('Erro ao carregar restaurantes', 'error');
+                showToast('Erro de conexão com o servidor', 'error');
+                document.getElementById('restaurantList').innerHTML = `
+                    <div class="empty-state">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                        <h3>Erro ao carregar dados</h3>
+                        <p>Verifique a conexão com o servidor</p>
+                    </div>
+                `;
             }
         }
 
-        function updateStats() {
+        async function loadHiddenStores() {
+            try {
+                const response = await fetch('/api/hidden-stores');
+                const data = await response.json();
+                if (data.success) {
+                    hiddenStores = data.hidden_stores.map(h => h.id);
+                }
+            } catch (error) {
+                console.error('Error loading hidden stores:', error);
+            }
+        }
+
+        function updateFilterCounts() {
             const growth = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) > 0).length;
             const decline = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) < 0).length;
-            
-            document.getElementById('growthCount').textContent = growth;
-            document.getElementById('declineCount').textContent = decline;
+            document.getElementById('growthCount').textContent = Math.min(growth, 10);
+            document.getElementById('declineCount').textContent = Math.min(decline, 10);
         }
 
         function renderRestaurants() {
-            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-            let filtered = restaurantsData.filter(r => 
-                r.name.toLowerCase().includes(searchTerm) ||
-                (r.manager || '').toLowerCase().includes(searchTerm)
-            );
+            const list = document.getElementById('restaurantList');
+            let filtered = restaurantsData.filter(r => !hiddenStores.includes(r.id));
 
-            // Sort
+            // Search filter
+            if (searchQuery) {
+                filtered = filtered.filter(r => 
+                    r.name.toLowerCase().includes(searchQuery) ||
+                    (r.manager && r.manager.toLowerCase().includes(searchQuery))
+                );
+            }
+
+            // Sort - Using same logic as index.html
             filtered.sort((a, b) => {
-                switch (currentSortOrder) {
+                switch(currentSortOrder) {
                     case 'name-asc': return a.name.localeCompare(b.name);
                     case 'name-desc': return b.name.localeCompare(a.name);
-                    case 'vendas': 
-                        return (b.metrics?.totals?.vendas ?? b.metrics?.vendas ?? b.orders ?? 0) - 
-                               (a.metrics?.totals?.vendas ?? a.metrics?.vendas ?? a.orders ?? 0);
-                    case 'ticket-medio': 
-                        return (b.metrics?.totals?.ticketMedio ?? b.metrics?.ticketMedio ?? b.metrics?.ticket_medio ?? b.metrics?.['ticket-medio'] ?? b.ticket ?? 0) - 
-                               (a.metrics?.totals?.ticketMedio ?? a.metrics?.ticketMedio ?? a.metrics?.ticket_medio ?? a.metrics?.['ticket-medio'] ?? a.ticket ?? 0);
-                    case 'valor-bruto': 
-                        return (b.metrics?.totals?.valorBruto ?? b.metrics?.valorBruto ?? b.metrics?.valor_bruto ?? b.metrics?.['valor-bruto'] ?? b.revenue ?? 0) - 
-                               (a.metrics?.totals?.valorBruto ?? a.metrics?.valorBruto ?? a.metrics?.valor_bruto ?? a.metrics?.['valor-bruto'] ?? a.revenue ?? 0);
-                    case 'liquido': 
-                        return (b.metrics?.totals?.liquido ?? b.metrics?.liquido ?? b.revenue ?? 0) - 
-                               (a.metrics?.totals?.liquido ?? a.metrics?.liquido ?? a.revenue ?? 0);
+                    case 'vendas': return (b.metrics?.totals?.vendas ?? b.metrics?.vendas ?? b.orders ?? 0) - (a.metrics?.totals?.vendas ?? a.metrics?.vendas ?? a.orders ?? 0);
+                    case 'ticket-medio': return (b.metrics?.totals?.ticketMedio ?? b.metrics?.ticket_medio ?? b.ticket ?? 0) - (a.metrics?.totals?.ticketMedio ?? a.metrics?.ticket_medio ?? a.ticket ?? 0);
+                    case 'valor-bruto': return (b.metrics?.totals?.valorBruto ?? b.metrics?.valor_bruto ?? b.revenue ?? 0) - (a.metrics?.totals?.valorBruto ?? a.metrics?.valor_bruto ?? a.revenue ?? 0);
+                    case 'liquido': return (b.metrics?.totals?.liquido ?? b.metrics?.liquido ?? b.revenue ?? 0) - (a.metrics?.totals?.liquido ?? a.metrics?.liquido ?? a.revenue ?? 0);
                     default: return 0;
                 }
             });
 
-            document.getElementById('resultsCount').textContent = `${filtered.length} restaurante${filtered.length !== 1 ? 's' : ''}`;
+            document.getElementById('resultsCount').textContent = `${filtered.length} cliente${filtered.length !== 1 ? 's' : ''}`;
 
-            const list = document.getElementById('restaurantList');
-            list.innerHTML = filtered.map(r => {
-                // Better fallback handling for metrics - matches backend data structure
+            if (!filtered.length) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                        <h3>Nenhum resultado encontrado</h3>
+                        <p>Tente ajustar os filtros ou a busca</p>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = filtered.map((r, i) => {
+                // Better fallback handling for metrics - matching index.html
                 const m = r.metrics || {};
                 const totals = m.totals || {};
                 const trends = m.trends || {};
                 
-                // Use metrics values with multiple fallback paths
+                // Use metrics values, fallback to top-level values if needed
                 const vendas = totals.vendas ?? m.vendas ?? r.orders ?? 0;
-                const ticketMedio = totals.ticketMedio ?? m.ticketMedio ?? m.ticket_medio ?? m['ticket-medio'] ?? r.ticket ?? 0;
-                const valorBruto = totals.valorBruto ?? m.valorBruto ?? m.valor_bruto ?? m['valor-bruto'] ?? r.revenue ?? 0;
+                const ticketMedio = totals.ticketMedio ?? m.ticket_medio ?? r.ticket ?? 0;
+                const valorBruto = totals.valorBruto ?? m.valor_bruto ?? r.revenue ?? 0;
                 const liquido = totals.liquido ?? m.liquido ?? r.revenue ?? 0;
                 
-                // Trends with multiple fallback paths
+                const trend = trends.vendas ?? m.trend ?? r.trend ?? 0;
                 const trendVendas = trends.vendas ?? 0;
-                const trendTicket = trends.ticketMedio ?? trends.ticket_medio ?? trends['ticket-medio'] ?? 0;
-                const trendBruto = trends.valorBruto ?? trends.valor_bruto ?? trends['valor-bruto'] ?? 0;
-                const trendLiquido = trends.liquido ?? 0;
-                
+                const trendTicket = trends.ticketMedio ?? m.trends?.ticket_medio ?? 0;
+                const trendBruto = trends.valorBruto ?? m.trends?.valor_bruto ?? 0;
+                const trendLiquido = trends.liquido ?? m.trends?.liquido ?? 0;
+
                 return `
-                <div class="restaurant-card" onclick="window.location.href='/restaurant/${r.id}'">
-                    <div class="restaurant-avatar">${r.name.charAt(0).toUpperCase()}</div>
-                    <div class="restaurant-info">
-                        <div class="restaurant-header">
-                            <span class="restaurant-name">${r.name}</span>
-                            ${r.rating ? `<span class="restaurant-rating">
-                                <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
-                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
-                                </svg>
-                                ${r.rating.toFixed(1)}
-                            </span>` : ''}
+                    <div class="restaurant-card" onclick="window.location.href='/restaurant/${r.id}'">
+                        <div class="restaurant-avatar">${r.name.charAt(0).toUpperCase()}</div>
+                        <div class="restaurant-info">
+                            <div class="restaurant-header">
+                                <span class="restaurant-name">${r.name}</span>
+                                ${r.rating ? `<span class="restaurant-rating">
+                                    <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                                    </svg>
+                                    ${r.rating.toFixed(1)}
+                                </span>` : ''}
+                            </div>
+                            <div class="restaurant-meta">
+                                <span class="restaurant-meta-item">
+                                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                                    </svg>
+                                    ${r.manager || 'Sem gerente'}
+                                </span>
+                                <span class="restaurant-meta-item">
+                                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    </svg>
+                                    ${r.neighborhood || 'Sem bairro'}
+                                </span>
+                            </div>
                         </div>
-                        <div class="restaurant-meta">
-                            <span class="restaurant-meta-item">
-                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-                                </svg>
-                                ${r.manager || 'Sem gerente'}
-                            </span>
-                            <span class="restaurant-meta-item">
-                                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                </svg>
-                                ${r.neighborhood || 'Sem bairro'}
-                            </span>
+                        <div class="restaurant-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Vendas</span>
+                                <span class="stat-value">${formatNumber(vendas)}</span>
+                                <span class="trend ${trendVendas >= 0 ? 'positive' : 'negative'}">
+                                    <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trendVendas >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
+                                    </svg>
+                                    ${formatTrend(trendVendas)}
+                                </span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Ticket Médio</span>
+                                <span class="stat-value">${formatCurrency(ticketMedio)}</span>
+                                <span class="trend ${trendTicket >= 0 ? 'positive' : 'negative'}">
+                                    <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trendTicket >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
+                                    </svg>
+                                    ${formatTrend(trendTicket)}
+                                </span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Valor Bruto</span>
+                                <span class="stat-value">${formatCurrency(valorBruto)}</span>
+                                <span class="trend ${trendBruto >= 0 ? 'positive' : 'negative'}">
+                                    <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trendBruto >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
+                                    </svg>
+                                    ${formatTrend(trendBruto)}
+                                </span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Líquido</span>
+                                <span class="stat-value">${formatCurrency(liquido)}</span>
+                                <span class="trend ${trendLiquido >= 0 ? 'positive' : 'negative'}">
+                                    <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trendLiquido >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
+                                    </svg>
+                                    ${formatTrend(trendLiquido)}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="restaurant-actions" onclick="event.stopPropagation()">
+                            ${isAdmin ? `
+                                <button class="action-btn danger" onclick="hideStore('${r.id}', '${r.name.replace(/'/g, "\\'")}')" title="Ocultar loja">
+                                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
+                                    </svg>
+                                </button>
+                            ` : ''}
                         </div>
                     </div>
-                    <div class="restaurant-stats">
-                        <div class="stat-item">
-                            <span class="stat-label">Vendas</span>
-                            <span class="stat-value">${vendas}</span>
-                            ${trendVendas !== 0 ? `<span class="trend ${trendVendas >= 0 ? 'positive' : 'negative'}">
-                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trendVendas >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
-                                </svg>
-                                ${formatTrend(trendVendas)}
-                            </span>` : ''}
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Ticket Médio</span>
-                            <span class="stat-value">${formatCurrency(ticketMedio)}</span>
-                            ${trendTicket !== 0 ? `<span class="trend ${trendTicket >= 0 ? 'positive' : 'negative'}">
-                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trendTicket >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
-                                </svg>
-                                ${formatTrend(trendTicket)}
-                            </span>` : ''}
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Valor Bruto</span>
-                            <span class="stat-value">${formatCurrency(valorBruto)}</span>
-                            ${trendBruto !== 0 ? `<span class="trend ${trendBruto >= 0 ? 'positive' : 'negative'}">
-                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trendBruto >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
-                                </svg>
-                                ${formatTrend(trendBruto)}
-                            </span>` : ''}
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Líquido</span>
-                            <span class="stat-value">${formatCurrency(liquido)}</span>
-                            ${trendLiquido !== 0 ? `<span class="trend ${trendLiquido >= 0 ? 'positive' : 'negative'}">
-                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trendLiquido >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
-                                </svg>
-                                ${formatTrend(trendLiquido)}
-                            </span>` : ''}
-                        </div>
-                    </div>
-                    <div class="restaurant-actions" onclick="event.stopPropagation()">
-                        ${isAdmin ? `
-                            <button class="action-btn danger" onclick="hideStore('${r.id}', '${r.name}')" title="Ocultar loja">
-                                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
-                                </svg>
-                            </button>
-                        ` : ''}
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
-        function formatCurrency(value) {
-            return new Intl.NumberFormat('pt-BR', {
-                style: 'currency',
-                currency: 'BRL'
-            }).format(value || 0);
-        }
-
-        function formatTrend(value) {
-            const sign = value >= 0 ? '+' : '';
-            return `${sign}${value.toFixed(1)}%`;
+        function handleSearch() {
+            searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
+            renderRestaurants();
         }
 
         function setSortOrder(order) {
@@ -1659,7 +1763,7 @@
                         <div class="ranking-name">${r.name}</div>
                         <div class="ranking-detail">${r.manager || 'Sem gerente'}</div>
                     </div>
-                    <div class="ranking-value ${(r.metrics?.trends?.vendas ?? 0) >= 0 ? 'trend positive' : 'trend negative'}">
+                    <div class="ranking-value trend ${(r.metrics?.trends?.vendas ?? 0) >= 0 ? 'positive' : 'negative'}">
                         ${formatTrend(r.metrics?.trends?.vendas ?? 0)}
                     </div>
                 </div>
@@ -1705,7 +1809,7 @@
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
             toast.innerHTML = `
-                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/>
                 </svg>
                 <span>${message}</span>
@@ -1757,6 +1861,7 @@
             }).catch(() => {});
         }
 
+        // Initialize
         (function init() {
             const theme = localStorage.getItem('theme') || 'dark';
             document.documentElement.setAttribute('data-theme', theme);
@@ -1776,6 +1881,7 @@
             loadRestaurants(currentMonthFilter);
         })();
 
+        // Global event listeners
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') {
                 closeModal();
