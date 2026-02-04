@@ -4,67 +4,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Comparativo por Gestor - Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        /* Design System - Consistent with Login & Dashboard */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg-primary: #ffffff;
-            --bg-secondary: #f8fafc;
-            --bg-card: #ffffff;
-            --bg-hover: #f1f5f9;
-            --text-primary: #0f172a;
-            --text-secondary: #64748b;
-            --text-muted: #94a3b8;
-            --border: #e2e8f0;
-            --accent: #f97015;
-            --accent-hover: #ea580c;
-            --green: #22c55e;
-            --green-bg: rgba(34,197,94,0.1);
-            --red: #ef4444;
-            --red-bg: rgba(239,68,68,0.1);
-            --blue: #3b82f6;
-            --blue-bg: rgba(59,130,246,0.1);
-            --purple: #a855f7;
-            --purple-bg: rgba(168,85,247,0.1);
-            --accent-bg: rgba(249,112,21,0.1);
-            --shadow: 0 1px 3px rgba(0,0,0,0.1);
-            --shadow-lg: 0 4px 6px rgba(0,0,0,0.1);
+            --bg-primary: #ffffff; --bg-secondary: #f8fafc; --bg-card: #ffffff;
+            --bg-hover: #ffffff; --text-primary: #000000; --text-secondary: #666666;
+            --text-muted: #a0a0a0; --border: #e2e8f0; --accent: #f97015;
+            --accent-hover: #ea580c; --green: #22c55e; --green-bg: rgba(34,197,94,0.1);
+            --red: #ef4444; --red-bg: rgba(239,68,68,0.1); --blue: #3b82f6;
+            --orange: #f97316;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1); --shadow-lg: 0 4px 6px rgba(0,0,0,0.1);
         }
-        
         [data-theme="dark"] {
-            --bg-primary: #000000;
-            --bg-secondary: #0a0a0a;
-            --bg-card: #0f0f0f;
-            --bg-hover: #1a1a1a;
-            --text-primary: #ffffff;
-            --text-secondary: #a0a0a0;
-            --text-muted: #666666;
-            --border: #1f1f1f;
-            --green-bg: rgba(34,197,94,0.15);
-            --red-bg: rgba(239,68,68,0.15);
-            --blue-bg: rgba(59,130,246,0.15);
-            --purple-bg: rgba(168,85,247,0.15);
-            --accent-bg: rgba(249,112,21,0.15);
-            --shadow: 0 1px 3px rgba(0,0,0,0.5);
-            --shadow-lg: 0 4px 6px rgba(0,0,0,0.3);
+            --bg-primary: #000000; --bg-secondary: #0a0a0a; --bg-card: #0a0a0a;
+            --bg-hover: #1a1a1a; --text-primary: #ffffff; --text-secondary: #a0a0a0;
+            --text-muted: #666666; --border: #1a1a1a; --shadow: 0 1px 3px rgba(0,0,0,0.3);
+            --green-bg: rgba(34,197,94,0.15); --red-bg: rgba(239,68,68,0.15);
         }
-        
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            line-height: 1.6;
+        body { 
+            font-family: 'Inter', system-ui, sans-serif; 
+            background: var(--bg-secondary); 
+            color: var(--text-primary); 
+            line-height: 1.6; 
             min-height: 100vh;
             transition: background-color 0.3s, color 0.3s;
         }
         
-        /* Sidebar */
+        /* Sidebar - Hidden by Default */
         .sidebar {
             position: fixed;
             top: 0;
@@ -79,21 +46,20 @@
             transform: translateX(-100%);
             transition: transform 0.3s ease;
         }
-        
-        .sidebar.open {
-            transform: translateX(0);
-        }
+        .sidebar.open { transform: translateX(0); }
         
         .sidebar-overlay {
             position: fixed;
-            inset: 0;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             background: rgba(0,0,0,0.5);
             z-index: 99;
             opacity: 0;
             visibility: hidden;
-            transition: opacity 0.3s, visibility 0.3s;
+            transition: all 0.3s ease;
         }
-        
         .sidebar-overlay.show {
             opacity: 1;
             visibility: visible;
@@ -103,13 +69,11 @@
             padding: 1.5rem;
             border-bottom: 1px solid var(--border);
         }
-        
         .sidebar-user {
             display: flex;
             align-items: center;
             gap: 0.875rem;
         }
-        
         .sidebar-avatar {
             width: 44px;
             height: 44px;
@@ -121,15 +85,11 @@
             color: white;
             font-weight: 600;
             font-size: 1.1rem;
-            flex-shrink: 0;
         }
-        
         .sidebar-user-info h3 {
             font-size: 0.95rem;
             font-weight: 600;
-            margin-bottom: 2px;
         }
-        
         .sidebar-user-info p {
             font-size: 0.75rem;
             color: var(--text-muted);
@@ -137,8 +97,7 @@
             align-items: center;
             gap: 0.35rem;
         }
-        
-        .role-dot {
+        .sidebar-user-info .role-dot {
             width: 6px;
             height: 6px;
             border-radius: 50%;
@@ -150,12 +109,10 @@
             padding: 1rem 0;
             overflow-y: auto;
         }
-        
         .sidebar-section {
             padding: 0 1rem;
             margin-bottom: 1.5rem;
         }
-        
         .sidebar-section-title {
             font-size: 0.65rem;
             font-weight: 600;
@@ -165,7 +122,6 @@
             padding: 0 0.75rem;
             margin-bottom: 0.5rem;
         }
-        
         .sidebar-link {
             display: flex;
             align-items: center;
@@ -178,18 +134,19 @@
             font-weight: 500;
             transition: all 0.2s;
             cursor: pointer;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
         }
-        
         .sidebar-link:hover {
             background: var(--bg-hover);
             color: var(--text-primary);
         }
-        
         .sidebar-link.active {
-            background: var(--accent);
-            color: white;
+            background: rgba(249,112,21,0.1);
+            color: var(--accent);
         }
-        
         .sidebar-link svg {
             width: 20px;
             height: 20px;
@@ -199,7 +156,6 @@
             padding: 1rem 1.5rem;
             border-top: 1px solid var(--border);
         }
-        
         .sidebar-footer-btn {
             display: flex;
             align-items: center;
@@ -213,18 +169,21 @@
             color: var(--text-secondary);
             font-size: 0.85rem;
             font-weight: 500;
-            font-family: inherit;
             cursor: pointer;
             transition: all 0.2s;
+            font-family: inherit;
         }
-        
         .sidebar-footer-btn:hover {
             background: var(--red-bg);
             border-color: var(--red);
             color: var(--red);
         }
+        .sidebar-footer-btn svg {
+            width: 18px;
+            height: 18px;
+        }
         
-        /* Main Container */
+        /* Main Content */
         .container {
             max-width: 1400px;
             margin: 0 auto;
@@ -236,218 +195,64 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
             flex-wrap: wrap;
             gap: 1rem;
         }
-        
         .header-left {
             display: flex;
             align-items: center;
             gap: 1rem;
         }
-        
         .menu-toggle {
             width: 40px;
             height: 40px;
             border-radius: 10px;
             background: var(--bg-card);
             border: 1px solid var(--border);
-            color: var(--text-secondary);
-            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
+            cursor: pointer;
             transition: all 0.2s;
         }
-        
         .menu-toggle:hover {
+            background: var(--bg-hover);
             border-color: var(--accent);
+        }
+        .menu-toggle svg {
+            width: 20px;
+            height: 20px;
             color: var(--text-primary);
         }
-        
-        .page-title {
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-        }
-        
-        .page-title h1 {
+        .header h1 {
             font-size: 1.75rem;
             font-weight: 700;
-            color: var(--text-primary);
         }
-        
-        .page-title p {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-        }
-        
-        .header-actions {
+        .header-right {
             display: flex;
             gap: 0.75rem;
-            align-items: center;
         }
-        
-        .theme-toggle {
+        .btn-icon {
             width: 40px;
             height: 40px;
             border-radius: 10px;
             background: var(--bg-card);
             border: 1px solid var(--border);
-            color: var(--text-secondary);
-            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.2s;
-        }
-        
-        .theme-toggle:hover {
-            border-color: var(--accent);
-            color: var(--text-primary);
-        }
-        
-        /* Filter Bar */
-        .filter-bar {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            box-shadow: var(--shadow);
-        }
-        
-        .filter-controls {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        
-        .filter-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-            flex: 1;
-            min-width: 200px;
-        }
-        
-        .filter-label {
-            font-size: 0.75rem;
-            font-weight: 600;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        
-        .filter-select {
-            padding: 0.75rem 1rem;
-            font-size: 0.875rem;
-            font-family: inherit;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-primary);
             cursor: pointer;
             transition: all 0.2s;
         }
-        
-        .filter-select:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(249,112,21,0.1);
-        }
-        
-        .filter-select:hover {
-            border-color: var(--accent);
-        }
-        
-        /* Sort Dropdown */
-        .sort-dropdown {
-            position: relative;
-        }
-        
-        .sort-trigger {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.75rem 1rem;
-            font-size: 0.875rem;
-            font-family: inherit;
-            font-weight: 500;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-primary);
-            cursor: pointer;
-            transition: all 0.2s;
-            white-space: nowrap;
-        }
-        
-        .sort-trigger:hover {
-            border-color: var(--accent);
-        }
-        
-        .sort-trigger svg {
-            width: 16px;
-            height: 16px;
-            transition: transform 0.2s;
-        }
-        
-        .sort-dropdown.open .sort-trigger svg {
-            transform: rotate(180deg);
-        }
-        
-        .sort-menu {
-            position: absolute;
-            top: calc(100% + 0.5rem);
-            right: 0;
-            min-width: 220px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            box-shadow: var(--shadow-lg);
-            padding: 0.5rem;
-            opacity: 0;
-            visibility: hidden;
-            transform: translateY(-10px);
-            transition: all 0.2s;
-            z-index: 50;
-        }
-        
-        .sort-dropdown.open .sort-menu {
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
-        }
-        
-        .sort-option {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 0.75rem;
-            border-radius: 6px;
-            color: var(--text-secondary);
-            font-size: 0.875rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .sort-option:hover {
+        .btn-icon:hover {
             background: var(--bg-hover);
+            border-color: var(--accent);
+        }
+        .btn-icon svg {
+            width: 20px;
+            height: 20px;
             color: var(--text-primary);
-        }
-        
-        .sort-option.active {
-            background: var(--accent-bg);
-            color: var(--accent);
-        }
-        
-        .sort-option svg {
-            width: 16px;
-            height: 16px;
         }
         
         /* Stats Grid */
@@ -455,288 +260,291 @@
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 1rem;
-            margin-bottom: 1.5rem;
+            margin-bottom: 2rem;
         }
-        
         .stat-card {
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 1.5rem;
-            box-shadow: var(--shadow);
-            transition: all 0.2s;
+            padding: 1.25rem;
         }
-        
-        .stat-card:hover {
-            box-shadow: var(--shadow-lg);
-            transform: translateY(-2px);
-        }
-        
-        .stat-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 1rem;
-        }
-        
         .stat-label {
-            font-size: 0.875rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
             font-weight: 500;
-            color: var(--text-secondary);
-        }
-        
-        .stat-icon {
-            width: 36px;
-            height: 36px;
-            border-radius: 8px;
+            margin-bottom: 0.5rem;
             display: flex;
             align-items: center;
-            justify-content: center;
+            gap: 0.5rem;
         }
-        
-        .stat-icon.green {
-            background: var(--green-bg);
-            color: var(--green);
-        }
-        
-        .stat-icon.blue {
-            background: var(--blue-bg);
-            color: var(--blue);
-        }
-        
-        .stat-icon.purple {
-            background: var(--purple-bg);
-            color: var(--purple);
-        }
-        
-        .stat-icon.orange {
-            background: var(--accent-bg);
-            color: var(--accent);
-        }
-        
         .stat-value {
             font-size: 1.75rem;
             font-weight: 700;
             color: var(--text-primary);
-            margin-bottom: 0.25rem;
         }
         
-        .stat-change {
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .filter-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .filter-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .filter-select {
+            padding: 0.625rem 1rem;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            font-family: inherit;
+            cursor: pointer;
+            min-width: 180px;
+        }
+        .filter-select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .btn-reset {
+            padding: 0.625rem 1rem;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .btn-reset:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        
+        /* Sort Dropdown */
+        .sort-dropdown {
+            position: relative;
+        }
+        .sort-trigger {
+            padding: 0.625rem 1rem;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
             display: flex;
             align-items: center;
-            gap: 0.25rem;
-            font-size: 0.75rem;
+            gap: 0.5rem;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .sort-trigger:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent);
+        }
+        .sort-trigger svg {
+            width: 16px;
+            height: 16px;
+        }
+        .sort-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 0.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-shadow: var(--shadow-lg);
+            min-width: 200px;
+            z-index: 10;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.2s;
+        }
+        .sort-dropdown.open .sort-menu {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        .sort-option {
+            padding: 0.75rem 1rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            border-bottom: 1px solid var(--border);
+        }
+        .sort-option:last-child {
+            border-bottom: none;
+        }
+        .sort-option:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        .sort-option.active {
+            color: var(--accent);
             font-weight: 600;
         }
         
-        .stat-change.positive {
-            color: var(--green);
-        }
-        
-        .stat-change.negative {
-            color: var(--red);
-        }
-        
-        .stat-change svg {
-            width: 14px;
-            height: 14px;
-        }
-        
-        /* Table Card */
-        .table-card {
+        /* Table */
+        .table-container {
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: 12px;
             overflow: hidden;
-            box-shadow: var(--shadow);
+            margin-bottom: 2rem;
         }
-        
-        .table-header {
-            padding: 1.5rem;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .table-header h2 {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-        
-        .table-wrapper {
-            overflow-x: auto;
-        }
-        
         table {
             width: 100%;
             border-collapse: collapse;
         }
-        
         thead {
             background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
         }
-        
         th {
-            padding: 1rem 1.5rem;
+            padding: 1rem;
             text-align: left;
             font-size: 0.75rem;
             font-weight: 600;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            border-bottom: 1px solid var(--border);
         }
-        
+        td {
+            padding: 1rem;
+            border-top: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
         tbody tr {
-            border-bottom: 1px solid var(--border);
-            transition: background-color 0.2s;
+            transition: background 0.2s;
         }
-        
         tbody tr:hover {
             background: var(--bg-hover);
-        }
-        
-        tbody tr:last-child {
-            border-bottom: none;
-        }
-        
-        td {
-            padding: 1.25rem 1.5rem;
-            font-size: 0.875rem;
-            color: var(--text-primary);
         }
         
         .manager-cell {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
+            gap: 0.875rem;
         }
-        
         .manager-avatar {
             width: 40px;
             height: 40px;
             border-radius: 10px;
-            background: var(--accent);
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
             font-weight: 600;
-            font-size: 0.875rem;
-            flex-shrink: 0;
+            font-size: 1rem;
         }
-        
-        .manager-info {
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .manager-name {
+        .manager-info h4 {
+            font-size: 0.9rem;
             font-weight: 600;
             color: var(--text-primary);
         }
-        
-        .manager-stores {
+        .manager-info p {
             font-size: 0.75rem;
-            color: var(--text-secondary);
+            color: var(--text-muted);
         }
         
-        .revenue-cell {
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-        
-        .badge {
+        .performance-badge {
             display: inline-flex;
             align-items: center;
             gap: 0.35rem;
-            padding: 0.375rem 0.75rem;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 600;
+            padding: 0.4rem 0.75rem;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 500;
         }
-        
-        .badge.green {
+        .performance-badge svg {
+            width: 14px;
+            height: 14px;
+        }
+        .performance-badge.positive {
             background: var(--green-bg);
             color: var(--green);
         }
-        
-        .badge.red {
+        .performance-badge.negative {
             background: var(--red-bg);
             color: var(--red);
         }
         
-        .badge svg {
-            width: 12px;
-            height: 12px;
+        .service-tags {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .service-tag {
+            padding: 0.35rem 0.65rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
         }
         
-        .action-btn {
-            padding: 0.5rem 0.75rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            font-family: inherit;
-            background: var(--bg-secondary);
+        .btn-action {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
             border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text-secondary);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 0.8rem;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: inherit;
         }
-        
-        .action-btn:hover {
-            background: var(--accent-bg);
+        .btn-action:hover {
+            background: var(--accent);
             border-color: var(--accent);
-            color: var(--accent);
+            color: white;
+        }
+        .btn-action svg {
+            width: 14px;
+            height: 14px;
         }
         
-        /* Empty State */
         .empty-state {
-            padding: 4rem 2rem;
             text-align: center;
-        }
-        
-        .empty-state svg {
-            width: 64px;
-            height: 64px;
-            color: var(--text-muted);
-            margin-bottom: 1rem;
-        }
-        
-        .empty-state h3 {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 0.5rem;
-        }
-        
-        .empty-state p {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-        }
-        
-        /* Loading State */
-        .loading {
             padding: 3rem;
-            text-align: center;
+            color: var(--text-muted);
         }
         
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid var(--border);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin: 0 auto 1rem;
+        /* Restaurants Section */
+        .restaurants-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-top: 2rem;
         }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        .loading p {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
+        .restaurants-section h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
         }
         
         /* Toast */
@@ -744,41 +552,25 @@
             position: fixed;
             bottom: 2rem;
             right: 2rem;
+            padding: 1rem 1.5rem;
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: 10px;
-            padding: 1rem 1.25rem;
             box-shadow: var(--shadow-lg);
             display: flex;
             align-items: center;
             gap: 0.75rem;
             z-index: 1000;
-            animation: slideIn 0.3s ease;
+            opacity: 1;
+            transition: opacity 0.3s;
         }
-        
-        @keyframes slideIn {
-            from {
-                transform: translateY(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
+        .toast svg {
+            width: 20px;
+            height: 20px;
         }
-        
-        .toast.success svg {
-            color: var(--green);
-        }
-        
-        .toast.error svg {
-            color: var(--red);
-        }
-        
         .toast span {
-            font-size: 0.875rem;
+            font-size: 0.9rem;
             font-weight: 500;
-            color: var(--text-primary);
         }
         
         /* Responsive */
@@ -786,48 +578,40 @@
             .container {
                 padding: 1rem;
             }
-            
-            .header {
-                margin-bottom: 1.5rem;
-            }
-            
-            .page-title h1 {
+            .header h1 {
                 font-size: 1.5rem;
             }
-            
-            .filter-controls {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            
-            .filter-group {
-                min-width: 100%;
-            }
-            
             .stats-grid {
                 grid-template-columns: 1fr;
             }
-            
-            .table-wrapper {
-                overflow-x: scroll;
+            .filters {
+                flex-direction: column;
+                align-items: stretch;
             }
-            
+            .filter-select, .btn-reset {
+                width: 100%;
+            }
             table {
-                min-width: 800px;
+                font-size: 0.85rem;
+            }
+            th, td {
+                padding: 0.75rem 0.5rem;
             }
         }
     </style>
 </head>
 <body>
-    <!-- Sidebar -->
+    <!-- Sidebar Overlay -->
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+    
+    <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="sidebar-user">
-                <div class="sidebar-avatar" id="sidebarAvatar">U</div>
+                <div class="sidebar-avatar" id="sidebarAvatar">A</div>
                 <div class="sidebar-user-info">
-                    <h3 id="sidebarUserName">Usuário</h3>
-                    <p><span class="role-dot"></span><span id="sidebarUserRole">Admin</span></p>
+                    <h3 id="sidebarUserName">Admin</h3>
+                    <p><span class="role-dot"></span><span id="sidebarUserRole">Administrador</span></p>
                 </div>
             </div>
         </div>
@@ -837,21 +621,32 @@
                 <div class="sidebar-section-title">Menu</div>
                 <a href="/dashboard" class="sidebar-link">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
                     </svg>
-                    Dashboard
+                    Clientes
+                </a>
+            </div>
+            
+            <div class="sidebar-section" id="adminSection" style="display: none;">
+                <div class="sidebar-section-title">Admin</div>
+                <a href="/comparativo" class="sidebar-link active">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                    Comparativo
+                </a>
+                <a href="/admin" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    Configurações
                 </a>
                 <a href="/squads" class="sidebar-link">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
                     </svg>
                     Squads
-                </a>
-                <a href="/comparativo" class="sidebar-link active">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-                    </svg>
-                    Comparativo
                 </a>
                 <a href="/hidden-stores" class="sidebar-link">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -860,21 +655,11 @@
                     Lojas Ocultas
                 </a>
             </div>
-            
-            <div class="sidebar-section" id="adminSection" style="display: none;">
-                <div class="sidebar-section-title">Admin</div>
-                <a href="/admin" class="sidebar-link">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                    </svg>
-                    Administração
-                </a>
-            </div>
         </nav>
         
         <div class="sidebar-footer">
             <button class="sidebar-footer-btn" onclick="logout()">
-                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
                 </svg>
                 Sair
@@ -884,343 +669,408 @@
     
     <!-- Main Content -->
     <div class="container">
-        <!-- Header -->
-        <header class="header">
+        <div class="header">
             <div class="header-left">
-                <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Abrir menu">
-                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <button class="menu-toggle" onclick="toggleSidebar()">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                     </svg>
                 </button>
-                <div class="page-title">
-                    <h1>Comparativo por Gestor</h1>
-                    <p>Análise de performance dos gestores e suas lojas</p>
-                </div>
+                <h1>Comparativo por Gestor</h1>
             </div>
-            <div class="header-actions">
-                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Alternar tema">
-                    <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none">
+            <div class="header-right">
+                <button class="btn-icon" onclick="toggleTheme()">
+                    <svg id="sunIcon" style="display: none;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
                     </svg>
-                    <svg id="moonIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg id="moonIcon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
                     </svg>
                 </button>
             </div>
-        </header>
+        </div>
         
-        <!-- Filter Bar -->
-        <div class="filter-bar">
-            <div class="filter-controls">
-                <div class="filter-group">
-                    <label class="filter-label">Período</label>
-                    <select class="filter-select" id="monthSelect" onchange="loadData()">
-                        <option value="">Selecione o mês</option>
-                    </select>
+        <!-- Summary Stats -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                    </svg>
+                    Total de Gestores
                 </div>
-                
-                <div class="sort-dropdown" id="sortDropdown">
-                    <button class="sort-trigger" onclick="toggleSortDropdown()">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/>
-                        </svg>
-                        <span id="currentSort">Nome (A-Z)</span>
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                        </svg>
-                    </button>
-                    <div class="sort-menu">
-                        <div class="sort-option active" onclick="changeSortOrder('name-asc')">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4"/>
-                            </svg>
-                            Nome (A-Z)
-                        </div>
-                        <div class="sort-option" onclick="changeSortOrder('name-desc')">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/>
-                            </svg>
-                            Nome (Z-A)
-                        </div>
-                        <div class="sort-option" onclick="changeSortOrder('revenue-desc')">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                            </svg>
-                            Vendas (Maior)
-                        </div>
-                        <div class="sort-option" onclick="changeSortOrder('revenue-asc')">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                            </svg>
-                            Vendas (Menor)
-                        </div>
-                        <div class="sort-option" onclick="changeSortOrder('ticket-desc')">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
-                            </svg>
-                            Ticket Médio (Maior)
-                        </div>
-                        <div class="sort-option" onclick="changeSortOrder('stores-desc')">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-                            </svg>
-                            Nº de Lojas (Maior)
-                        </div>
-                    </div>
+                <div class="stat-value" id="totalManagers">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+                    </svg>
+                    Total de Lojas
                 </div>
+                <div class="stat-value" id="totalStores">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    Faturamento Total
+                </div>
+                <div class="stat-value" id="totalRevenue">R$ 0,00</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                    </svg>
+                    Desempenho Médio
+                </div>
+                <div class="stat-value" id="avgPerformance">-</div>
             </div>
         </div>
         
-        <!-- Stats Grid -->
-        <div class="stats-grid" id="statsGrid">
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">Total de Gestores</span>
-                    <div class="stat-icon green">
-                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
-                        </svg>
-                    </div>
-                </div>
-                <div class="stat-value" id="totalManagers">0</div>
-                <div class="stat-change positive">
+        <!-- Filters -->
+        <div class="filters">
+            <div class="filter-group">
+                <span class="filter-label">Mês:</span>
+                <select id="monthFilter" class="filter-select" onchange="applyFilters()">
+                    <option value="">Todos os Meses</option>
+                </select>
+            </div>
+            
+            <div class="sort-dropdown" id="sortDropdown">
+                <button class="sort-trigger" onclick="toggleSortDropdown()">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/>
                     </svg>
-                    Ativos
+                    <span id="currentSort">Nome (A-Z)</span>
+                </button>
+                <div class="sort-menu">
+                    <div class="sort-option active" onclick="changeSortOrder('name-asc')">Nome (A-Z)</div>
+                    <div class="sort-option" onclick="changeSortOrder('name-desc')">Nome (Z-A)</div>
+                    <div class="sort-option" onclick="changeSortOrder('revenue-desc')">Vendas (Maior)</div>
+                    <div class="sort-option" onclick="changeSortOrder('revenue-asc')">Vendas (Menor)</div>
+                    <div class="sort-option" onclick="changeSortOrder('ticket-desc')">Ticket Médio (Maior)</div>
+                    <div class="sort-option" onclick="changeSortOrder('stores-desc')">Nº de Lojas (Maior)</div>
                 </div>
             </div>
             
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">Total de Lojas</span>
-                    <div class="stat-icon blue">
-                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-                        </svg>
-                    </div>
-                </div>
-                <div class="stat-value" id="totalStores">0</div>
-                <div class="stat-change positive">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-                    </svg>
-                    Em operação
-                </div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">Receita Total</span>
-                    <div class="stat-icon purple">
-                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        </svg>
-                    </div>
-                </div>
-                <div class="stat-value" id="totalRevenue">R$ 0</div>
-                <div class="stat-change positive">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-                    </svg>
-                    No período
-                </div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-header">
-                    <span class="stat-label">Ticket Médio</span>
-                    <div class="stat-icon orange">
-                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
-                        </svg>
-                    </div>
-                </div>
-                <div class="stat-value" id="avgTicket">R$ 0</div>
-                <div class="stat-change positive">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
-                    </svg>
-                    Por loja
-                </div>
-            </div>
+            <button class="btn-reset" onclick="resetFilters()">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                Limpar Filtros
+            </button>
         </div>
         
         <!-- Managers Table -->
-        <div class="table-card">
-            <div class="table-header">
-                <h2>Gestores e Performance</h2>
-            </div>
-            <div class="table-wrapper">
-                <div id="tableContent">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <p>Carregando dados...</p>
-                    </div>
-                </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Gestor</th>
+                        <th>Nº Lojas</th>
+                        <th>Faturamento</th>
+                        <th>Desempenho</th>
+                        <th>Serviços</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="managersTable">
+                    <tr>
+                        <td colspan="6" class="empty-state">Carregando dados...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Restaurants Section (Hidden by default) -->
+        <div class="restaurants-section" id="restaurantsSection" style="display: none;">
+            <h3 id="restaurantsSectionTitle">Restaurantes</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Restaurante</th>
+                            <th>Faturamento</th>
+                            <th>Ticket Médio</th>
+                            <th>Pedidos</th>
+                            <th>Tendência</th>
+                        </tr>
+                    </thead>
+                    <tbody id="restaurantsTable">
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
     
     <script>
-        // Data
         let managersData = [];
+        let allRestaurants = [];
         let currentSortOrder = 'name-asc';
+        let currentMonthFilter = ''; // Track current month filter
+        const servicesMap = {
+            'delivery': 'Delivery',
+            'takeout': 'Retirada',
+            'indoor': 'Salão'
+        };
         
         // Generate month options
         function generateMonthOptions() {
-            const select = document.getElementById('monthSelect');
-            const now = new Date();
+            const select = document.getElementById('monthFilter');
+            const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
+                          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+            const currentYear = new Date().getFullYear();
             
-            for (let i = 0; i < 12; i++) {
-                const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                const monthName = date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-                const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                
-                const option = document.createElement('option');
-                option.value = value;
-                option.textContent = monthName.charAt(0).toUpperCase() + monthName.slice(1);
-                
-                if (i === 0) option.selected = true;
-                select.appendChild(option);
+            for (let year = currentYear; year >= currentYear - 2; year--) {
+                months.forEach((month, idx) => {
+                    const option = document.createElement('option');
+                    option.value = `${year}-${String(idx + 1).padStart(2, '0')}`;
+                    option.textContent = `${month} ${year}`;
+                    select.appendChild(option);
+                });
             }
         }
         
-        // Load data
-        async function loadData() {
-            const month = document.getElementById('monthSelect').value;
-            if (!month) return;
-            
-            const tableContent = document.getElementById('tableContent');
-            tableContent.innerHTML = '<div class="loading"><div class="spinner"></div><p>Carregando dados...</p></div>';
-            
+        // Load data with optional month filter
+        async function loadData(monthFilter = '') {
             try {
-                const response = await fetch(`/api/comparativo?month=${month}`);
+                // Build URL with month filter if specified
+                let url = '/api/restaurants';
+                if (monthFilter) {
+                    // Extract month number from YYYY-MM format
+                    const [year, month] = monthFilter.split('-');
+                    url += `?month=${month}`;
+                }
+                
+                const response = await fetch(url);
                 const data = await response.json();
                 
-                if (data.success && data.managers) {
-                    managersData = data.managers;
-                    applySorting();
-                    renderStats();
+                if (data.success && data.restaurants) {
+                    allRestaurants = data.restaurants;
+                    processManagersData(allRestaurants);
                     renderManagersTable();
                 } else {
-                    showEmptyState();
+                    document.getElementById('managersTable').innerHTML = '<tr><td colspan="6" class="empty-state">Nenhum dado disponível</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading data:', error);
-                showErrorState();
+                document.getElementById('managersTable').innerHTML = '<tr><td colspan="6" class="empty-state">Erro ao carregar dados</td></tr>';
             }
         }
         
-        // Render stats
-        function renderStats() {
-            const totalManagers = managersData.length;
-            const totalStores = managersData.reduce((sum, m) => sum + m.restaurants.length, 0);
-            const totalRevenue = managersData.reduce((sum, m) => sum + m.totalRevenue, 0);
-            const avgTicket = totalStores > 0 ? totalRevenue / totalStores : 0;
+        // Process managers data
+        function processManagersData(restaurants) {
+            const managersMap = {};
             
-            document.getElementById('totalManagers').textContent = totalManagers;
-            document.getElementById('totalStores').textContent = totalStores;
-            document.getElementById('totalRevenue').textContent = formatCurrency(totalRevenue);
-            document.getElementById('avgTicket').textContent = formatCurrency(avgTicket);
+            restaurants.forEach(r => {
+                const manager = r.manager || 'Sem Gestor';
+                if (!managersMap[manager]) {
+                    managersMap[manager] = {
+                        name: manager,
+                        restaurants: [],
+                        totalRevenue: 0,
+                        positiveCount: 0,
+                        negativeCount: 0,
+                        services: new Set()
+                    };
+                }
+                
+                managersMap[manager].restaurants.push(r);
+                managersMap[manager].totalRevenue += r.metrics?.valor_bruto || 0;
+                
+                const trend = r.metrics?.trends?.vendas || 0;
+                if (trend > 0) managersMap[manager].positiveCount++;
+                else if (trend < 0) managersMap[manager].negativeCount++;
+                
+                // Collect services
+                if (r.services) {
+                    r.services.forEach(s => managersMap[manager].services.add(s));
+                }
+            });
+            
+            managersData = Object.values(managersMap);
+            applySorting(); // Apply current sort order
+            
+            // Update summary
+            document.getElementById('totalManagers').textContent = managersData.length;
+            document.getElementById('totalStores').textContent = restaurants.length;
+            document.getElementById('totalRevenue').textContent = formatCurrency(
+                managersData.reduce((sum, m) => sum + m.totalRevenue, 0)
+            );
+            
+            const avgPositive = managersData.reduce((sum, m) => sum + m.positiveCount, 0) / managersData.length;
+            const avgNegative = managersData.reduce((sum, m) => sum + m.negativeCount, 0) / managersData.length;
+            document.getElementById('avgPerformance').textContent = 
+                avgPositive > avgNegative ? `+${avgPositive.toFixed(1)} positivos` : `${avgNegative.toFixed(1)} negativos`;
         }
         
-        // Render table
+        // Format currency
+        function formatCurrency(value) {
+            return new Intl.NumberFormat('pt-BR', { 
+                style: 'currency', 
+                currency: 'BRL',
+                minimumFractionDigits: 2 
+            }).format(value);
+        }
+        
+        // Get avatar color
+        function getAvatarColor(name) {
+            const colors = ['#f97015', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899'];
+            const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            return colors[hash % colors.length];
+        }
+        
+        // Render managers table
         function renderManagersTable() {
-            const tableContent = document.getElementById('tableContent');
+            const tbody = document.getElementById('managersTable');
             
             if (managersData.length === 0) {
-                showEmptyState();
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Nenhum gestor encontrado</td></tr>';
                 return;
             }
             
-            const table = document.createElement('table');
-            table.innerHTML = `
-                <thead>
+            tbody.innerHTML = managersData.map(manager => {
+                const storeCount = manager.restaurants.length;
+                const isPositive = manager.positiveCount > manager.negativeCount;
+                const services = Array.from(manager.services);
+                
+                return `
                     <tr>
-                        <th>Gestor</th>
-                        <th>Total de Vendas</th>
-                        <th>Ticket Médio</th>
-                        <th>Nº de Lojas</th>
-                        <th>Tendência</th>
-                        <th>Ações</th>
+                        <td>
+                            <div class="manager-cell">
+                                <div class="manager-avatar" style="background: ${getAvatarColor(manager.name)}">
+                                    ${manager.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div class="manager-info">
+                                    <h4>${manager.name}</h4>
+                                    <p>${storeCount} restaurante${storeCount !== 1 ? 's' : ''}</p>
+                                </div>
+                            </div>
+                        </td>
+                        <td><strong>${storeCount}</strong></td>
+                        <td><strong>${formatCurrency(manager.totalRevenue)}</strong></td>
+                        <td>
+                            <span class="performance-badge ${isPositive ? 'positive' : 'negative'}">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${isPositive ? 'M5 10l7-7m0 0l7 7m-7-7v18' : 'M19 14l-7 7m0 0l-7-7m7 7V3'}"/>
+                                </svg>
+                                ${manager.positiveCount} positivo${manager.positiveCount !== 1 ? 's' : ''} / ${manager.negativeCount} negativo${manager.negativeCount !== 1 ? 's' : ''}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="service-tags">
+                                ${services.map(s => `<span class="service-tag ${s}">${servicesMap[s] || s}</span>`).join('')}
+                                ${services.length === 0 ? '<span class="service-tag">-</span>' : ''}
+                            </div>
+                        </td>
+                        <td>
+                            <button class="btn-action" onclick="showManagerRestaurants('${manager.name.replace(/'/g, "\\'")}')">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                Ver Lojas
+                            </button>
+                        </td>
                     </tr>
-                </thead>
-                <tbody>
-                    ${managersData.map(manager => {
-                        const avgTicket = manager.totalRevenue / manager.restaurants.length;
-                        const trend = manager.trend || 0;
-                        const trendClass = trend >= 0 ? 'positive' : 'negative';
-                        
-                        return `
-                            <tr>
-                                <td>
-                                    <div class="manager-cell">
-                                        <div class="manager-avatar">${escapeHtml(manager.name.charAt(0))}</div>
-                                        <div class="manager-info">
-                                            <div class="manager-name">${escapeHtml(manager.name)}</div>
-                                            <div class="manager-stores">${manager.restaurants.length} ${manager.restaurants.length === 1 ? 'loja' : 'lojas'}</div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td class="revenue-cell">${formatCurrency(manager.totalRevenue)}</td>
-                                <td>${formatCurrency(avgTicket)}</td>
-                                <td>${manager.restaurants.length}</td>
-                                <td>
-                                    <span class="badge ${trendClass}">
-                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trend >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
-                                        </svg>
-                                        ${trend >= 0 ? '+' : ''}${trend.toFixed(1)}%
-                                    </span>
-                                </td>
-                                <td>
-                                    <button class="action-btn" onclick="viewDetails('${escapeHtml(manager.name)}')">
-                                        Ver Detalhes
-                                    </button>
-                                </td>
-                            </tr>
-                        `;
-                    }).join('')}
-                </tbody>
+                `;
+            }).join('');
+        }
+        
+        // Show restaurants for a manager
+        function showManagerRestaurants(managerName) {
+            const manager = managersData.find(m => m.name === managerName);
+            if (!manager) return;
+            
+            document.getElementById('restaurantsSectionTitle').innerHTML = `
+                Restaurantes de ${managerName}
             `;
             
-            tableContent.innerHTML = '';
-            tableContent.appendChild(table);
+            const tbody = document.getElementById('restaurantsTable');
+            tbody.innerHTML = manager.restaurants.map(r => {
+                const metrics = r.metrics || {};
+                const trend = metrics.trends?.vendas || 0;
+                const isPositive = trend >= 0;
+                
+                return `
+                    <tr>
+                        <td>
+                            <div class="manager-cell">
+                                <div class="manager-avatar" style="background: ${getAvatarColor(r.name)}">${(r.name || 'R')[0].toUpperCase()}</div>
+                                <div class="manager-info">
+                                    <h4>${r.name}</h4>
+                                    <p>ID: ${r.id?.substring(0, 8) || '-'}...</p>
+                                </div>
+                            </div>
+                        </td>
+                        <td><strong>${formatCurrency(metrics.valor_bruto || 0)}</strong></td>
+                        <td>${formatCurrency(metrics.ticket_medio || 0)}</td>
+                        <td>${metrics.total_pedidos || 0}</td>
+                        <td>
+                            <span class="performance-badge ${isPositive ? 'positive' : 'negative'}">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${isPositive ? 'M5 10l7-7m0 0l7 7m-7-7v18' : 'M19 14l-7 7m0 0l-7-7m7 7V3'}"/>
+                                </svg>
+                                ${trend >= 0 ? '+' : ''}${trend.toFixed(1)}%
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            document.getElementById('restaurantsSection').style.display = 'block';
+            document.getElementById('restaurantsSection').scrollIntoView({ behavior: 'smooth' });
         }
         
-        // Empty state
-        function showEmptyState() {
-            document.getElementById('tableContent').innerHTML = `
-                <div class="empty-state">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
-                    </svg>
-                    <h3>Nenhum dado encontrado</h3>
-                    <p>Selecione um período diferente para visualizar os dados</p>
-                </div>
-            `;
+        // Apply filters
+        function applyFilters() {
+            const monthFilter = document.getElementById('monthFilter').value;
+            currentMonthFilter = monthFilter;
+            
+            // Reload data with the selected month filter
+            loadData(monthFilter);
         }
         
-        // Error state
-        function showErrorState() {
-            document.getElementById('tableContent').innerHTML = `
-                <div class="empty-state">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                    <h3>Erro ao carregar dados</h3>
-                    <p>Tente novamente em alguns instantes</p>
-                </div>
-            `;
+        // Reset filters
+        function resetFilters() {
+            document.getElementById('monthFilter').value = '';
+            currentSortOrder = 'name-asc';
+            currentMonthFilter = '';
+            document.getElementById('currentSort').textContent = 'Nome (A-Z)';
+            updateSortActiveState();
+            
+            // Reload data without filter
+            loadData();
         }
         
-        // Sorting
+        // Toggle sort dropdown
         function toggleSortDropdown() {
             const dropdown = document.getElementById('sortDropdown');
-            dropdown.classList.toggle('open');
+            const isOpen = dropdown.classList.contains('open');
+            
+            // Close if clicking outside
+            if (!isOpen) {
+                dropdown.classList.add('open');
+                
+                // Add click listener to close when clicking outside
+                setTimeout(() => {
+                    document.addEventListener('click', closeSortOnClickOutside);
+                }, 0);
+            } else {
+                dropdown.classList.remove('open');
+                document.removeEventListener('click', closeSortOnClickOutside);
+            }
         }
         
+        function closeSortOnClickOutside(event) {
+            const dropdown = document.getElementById('sortDropdown');
+            if (!dropdown.contains(event.target)) {
+                dropdown.classList.remove('open');
+                document.removeEventListener('click', closeSortOnClickOutside);
+            }
+        }
+        
+        // Change sort order
         function changeSortOrder(order) {
             currentSortOrder = order;
             
@@ -1238,9 +1088,12 @@
             applySorting();
             renderManagersTable();
             
-            toggleSortDropdown();
+            // Close dropdown
+            document.getElementById('sortDropdown').classList.remove('open');
+            document.removeEventListener('click', closeSortOnClickOutside);
         }
         
+        // Update active sort option visual state
         function updateSortActiveState() {
             document.querySelectorAll('.sort-option').forEach((option, index) => {
                 const orders = ['name-asc', 'name-desc', 'revenue-desc', 'revenue-asc', 'ticket-desc', 'stores-desc'];
@@ -1252,13 +1105,14 @@
             });
         }
         
+        // Apply sorting to managers data
         function applySorting() {
             switch(currentSortOrder) {
                 case 'name-asc':
-                    managersData.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+                    managersData.sort((a, b) => a.name.localeCompare(b.name));
                     break;
                 case 'name-desc':
-                    managersData.sort((a, b) => b.name.localeCompare(a.name, 'pt-BR'));
+                    managersData.sort((a, b) => b.name.localeCompare(a.name));
                     break;
                 case 'revenue-desc':
                     managersData.sort((a, b) => b.totalRevenue - a.totalRevenue);
@@ -1279,70 +1133,35 @@
             }
         }
         
-        // Utilities
-        function formatCurrency(value) {
-            return new Intl.NumberFormat('pt-BR', {
-                style: 'currency',
-                currency: 'BRL'
-            }).format(value);
-        }
-        
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
-        function viewDetails(managerName) {
-            showToast(`Visualizando detalhes de ${managerName}`, 'success');
-        }
-        
-        // Toast
+        // Toast notification
         function showToast(message, type = 'success') {
             document.querySelectorAll('.toast').forEach(t => t.remove());
-            
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
-            
-            const icon = type === 'success' 
-                ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>'
-                : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>';
-            
             toast.innerHTML = `
-                <svg width="18" height="18" fill="none" stroke="${type === 'success' ? 'var(--green)' : 'var(--red)'}" viewBox="0 0 24 24">
-                    ${icon}
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'success' ? 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' : 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/>
                 </svg>
-                <span>${escapeHtml(message)}</span>
+                <span>${message}</span>
             `;
-            
+            toast.style.color = type === 'success' ? 'var(--green)' : 'var(--red)';
             document.body.appendChild(toast);
-            
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                setTimeout(() => toast.remove(), 200);
-            }, 3000);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
         }
         
-        // Theme
+        // Theme toggle
         function toggleTheme() {
-            const html = document.documentElement;
-            const currentTheme = html.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            
-            html.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-            
-            document.getElementById('sunIcon').style.display = newTheme === 'dark' ? 'block' : 'none';
-            document.getElementById('moonIcon').style.display = newTheme === 'dark' ? 'none' : 'block';
+            const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
+            document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
         }
         
-        // Sidebar
+        // Sidebar toggle
         function toggleSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('sidebarOverlay');
-            
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('show');
+            document.getElementById('sidebar').classList.toggle('open');
+            document.getElementById('sidebarOverlay').classList.toggle('show');
         }
         
         function closeSidebar() {
@@ -1362,16 +1181,15 @@
                 });
         }
         
-        // Auth check
+        // Check user
         function checkUser() {
             fetch('/api/me')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success && data.user) {
                         const u = data.user;
-                        const userName = u.name || u.username || 'Usuário';
-                        document.getElementById('sidebarUserName').textContent = userName;
-                        document.getElementById('sidebarAvatar').textContent = userName.charAt(0).toUpperCase();
+                        document.getElementById('sidebarUserName').textContent = u.name || u.username || 'Usuário';
+                        document.getElementById('sidebarAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase();
                         document.getElementById('sidebarUserRole').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
                         
                         if (u.role === 'admin') {
@@ -1388,28 +1206,6 @@
                 });
         }
         
-        // Click outside to close dropdown
-        document.addEventListener('click', (e) => {
-            const dropdown = document.getElementById('sortDropdown');
-            if (dropdown.classList.contains('open') && !dropdown.contains(e.target)) {
-                dropdown.classList.remove('open');
-            }
-        });
-        
-        // Escape to close dropdown
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                const dropdown = document.getElementById('sortDropdown');
-                if (dropdown.classList.contains('open')) {
-                    dropdown.classList.remove('open');
-                }
-                
-                if (document.getElementById('sidebar').classList.contains('open')) {
-                    closeSidebar();
-                }
-            }
-        });
-        
         // Initialize
         (function init() {
             const theme = localStorage.getItem('theme') || 'light';
@@ -1419,8 +1215,12 @@
             
             generateMonthOptions();
             checkUser();
-            loadData();
-            updateSortActiveState();
+            loadData(); // Initial load without filter
+            
+            // Initialize sort dropdown
+            setTimeout(() => {
+                updateSortActiveState();
+            }, 100);
         })();
     </script>
 </body>
