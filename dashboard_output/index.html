@@ -868,13 +868,14 @@
 
         .restaurant-stats {
             display: flex;
-            gap: var(--space-6);
+            gap: var(--space-8);
         }
 
         .stat-item {
             display: flex;
             flex-direction: column;
             gap: var(--space-1);
+            min-width: 110px;
         }
 
         .stat-label {
@@ -1155,7 +1156,13 @@
                 gap: var(--space-4);
             }
 
-            .restaurant-stats,
+            .restaurant-stats {
+                grid-column: 1 / -1;
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: var(--space-4);
+            }
+            
             .restaurant-actions {
                 grid-column: 1 / -1;
             }
@@ -1489,7 +1496,7 @@
                         <div class="stat-item">
                             <span class="stat-label">Vendas</span>
                             <span class="stat-value">${r.metrics?.vendas ?? 0}</span>
-                            ${r.metrics?.trends?.vendas ? `<span class="trend ${r.metrics.trends.vendas >= 0 ? 'positive' : 'negative'}">
+                            ${r.metrics?.trends?.vendas !== undefined ? `<span class="trend ${r.metrics.trends.vendas >= 0 ? 'positive' : 'negative'}">
                                 <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${r.metrics.trends.vendas >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
                                 </svg>
@@ -1499,10 +1506,32 @@
                         <div class="stat-item">
                             <span class="stat-label">Ticket Médio</span>
                             <span class="stat-value">${formatCurrency(r.metrics?.['ticket-medio'] ?? 0)}</span>
+                            ${r.metrics?.trends?.['ticket-medio'] !== undefined ? `<span class="trend ${r.metrics.trends['ticket-medio'] >= 0 ? 'positive' : 'negative'}">
+                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${r.metrics.trends['ticket-medio'] >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
+                                </svg>
+                                ${formatTrend(r.metrics.trends['ticket-medio'])}
+                            </span>` : ''}
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Valor Bruto</span>
+                            <span class="stat-value">${formatCurrency(r.metrics?.['valor-bruto'] ?? 0)}</span>
+                            ${r.metrics?.trends?.['valor-bruto'] !== undefined ? `<span class="trend ${r.metrics.trends['valor-bruto'] >= 0 ? 'positive' : 'negative'}">
+                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${r.metrics.trends['valor-bruto'] >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
+                                </svg>
+                                ${formatTrend(r.metrics.trends['valor-bruto'])}
+                            </span>` : ''}
                         </div>
                         <div class="stat-item">
                             <span class="stat-label">Líquido</span>
                             <span class="stat-value">${formatCurrency(r.metrics?.liquido ?? 0)}</span>
+                            ${r.metrics?.trends?.liquido !== undefined ? `<span class="trend ${r.metrics.trends.liquido >= 0 ? 'positive' : 'negative'}">
+                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${r.metrics.trends.liquido >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
+                                </svg>
+                                ${formatTrend(r.metrics.trends.liquido)}
+                            </span>` : ''}
                         </div>
                     </div>
                     <div class="restaurant-actions" onclick="event.stopPropagation()">
