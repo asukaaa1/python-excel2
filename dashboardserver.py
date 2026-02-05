@@ -34,11 +34,25 @@ app = Flask(__name__,
            static_url_path='/static')
 
 app.secret_key = os.environ.get('SECRET_KEY', '1a2bfcf2e328076efb65896cfd29b249698f0fe5a355a10a1e80efadc0a8d4bf')
+app.permanent_session_lifetime = timedelta(days=7)
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+# Set secure cookie only in production (HTTPS)
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production' or 'RENDER' in os.environ
 
 print(f"📁 Base directory: {BASE_DIR}")
 print(f"📁 Static folder: {STATIC_DIR}")
 print(f"📁 Dashboard output: {DASHBOARD_OUTPUT}")
 print(f"📁 Config file: {CONFIG_FILE}")
+
+@app.after_request
+def add_cache_headers(response):
+    """Prevent caching of HTML pages to avoid stale session issues"""
+    if response.content_type and 'text/html' in response.content_type:
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
 
 # Database configuration
 db = DashboardDatabase()
@@ -151,10 +165,11 @@ def load_restaurants_from_ifood():
             
             # Get financial data if available
             financial_data = None
-            try:
-                financial_data = IFOOD_API.get_financial_data(merchant_id, start_date, end_date)
-            except:
-                pass
+            if hasattr(IFOOD_API, 'get_financial_data'):
+                try:
+                    financial_data = IFOOD_API.get_financial_data(merchant_id, start_date, end_date)
+                except:
+                    pass
             
             # Process into dashboard format
             restaurant_data = IFoodDataProcessor.process_restaurant_data(
@@ -192,7 +207,12 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user' not in session:
-            if request.is_json:
+            # Check if this is an API/AJAX request
+            is_api = (request.is_json or 
+                      request.path.startswith('/api/') or
+                      request.headers.get('X-Requested-With') == 'XMLHttpRequest' or
+                      'application/json' in (request.headers.get('Accept', '')))
+            if is_api:
                 return jsonify({'error': 'Authentication required', 'redirect': '/login'}), 401
             return redirect('/login')
         return f(*args, **kwargs)
@@ -204,7 +224,11 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user' not in session:
-            if request.is_json:
+            is_api = (request.is_json or 
+                      request.path.startswith('/api/') or
+                      request.headers.get('X-Requested-With') == 'XMLHttpRequest' or
+                      'application/json' in (request.headers.get('Accept', '')))
+            if is_api:
                 return jsonify({'error': 'Authentication required', 'redirect': '/login'}), 401
             return redirect('/login')
         if session['user'].get('role') != 'admin':
@@ -949,7 +973,7 @@ def api_comparativo_stats():
     """Get consolidated stats for comparativo page"""
     try:
         total_stores = len(RESTAURANTS_DATA)
-        stores_with_history = sum(1 for r in RESTAURANTS_DATA if (r.get('metrics', {}).get('total_pedidos') or 0) > 0)
+        stores_with_history = sum(1 for r in RESTAURANTS_DATA if (r.get('metrics', {}).get('vendas') or r.get('metrics', {}).get('total_pedidos') or 0) > 0)
         
         total_revenue = 0
         positive_count = 0
@@ -1412,20 +1436,41 @@ def api_get_squads():
         conn = db.get_connection()
         cursor = conn.cursor()
         
-        # Get all squads - using actual database schema columns
+        # Check which schema we have by inspecting columns
         cursor.execute("""
-            SELECT id, squad_id, name, leader, members, restaurants, active, created_at
-            FROM squads 
-            WHERE active = true
-            ORDER BY name
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'squads'
+            ORDER BY ordinal_position
         """)
+        columns = [row[0] for row in cursor.fetchall()]
+        
+        # Determine schema type
+        has_old_schema = 'squad_id' in columns and 'leader' in columns
+        
+        if has_old_schema:
+            # Old schema: id, squad_id, name, leader, members, restaurants, active, created_at
+            cursor.execute("""
+                SELECT id, squad_id, name, leader, members, restaurants, active, created_at
+                FROM squads 
+                WHERE active = true
+                ORDER BY name
+            """)
+        else:
+            # New schema: id, name, description, created_at, created_by
+            cursor.execute("""
+                SELECT id, NULL as squad_id, name, created_by as leader, 
+                       NULL as members, NULL as restaurants, true as active, created_at
+                FROM squads
+                ORDER BY name
+            """)
+        
         squads_raw = cursor.fetchall()
         
         squads = []
         for squad in squads_raw:
             squad_id = squad[0]
             
-            # Parse members and restaurants from JSON text fields
+            # Parse members and restaurants from JSON text fields (old schema)
             try:
                 members_list = json.loads(squad[4]) if squad[4] else []
             except:
@@ -1436,7 +1481,7 @@ def api_get_squads():
             except:
                 restaurants_list = []
             
-            # Get members for this squad (if using squad_members table)
+            # Get members for this squad from squad_members table
             cursor.execute("""
                 SELECT u.id, u.full_name, u.username, u.role
                 FROM squad_members sm
@@ -1446,7 +1491,7 @@ def api_get_squads():
             """, (squad_id,))
             members_from_table = cursor.fetchall()
             
-            # Get restaurants for this squad (if using squad_restaurants table)
+            # Get restaurants for this squad from squad_restaurants table
             cursor.execute("""
                 SELECT restaurant_id, restaurant_name
                 FROM squad_restaurants
@@ -1457,13 +1502,13 @@ def api_get_squads():
             
             squads.append({
                 'id': squad_id,
-                'squad_id': squad[1],
+                'squad_id': squad[1] or str(squad_id),
                 'name': squad[2],
-                'leader': squad[3],
-                'description': '',  # Not in current schema, but kept for frontend compatibility
+                'leader': squad[3] or '',
+                'description': '',
                 'created_at': squad[7].isoformat() if squad[7] else None,
-                'created_by': squad[3],  # Using leader as created_by for compatibility
-                'active': squad[6],
+                'created_by': squad[3] or '',
+                'active': squad[6] if squad[6] is not None else True,
                 'members': [
                     {'id': m[0], 'name': m[1] or m[2], 'username': m[2], 'role': m[3]}
                     for m in members_from_table
@@ -1512,14 +1557,28 @@ def api_create_squad():
             conn.close()
             return jsonify({'success': False, 'error': 'Já existe um squad com este nome'}), 400
         
-        # Create squad - Generate unique squad_id and use created_by as leader
-        squad_uid = str(uuid.uuid4())[:8]  # Short unique ID
-        
+        # Create squad - check which schema we have
         cursor.execute("""
-            INSERT INTO squads (squad_id, name, leader, members, restaurants)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id
-        """, (squad_uid, name, created_by, '[]', '[]'))
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'squads'
+            ORDER BY ordinal_position
+        """)
+        columns = [row[0] for row in cursor.fetchall()]
+        has_old_schema = 'squad_id' in columns and 'leader' in columns
+        
+        if has_old_schema:
+            squad_uid = str(uuid.uuid4())[:8]
+            cursor.execute("""
+                INSERT INTO squads (squad_id, name, leader, members, restaurants)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+            """, (squad_uid, name, created_by, '[]', '[]'))
+        else:
+            cursor.execute("""
+                INSERT INTO squads (name, description, created_by)
+                VALUES (%s, %s, %s)
+                RETURNING id
+            """, (name, description, created_by))
         squad_id = cursor.fetchone()[0]
         conn.commit()
         

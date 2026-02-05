@@ -52,6 +52,16 @@
         <div class="view-container" id="feedbackView"><section class="feedback-section"><div class="feedback-header"><div class="feedback-header-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg></div><h2>Análise de Feedback</h2></div><div class="feedback-grid"><div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon compliments"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"/></svg></div><h3>Elogios</h3></div><div class="feedback-chart-wrapper"><canvas id="complimentsChart"></canvas></div></div><div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon complaints"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2"/></svg></div><h3>Reclamações</h3></div><div class="feedback-chart-wrapper"><canvas id="complaintsChart"></canvas></div></div><div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon cancellations"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><h3>Motivos Cancelamento</h3></div><div class="feedback-chart-wrapper"><canvas id="cancellationReasonsChart"></canvas></div></div><div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon origins"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><h3>Origem Cancelamentos</h3></div><div class="feedback-chart-wrapper"><canvas id="cancellationOriginsChart"></canvas></div></div></div></section></div>
     </div>
     <script>
+// Global 401 interceptor
+const _origFetch = window.fetch;
+window.fetch = async function(...args) {
+    const response = await _origFetch.apply(this, args);
+    if (response.status === 401 && !String(args[0]).includes('/api/login')) {
+        window.location.href = '/login';
+    }
+    return response;
+};
+
 // Restaurant ID from backend
 const restaurantId = '{{restaurant_id}}';
 
@@ -80,6 +90,7 @@ async function fetchRestaurantData() {
         if (endDate) params.append('end_date', endDate.toISOString().split('T')[0]);
         
         const response = await fetch(`/api/restaurant/${restaurantId}?${params}`);
+        if (response.status === 401) { window.location.href = '/login'; return; }
         const data = await response.json();
         
         if (data.success) {
@@ -107,6 +118,7 @@ async function fetchRestaurantData() {
 async function fetchOrders() {
     try {
         const response = await fetch(`/api/restaurant/${restaurantId}/orders?per_page=100`);
+        if (response.status === 401) { window.location.href = '/login'; return; }
         const data = await response.json();
         
         if (data.success) {

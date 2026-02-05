@@ -158,6 +158,15 @@
         async function unhideStore(id, name) { if(!confirm('Mostrar "'+name+'" no dashboard?')) return; try { const r = await fetch('/api/stores/'+id+'/unhide', { method: 'POST' }); const d = await r.json(); if(d.success) { showToast('Loja restaurada!', 'success'); await loadHiddenStores(); } else { showToast(d.error || 'Erro', 'error'); } } catch(e) { showToast('Erro de conexão', 'error'); } }
         function showError(m) { document.getElementById('hiddenStoresList').innerHTML = '<div class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><h3>Erro</h3><p>'+m+'</p></div>'; }
         function showToast(m, t='success') { document.querySelectorAll('.toast').forEach(x=>x.remove()); const el = document.createElement('div'); el.className = 'toast '+t; el.innerHTML = '<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="'+(t==='success'?'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z':'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z')+'"/></svg><span>'+m+'</span>'; document.body.appendChild(el); setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000); }
+        // Global 401 interceptor
+        const _origFetch = window.fetch;
+        window.fetch = async function(...args) {
+            const response = await _origFetch.apply(this, args);
+            if (response.status === 401 && !String(args[0]).includes('/api/login')) {
+                window.location.href = '/login';
+            }
+            return response;
+        };
         function checkAuth() { fetch('/api/me').then(r => r.json()).then(d => { if(d.success && d.user && d.user.role === 'admin') { const u = d.user; document.getElementById('userName').textContent = u.name || u.username || 'Usuário'; document.getElementById('userAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase(); loadHiddenStores(); } else { window.location.href = '/dashboard'; } }).catch(() => { window.location.href = '/login'; }); }
         function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebarOverlay').classList.toggle('show'); }
         function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('show'); }

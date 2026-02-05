@@ -394,6 +394,15 @@
     </div>
 
     <script>
+        // Global 401 interceptor
+        const _origFetch = window.fetch;
+        window.fetch = async function(...args) {
+            const response = await _origFetch.apply(this, args);
+            if (response.status === 401 && !String(args[0]).includes('/api/login')) {
+                window.location.href = '/login';
+            }
+            return response;
+        };
         async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig(), loadRestaurants()]); }
 
         async function loadUsers() {

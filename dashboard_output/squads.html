@@ -255,6 +255,15 @@
         async function addRestaurantsToSquad(){const id=document.getElementById('addRestaurantsSquadId').value;const cb=document.querySelectorAll('#restaurantsList input:checked');const ids=Array.from(cb).map(c=>c.value);if(!ids.length){showToast('Selecione restaurantes','error');return;}try{const r=await fetch(`/api/squads/${id}/restaurants`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({restaurant_ids:ids})});const d=await r.json();if(d.success){showToast('Restaurantes adicionados!','success');closeModal('addRestaurantsModal');await loadSquads();}else{showToast(d.error||'Erro','error');}}catch(e){showToast('Erro de conexão','error');}}
         async function removeRestaurantFromSquad(sid,rid){if(!confirm('Remover restaurante?'))return;try{const r=await fetch(`/api/squads/${sid}/restaurants/${rid}`,{method:'DELETE'});const d=await r.json();if(d.success){showToast('Restaurante removido','success');await loadSquads();}else{showToast(d.error||'Erro','error');}}catch(e){showToast('Erro de conexão','error');}}
         function showToast(m,t='success'){document.querySelectorAll('.toast').forEach(x=>x.remove());const el=document.createElement('div');el.className=`toast ${t}`;el.innerHTML=`<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${t==='success'?'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z':'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'}"/></svg><span>${m}</span>`;document.body.appendChild(el);setTimeout(()=>{el.style.opacity='0';setTimeout(()=>el.remove(),300);},3000);}
+        // Global 401 interceptor
+        const _origFetch = window.fetch;
+        window.fetch = async function(...args) {
+            const response = await _origFetch.apply(this, args);
+            if (response.status === 401 && !String(args[0]).includes('/api/login')) {
+                window.location.href = '/login';
+            }
+            return response;
+        };
         function toggleTheme(){const t=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',t);localStorage.setItem('theme',t);document.getElementById('sunIcon').style.display=t==='dark'?'block':'none';document.getElementById('moonIcon').style.display=t==='dark'?'none':'block';}
         function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('sidebarOverlay').classList.toggle('show');}
         function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('sidebarOverlay').classList.remove('show');}

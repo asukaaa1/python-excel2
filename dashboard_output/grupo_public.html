@@ -150,7 +150,7 @@
             stores.forEach(s => {
                 const m = s.metrics || {};
                 totalRevenue += m.valor_bruto || 0;
-                totalOrders += m.total_pedidos || 0;
+                totalOrders += m.vendas || m.total_pedidos || 0;
             });
             totalTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
@@ -202,7 +202,7 @@
                                         </div>
                                         <div class="metric">
                                             <div class="metric-label">Pedidos</div>
-                                            <div class="metric-value">${formatNumber(m.total_pedidos)}</div>
+                                            <div class="metric-value">${formatNumber(m.vendas || m.total_pedidos)}</div>
                                         </div>
                                         <div class="metric">
                                             <div class="metric-label">Ticket Médio</div>
@@ -210,7 +210,7 @@
                                         </div>
                                         <div class="metric">
                                             <div class="metric-label">Avaliação</div>
-                                            <div class="metric-value">${m.avaliacao_media ? m.avaliacao_media.toFixed(1) + '⭐' : '-'}</div>
+                                            <div class="metric-value">${s.rating ? s.rating.toFixed(1) + '⭐' : (m.avaliacao_media ? m.avaliacao_media.toFixed(1) + '⭐' : '-')}</div>
                                         </div>
                                     </div>
                                 </div>

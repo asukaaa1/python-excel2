@@ -240,6 +240,7 @@ class IFoodDataProcessor:
                 # Complete metrics structure for frontend
                 'metrics': {
                     'vendas': total_orders,
+                    'total_pedidos': total_orders,  # Backward compatibility alias
                     'ticket_medio': average_ticket,
                     'valor_bruto': gross_revenue,
                     'liquido': net_revenue,
@@ -291,6 +292,7 @@ class IFoodDataProcessor:
             'avatar_color': '#ef4444',
             'metrics': {
                 'vendas': 0,
+                'total_pedidos': 0,
                 'ticket_medio': 0,
                 'valor_bruto': 0,
                 'liquido': 0,
