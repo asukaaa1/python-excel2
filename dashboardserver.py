@@ -4,6 +4,7 @@ Integrated with iFood Merchant API instead of Excel files
 """
 
 from flask import Flask, request, jsonify, session, redirect, url_for, send_file, render_template_string
+from werkzeug.middleware.proxy_fix import ProxyFix
 from dashboarddb import DashboardDatabase
 from ifood_api_with_mock import IFoodAPI, IFoodConfig
 from ifood_data_processor import IFoodDataProcessor  # FIXED: Added missing import
@@ -28,17 +29,32 @@ CONFIG_FILE = BASE_DIR / 'ifood_config.json'
 STATIC_DIR.mkdir(exist_ok=True)
 DASHBOARD_OUTPUT.mkdir(exist_ok=True)
 
+# Detect if running behind a reverse proxy (Railway, Render, Heroku, etc.)
+IS_BEHIND_PROXY = any(var in os.environ for var in [
+    'RAILWAY_ENVIRONMENT', 'RAILWAY_PROJECT_ID',  # Railway
+    'RENDER', 'RENDER_SERVICE_ID',                 # Render
+    'DYNO',                                        # Heroku
+    'K_SERVICE',                                   # Google Cloud Run
+])
+
 # Create Flask app with static folder configured
 app = Flask(__name__,
            static_folder=str(STATIC_DIR),
            static_url_path='/static')
 
+# CRITICAL: When behind a reverse proxy (Railway, Render, etc.), the proxy
+# terminates SSL and forwards HTTP to Flask. Without ProxyFix, Flask doesn't
+# know the original request was HTTPS, which breaks secure cookies and sessions.
+if IS_BEHIND_PROXY:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+    print("🔧 ProxyFix enabled (detected reverse proxy environment)")
+
 app.secret_key = os.environ.get('SECRET_KEY', '1a2bfcf2e328076efb65896cfd29b249698f0fe5a355a10a1e80efadc0a8d4bf')
 app.permanent_session_lifetime = timedelta(days=7)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-# Set secure cookie only in production (HTTPS)
-app.config['SESSION_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production' or 'RENDER' in os.environ
+# Only set Secure flag when behind a proxy (which means HTTPS is handled externally)
+app.config['SESSION_COOKIE_SECURE'] = IS_BEHIND_PROXY
 
 print(f"📁 Base directory: {BASE_DIR}")
 print(f"📁 Static folder: {STATIC_DIR}")
