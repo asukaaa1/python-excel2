@@ -61,7 +61,7 @@
         .stores-section h2 { font-size: 1.125rem; font-weight: 700; color: var(--text-primary); margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
         .stores-section h2 svg { color: var(--primary-500); }
         .stores-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem; }
-        .store-card { background: var(--bg-elevated); border: 1px solid var(--border-light); border-radius: var(--radius-2xl); padding: 1.5rem; box-shadow: var(--shadow-sm); transition: all 0.3s; }
+        .store-card { background: var(--bg-elevated); border: 1px solid var(--border-light); border-radius: var(--radius-2xl); padding: 1.5rem; box-shadow: var(--shadow-sm); transition: all 0.3s; cursor: pointer; }
         .store-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: var(--primary-500); }
         .store-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
         .store-avatar { width: 48px; height: 48px; border-radius: var(--radius-lg); background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 1.25rem; flex-shrink: 0; }
@@ -187,7 +187,7 @@
                         ${stores.map(s => {
                             const m = s.metrics || {};
                             return `
-                                <div class="store-card">
+                                <div class="store-card" onclick="goToRestaurant('${s.id}')">
                                     <div class="store-header">
                                         <div class="store-avatar">${(s.name || 'L').charAt(0).toUpperCase()}</div>
                                         <div>
@@ -264,6 +264,11 @@
                     }
                 }
             });
+        }
+
+        function goToRestaurant(restaurantId) {
+            // Navigate to the restaurant's individual dashboard page
+            window.location.href = `/restaurant/${restaurantId}`;
         }
 
         function toggleTheme() {
