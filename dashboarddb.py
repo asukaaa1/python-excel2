@@ -109,6 +109,31 @@ class DashboardDatabase:
                 )
             """)
             
+            # Create client_groups table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS client_groups (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    slug VARCHAR(100) UNIQUE NOT NULL,
+                    active BOOLEAN DEFAULT true,
+                    created_by VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Create group_stores junction table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS group_stores (
+                    id SERIAL PRIMARY KEY,
+                    group_id INTEGER REFERENCES client_groups(id) ON DELETE CASCADE,
+                    store_id VARCHAR(100) NOT NULL,
+                    store_name VARCHAR(200),
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(group_id, store_id)
+                )
+            """)
+            
             conn.commit()
             print("✅ Database tables created successfully!")
             return True
