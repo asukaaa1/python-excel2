@@ -15,7 +15,7 @@
             --bg-primary: #fafbfc; --bg-secondary: #f4f5f7; --bg-tertiary: #ebecf0; --bg-elevated: #ffffff;
             --text-primary: #1a1a2e; --text-secondary: #4a5568; --text-tertiary: #9ca3af;
             --border-light: #e5e7eb; --border-medium: #d1d5db;
-            --primary-50: #fff8f1; --primary-100: #feedd6; --primary-500: #f97316; --primary-600: #ea580c; --primary-700: #c2410c;
+            --primary-50: #fff8f1; --primary-100: #feedd6; --primary-500: #f97015; --primary-600: #e06510; --primary-700: #c2410c;
             --success-50: #ecfdf5; --success-500: #10b981; --success-600: #059669;
             --error-50: #fef2f2; --error-500: #ef4444; --error-600: #dc2626;
             --blue-50: #eff6ff; --blue-500: #3b82f6;
@@ -23,9 +23,9 @@
             --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.06);
             --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
             --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.06);
-            --shadow-glow: 0 0 30px rgba(249,115,22,0.15);
+            --shadow-glow: 0 0 30px rgba(249,112,21,0.15);
             --radius-sm: 0.375rem; --radius-md: 0.5rem; --radius-lg: 0.75rem; --radius-xl: 1rem; --radius-2xl: 1.25rem;
-            --gradient-primary: linear-gradient(135deg, #ff8c42 0%, #f97316 50%, #ea580c 100%);
+            --gradient-primary: linear-gradient(135deg, #f97015 0%, #f97015 50%, #e06510 100%);
         }
 
         [data-theme="dark"] {
@@ -34,7 +34,7 @@
             --border-light: #1a1a1a; --border-medium: #262626;
             --shadow-xs: 0 1px 2px 0 rgba(0,0,0,0.5); --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.6);
             --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.7); --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.8);
-            --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.9); --shadow-glow: 0 0 40px rgba(249,115,22,0.15);
+            --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.9); --shadow-glow: 0 0 40px rgba(249,112,21,0.15);
         }
 
         body { font-family: var(--font-body); background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; min-height: 100vh; transition: background-color 0.3s, color 0.3s; -webkit-font-smoothing: antialiased; }
@@ -65,7 +65,7 @@
         .sidebar-link { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; margin: 0.25rem 0; border-radius: var(--radius-lg); color: var(--text-secondary); text-decoration: none; font-size: 0.875rem; font-weight: 500; transition: all 0.2s; cursor: pointer; border: none; background: none; width: 100%; text-align: left; }
         .sidebar-link:hover { background: var(--bg-tertiary); color: var(--text-primary); }
         .sidebar-link.active { background: var(--primary-50); color: var(--primary-600); font-weight: 600; }
-        [data-theme="dark"] .sidebar-link.active { background: rgba(249,115,22,0.1); color: var(--primary-500); }
+        [data-theme="dark"] .sidebar-link.active { background: rgba(249,112,21,0.1); color: var(--primary-500); }
         .sidebar-link svg { width: 20px; height: 20px; opacity: 0.7; transition: all 0.2s; }
         .sidebar-link:hover svg, .sidebar-link.active svg { opacity: 1; }
         .sidebar-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border-light); }
@@ -79,7 +79,7 @@
         .header-left { display: flex; align-items: center; gap: 1rem; }
         .menu-toggle { width: 44px; height: 44px; border-radius: var(--radius-lg); background: var(--bg-elevated); border: 1px solid var(--border-light); color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-shadow: var(--shadow-xs); }
         .menu-toggle:hover { border-color: var(--primary-500); color: var(--primary-500); background: var(--primary-50); }
-        [data-theme="dark"] .menu-toggle:hover { background: rgba(249,115,22,0.1); }
+        [data-theme="dark"] .menu-toggle:hover { background: rgba(249,112,21,0.1); }
         .page-title { display: flex; flex-direction: column; gap: 0.25rem; }
         .page-title h1 { font-size: 1.875rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em; display: flex; align-items: center; gap: 0.75rem; }
         .page-title h1 svg { color: var(--primary-500); }
@@ -98,7 +98,7 @@
         .stat-icon.restaurants { background: var(--primary-50); color: var(--primary-500); }
         .stat-icon.api { background: var(--success-50); color: var(--success-500); }
         [data-theme="dark"] .stat-icon.users { background: rgba(59,130,246,0.15); }
-        [data-theme="dark"] .stat-icon.restaurants { background: rgba(249,115,22,0.15); }
+        [data-theme="dark"] .stat-icon.restaurants { background: rgba(249,112,21,0.15); }
         [data-theme="dark"] .stat-icon.api { background: rgba(16,185,129,0.15); }
         .stat-info h3 { font-family: var(--font-mono); font-size: 2rem; font-weight: 500; color: var(--text-primary); line-height: 1.1; }
         .stat-info p { font-size: 0.8125rem; color: var(--text-tertiary); margin-top: 0.25rem; font-weight: 500; }
@@ -125,14 +125,14 @@
         .badge-user { background: var(--bg-secondary); color: var(--text-secondary); }
         .badge-connected { background: var(--success-50); color: var(--success-600); }
         .badge-disconnected { background: var(--error-50); color: var(--error-500); }
-        [data-theme="dark"] .badge-admin { background: rgba(249,115,22,0.15); }
+        [data-theme="dark"] .badge-admin { background: rgba(249,112,21,0.15); }
         [data-theme="dark"] .badge-connected { background: rgba(16,185,129,0.15); }
         [data-theme="dark"] .badge-disconnected { background: rgba(239,68,68,0.15); }
 
         /* Buttons */
         .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.625rem 1.25rem; font-size: 0.875rem; font-weight: 600; font-family: var(--font-body); border-radius: var(--radius-lg); cursor: pointer; transition: all 0.2s; border: none; outline: none; }
-        .btn-primary { background: var(--gradient-primary); color: white; box-shadow: var(--shadow-sm), 0 0 20px rgba(249,115,22,0.2); }
-        .btn-primary:hover { box-shadow: var(--shadow-md), 0 0 30px rgba(249,115,22,0.3); transform: translateY(-1px); }
+        .btn-primary { background: var(--gradient-primary); color: white; box-shadow: var(--shadow-sm), 0 0 20px rgba(249,112,21,0.2); }
+        .btn-primary:hover { box-shadow: var(--shadow-md), 0 0 30px rgba(249,112,21,0.3); transform: translateY(-1px); }
         .btn-secondary { background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--border-light); box-shadow: var(--shadow-xs); }
         .btn-secondary:hover { border-color: var(--border-medium); background: var(--bg-secondary); }
         .btn-danger { color: var(--error-500); border-color: var(--error-500); }
@@ -156,7 +156,7 @@
         .form-label { display: block; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
         .form-input, .form-select { width: 100%; padding: 0.75rem 1rem; font-size: 0.875rem; font-family: var(--font-body); background: var(--bg-secondary); border: 1px solid var(--border-light); border-radius: var(--radius-lg); color: var(--text-primary); transition: all 0.2s; }
         .form-input:hover, .form-select:hover { border-color: var(--border-medium); }
-        .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary-500); box-shadow: 0 0 0 3px rgba(249,115,22,0.12); background: var(--bg-elevated); }
+        .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary-500); box-shadow: 0 0 0 3px rgba(249,112,21,0.12); background: var(--bg-elevated); }
         .form-input::placeholder { color: var(--text-tertiary); }
 
         /* Config Card */
@@ -195,9 +195,18 @@
                     <h3 id="userName">Admin</h3>
                     <p><span class="role-dot"></span><span id="userRoleText">Administrador</span></p>
                 </div>
+                        <div class="org-switcher" id="orgSwitcher" style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:var(--radius-lg);cursor:pointer">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <div style="width:32px;height:32px;border-radius:8px;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px" id="orgAvatar">ORG</div>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:13px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="orgName">Minha Empresa</div>
+                        <div style="font-size:10px;color:var(--text-tertiary);display:flex;align-items:center;gap:4px"><span style="padding:1px 6px;background:rgba(249,112,21,.1);color:#f97015;border-radius:4px;font-weight:700;font-size:9px" id="planBadge">PRO</span><span id="orgStoreCount">0 lojas</span></div>
+                    </div>
+                </div>
             </div>
         </div>
-        <nav class="sidebar-nav">
+        
+        <nav class="sidebar-nav">>
             <div class="sidebar-section">
                 <div class="sidebar-section-title">Menu</div>
                 <a href="/" class="sidebar-link">

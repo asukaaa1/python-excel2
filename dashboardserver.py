@@ -73,11 +73,33 @@ def add_cache_headers(response):
 # Database configuration
 db = DashboardDatabase()
 
-# Global variables
+# Per-org data store: {org_id: {'restaurants': [], 'api': IFoodAPI, 'last_refresh': datetime, 'config': {}}}
+ORG_DATA = {}
+# Legacy global for backward compat during transition
 RESTAURANTS_DATA = []
 IFOOD_API = None
 IFOOD_CONFIG = {}
 LAST_DATA_REFRESH = None
+
+
+def get_org_data(org_id):
+    """Get or initialize org data container"""
+    if org_id not in ORG_DATA:
+        ORG_DATA[org_id] = {'restaurants': [], 'api': None, 'last_refresh': None, 'config': {}}
+    return ORG_DATA[org_id]
+
+
+def get_current_org_id():
+    """Get active org_id from session"""
+    return session.get('org_id') or (session.get('user', {}).get('primary_org_id'))
+
+
+def get_current_org_restaurants():
+    """Get restaurant data for the current session's org"""
+    org_id = get_current_org_id()
+    if org_id and org_id in ORG_DATA:
+        return ORG_DATA[org_id]['restaurants']
+    return RESTAURANTS_DATA  # fallback for legacy single-tenant
 
 # ============================================================================
 # REAL-TIME SSE (Server-Sent Events) INFRASTRUCTURE
@@ -191,6 +213,15 @@ def _do_data_refresh():
     """Core refresh logic: fetch from API, update cache, save snapshot to DB"""
     global RESTAURANTS_DATA, LAST_DATA_REFRESH
     
+    # Refresh per-org data (SaaS mode)
+    for org_id, od in ORG_DATA.items():
+        if od.get('api'):
+            try:
+                _load_org_restaurants(org_id)
+            except Exception as e:
+                print(f"⚠️ Org {org_id} refresh error: {e}")
+    
+    # Also refresh legacy global data if configured
     if not IFOOD_API:
         return
     
@@ -360,6 +391,108 @@ def _load_data_snapshot():
 # ============================================================================
 # IFOOD API INITIALIZATION
 # ============================================================================
+
+# ============================================================================
+# IFOOD API INITIALIZATION - PER-ORG
+# ============================================================================
+
+def _init_org_ifood(org_id):
+    """Initialize iFood API for a specific org from DB credentials"""
+    config = db.get_org_ifood_config(org_id)
+    if not config or not config.get('client_id'):
+        return None
+    org = get_org_data(org_id)
+    org['config'] = config
+    try:
+        api = IFoodAPI(config['client_id'], config['client_secret'])
+        if api.authenticate():
+            org['api'] = api
+            print(f"✅ Org {org_id}: iFood API authenticated")
+            return api
+        else:
+            print(f"⚠️ Org {org_id}: iFood auth failed")
+    except Exception as e:
+        print(f"❌ Org {org_id}: iFood init error: {e}")
+    return None
+
+
+def _load_org_restaurants(org_id):
+    """Load restaurant data for a specific org"""
+    org = get_org_data(org_id)
+    api = org.get('api')
+    config = org.get('config') or db.get_org_ifood_config(org_id) or {}
+    if not api:
+        return
+    merchants_config = config.get('merchants', [])
+    if not merchants_config:
+        try:
+            merchants = api.get_merchants()
+            if merchants:
+                merchants_config = [{'merchant_id': m.get('id'), 'name': m.get('name', 'Restaurant')} for m in merchants]
+                db.update_org_ifood_config(org_id, merchants=merchants_config)
+        except:
+            pass
+    if not merchants_config:
+        return
+    days = config.get('settings', {}).get('data_fetch_days', 30)
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    new_data = []
+    for mc in merchants_config:
+        merchant_id = mc.get('merchant_id') or mc.get('id')
+        if not merchant_id:
+            continue
+        try:
+            details = api.get_merchant_details(merchant_id)
+            if not details:
+                continue
+            orders = api.get_orders(merchant_id, start_date, end_date)
+            restaurant_data = IFoodDataProcessor.process_restaurant_data(details, orders or [], None)
+            restaurant_data['_orders_cache'] = orders or []
+            new_data.append(restaurant_data)
+        except Exception as e:
+            print(f"  ⚠️ Org {org_id}, merchant {merchant_id}: {e}")
+    org['restaurants'] = new_data
+    org['last_refresh'] = datetime.now()
+    db.save_org_data_cache(org_id, 'restaurants', [{k:v for k,v in r.items() if not k.startswith('_')} for r in new_data])
+    print(f"✅ Org {org_id}: loaded {len(new_data)} restaurants")
+
+
+def initialize_all_orgs():
+    """Initialize iFood API and load data for all active orgs with credentials"""
+    global RESTAURANTS_DATA, IFOOD_API, IFOOD_CONFIG, LAST_DATA_REFRESH
+    orgs = db.get_all_active_orgs()
+    print(f"\n🏢 Initializing {len(orgs)} organization(s)...")
+    for org_info in orgs:
+        org_id = org_info['id']
+        # Try cache first
+        cached = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=2)
+        if cached:
+            od = get_org_data(org_id)
+            od['restaurants'] = cached
+            od['last_refresh'] = datetime.now()
+            print(f"  ⚡ Org {org_id} ({org_info['name']}): {len(cached)} restaurants from cache")
+            # Init API in background
+            threading.Thread(target=_init_and_refresh_org, args=(org_id,), daemon=True).start()
+        else:
+            api = _init_org_ifood(org_id)
+            if api:
+                _load_org_restaurants(org_id)
+    # Set legacy globals for backward compat (use first org's data)
+    if orgs and orgs[0]['id'] in ORG_DATA:
+        first = ORG_DATA[orgs[0]['id']]
+        RESTAURANTS_DATA = first['restaurants']
+        IFOOD_API = first.get('api')
+        LAST_DATA_REFRESH = first.get('last_refresh')
+        IFOOD_CONFIG = first.get('config', {})
+
+
+def _init_and_refresh_org(org_id):
+    """Background: init API and refresh data for an org"""
+    api = _init_org_ifood(org_id)
+    if api:
+        _load_org_restaurants(org_id)
+
 
 def initialize_ifood_api():
     """Initialize iFood API with credentials from config"""
@@ -607,9 +740,9 @@ def squads_page():
 @login_required
 def restaurant_page(restaurant_id):
     """Serve individual restaurant dashboard"""
-    # Find restaurant
+    # Find restaurant in org data
     restaurant = None
-    for r in RESTAURANTS_DATA:
+    for r in get_current_org_restaurants():
         if r['id'] == restaurant_id:
             restaurant = r
             break
@@ -659,6 +792,13 @@ def api_login():
             session['user'] = user
             session.permanent = True
             
+            # Set org context
+            orgs = db.get_user_orgs(user['id'])
+            if orgs:
+                session['org_id'] = orgs[0]['id']
+                session['org_name'] = orgs[0]['name']
+                session['org_plan'] = orgs[0]['plan']
+            
             redirect_url = '/dashboard'
             
             return jsonify({
@@ -691,11 +831,176 @@ def api_logout():
 @app.route('/api/me')
 @login_required
 def api_me():
-    """Get current user info"""
+    """Get current user info with org context"""
+    user = session.get('user')
+    org_id = get_current_org_id()
+    org_info = None
+    if org_id:
+        org_info = db.get_org_details(org_id)
     return jsonify({
         'success': True,
-        'user': session.get('user')
+        'user': user,
+        'org_id': org_id,
+        'org': org_info
     })
+
+
+# ============================================================================
+# SaaS API ROUTES
+# ============================================================================
+
+@app.route('/api/register', methods=['POST'])
+def api_register():
+    """Self-service signup: create account + organization"""
+    try:
+        data = request.get_json()
+        email = (data.get('email') or '').strip().lower()
+        password = data.get('password', '')
+        full_name = (data.get('full_name') or '').strip()
+        org_name = (data.get('org_name') or '').strip()
+        if not all([email, password, full_name, org_name]):
+            return jsonify({'success': False, 'error': 'Todos os campos são obrigatórios'}), 400
+        if len(password) < 8:
+            return jsonify({'success': False, 'error': 'Senha deve ter no mínimo 8 caracteres'}), 400
+        result = db.register_user_and_org(email, password, full_name, org_name)
+        if not result:
+            return jsonify({'success': False, 'error': 'Email já cadastrado'}), 409
+        session['user'] = {'id': result['user_id'], 'username': result['username'], 'name': full_name, 'email': email, 'role': 'admin', 'primary_org_id': result['org_id']}
+        session['org_id'] = result['org_id']
+        session.permanent = True
+        db.log_action('user.registered', org_id=result['org_id'], user_id=result['user_id'], details={'email': email, 'org_name': org_name}, ip_address=request.remote_addr)
+        return jsonify({'success': True, 'user_id': result['user_id'], 'org_id': result['org_id'], 'redirect': '/dashboard'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orgs')
+@login_required
+def api_user_orgs():
+    """Get all organizations the current user belongs to"""
+    orgs = db.get_user_orgs(session['user']['id'])
+    return jsonify({'success': True, 'organizations': orgs})
+
+
+@app.route('/api/orgs/switch', methods=['POST'])
+@login_required
+def api_switch_org():
+    """Switch active organization"""
+    data = request.get_json()
+    org_id = data.get('org_id')
+    orgs = db.get_user_orgs(session['user']['id'])
+    if not any(o['id'] == org_id for o in orgs):
+        return jsonify({'success': False, 'error': 'Not a member'}), 403
+    session['org_id'] = org_id
+    for o in orgs:
+        if o['id'] == org_id:
+            session['org_name'] = o['name']
+            session['org_plan'] = o['plan']
+    return jsonify({'success': True, 'org_id': org_id})
+
+
+@app.route('/api/org/details')
+@login_required
+def api_org_details():
+    """Get current org details"""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+    details = db.get_org_details(org_id)
+    return jsonify({'success': True, 'organization': details})
+
+
+@app.route('/api/org/ifood-config', methods=['GET', 'POST'])
+@login_required
+def api_org_ifood_config():
+    """Get or update iFood credentials for current org"""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization'}), 403
+    if request.method == 'GET':
+        config = db.get_org_ifood_config(org_id)
+        if not config:
+            return jsonify({'success': True, 'config': {'client_id': None, 'merchants': []}})
+        masked = None
+        if config.get('client_secret'):
+            s = config['client_secret']
+            masked = s[:4] + '****' + s[-4:] if len(s) > 8 else '****'
+        return jsonify({'success': True, 'config': {'client_id': config.get('client_id'), 'client_secret_masked': masked, 'merchants': config.get('merchants', []), 'has_credentials': bool(config.get('client_id'))}})
+    # POST
+    data = request.get_json()
+    db.update_org_ifood_config(org_id, data.get('client_id'), data.get('client_secret') if data.get('client_secret') != '****' else None, data.get('merchants'))
+    db.log_action('org.ifood_config_updated', org_id=org_id, user_id=session['user']['id'], ip_address=request.remote_addr)
+    # Reinitialize this org's API connection
+    _init_org_ifood(org_id)
+    return jsonify({'success': True})
+
+
+@app.route('/api/org/invite', methods=['POST'])
+@login_required
+def api_create_invite():
+    """Create a team invite"""
+    org_id = get_current_org_id()
+    if not org_id: return jsonify({'success': False}), 403
+    data = request.get_json()
+    email = (data.get('email') or '').strip().lower()
+    role = data.get('role', 'viewer')
+    if not email: return jsonify({'success': False, 'error': 'Email obrigatório'}), 400
+    token = db.create_invite(org_id, email, role, session['user']['id'])
+    if not token: return jsonify({'success': False, 'error': 'Limite de membros atingido'}), 400
+    invite_url = f"{request.host_url}invite/{token}"
+    db.log_action('org.member_invited', org_id=org_id, user_id=session['user']['id'], details={'email': email, 'role': role}, ip_address=request.remote_addr)
+    return jsonify({'success': True, 'invite_url': invite_url, 'token': token})
+
+
+@app.route('/api/invite/<token>/accept', methods=['POST'])
+@login_required
+def api_accept_invite(token):
+    """Accept a team invite"""
+    result = db.accept_invite(token, session['user']['id'])
+    if not result: return jsonify({'success': False, 'error': 'Convite inválido ou expirado'}), 400
+    session['org_id'] = result['org_id']
+    return jsonify({'success': True, 'org_id': result['org_id'], 'redirect': '/dashboard'})
+
+
+@app.route('/api/plans')
+def api_get_plans():
+    """Get available subscription plans"""
+    conn = db.get_connection()
+    if not conn: return jsonify({'success': False}), 500
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT name, display_name, price_monthly, max_restaurants, max_users, features FROM plans WHERE is_active=true ORDER BY price_monthly")
+        plans = []
+        for r in cursor.fetchall():
+            features = r[5] if r[5] else []
+            if isinstance(features, str): features = json.loads(features)
+            plans.append({'name':r[0],'display_name':r[1],'price_monthly':float(r[2]),'max_restaurants':r[3],'max_users':r[4],'features':features})
+        return jsonify({'success': True, 'plans': plans})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        cursor.close(); conn.close()
+
+
+@app.route('/api/org/limits')
+@login_required
+def api_org_limits():
+    """Get current org usage vs limits"""
+    org_id = get_current_org_id()
+    if not org_id: return jsonify({'success': False}), 403
+    limits = db.check_restaurant_limit(org_id)
+    details = db.get_org_details(org_id)
+    return jsonify({'success': True, 'restaurants': limits, 'plan': details.get('plan') if details else 'free', 'plan_display': details.get('plan_display') if details else 'Gratuito'})
+
+
+@app.route('/api/org/users')
+@login_required
+def api_org_users():
+    """Get users in current org"""
+    org_id = get_current_org_id()
+    if not org_id: return jsonify({'success': False}), 403
+    users = db.get_org_users(org_id)
+    return jsonify({'success': True, 'users': users})
 
 
 # ============================================================================
@@ -716,7 +1021,7 @@ def api_restaurants():
         
         # Return data without internal caches
         restaurants = []
-        for r in RESTAURANTS_DATA:
+        for r in get_current_org_restaurants():
             # Skip if user doesn't have access to this restaurant (squad filtering)
             if allowed_ids is not None and r['id'] not in allowed_ids:
                 continue
@@ -784,10 +1089,13 @@ def api_restaurants():
                 restaurant = {k: v for k, v in r.items() if not k.startswith('_')}
                 restaurants.append(restaurant)
         
+        org_id = get_current_org_id()
+        org_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') if org_id else None
+        
         return jsonify({
             'success': True,
             'restaurants': restaurants,
-            'last_refresh': LAST_DATA_REFRESH.isoformat() if LAST_DATA_REFRESH else None,
+            'last_refresh': (org_refresh or LAST_DATA_REFRESH).isoformat() if (org_refresh or LAST_DATA_REFRESH) else None,
             'month_filter': month_filter
         })
     except Exception as e:
@@ -807,9 +1115,9 @@ def api_restaurant_detail(restaurant_id):
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        # Find restaurant
+        # Find restaurant in org data
         restaurant = None
-        for r in RESTAURANTS_DATA:
+        for r in get_current_org_restaurants():
             if r['id'] == restaurant_id:
                 restaurant = r
                 break
@@ -917,7 +1225,7 @@ def api_restaurant_orders(restaurant_id):
     try:
         # Find restaurant
         restaurant = None
-        for r in RESTAURANTS_DATA:
+        for r in get_current_org_restaurants():
             if r['id'] == restaurant_id:
                 restaurant = r
                 break
@@ -1213,7 +1521,7 @@ def api_compare_periods():
         if restaurant_id == 'all':
             targets = RESTAURANTS_DATA
         else:
-            targets = [r for r in RESTAURANTS_DATA if r['id'] == restaurant_id]
+            targets = [r for r in get_current_org_restaurants() if r['id'] == restaurant_id]
             if not targets:
                 return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
         
@@ -1317,10 +1625,10 @@ def api_daily_comparison():
         # Collect orders
         all_orders = []
         if restaurant_id == 'all':
-            for r in RESTAURANTS_DATA:
+            for r in get_current_org_restaurants():
                 all_orders.extend(r.get('_orders_cache', []))
         else:
-            for r in RESTAURANTS_DATA:
+            for r in get_current_org_restaurants():
                 if r['id'] == restaurant_id:
                     all_orders = r.get('_orders_cache', [])
                     break
@@ -1587,14 +1895,14 @@ def api_comparativo_stats():
     """Get consolidated stats for comparativo page"""
     try:
         total_stores = len(RESTAURANTS_DATA)
-        stores_with_history = sum(1 for r in RESTAURANTS_DATA if (r.get('metrics', {}).get('vendas') or r.get('metrics', {}).get('total_pedidos') or 0) > 0)
+        stores_with_history = sum(1 for r in get_current_org_restaurants() if (r.get('metrics', {}).get('vendas') or r.get('metrics', {}).get('total_pedidos') or 0) > 0)
         
         total_revenue = 0
         positive_count = 0
         negative_count = 0
         previous_revenue = 0
         
-        for r in RESTAURANTS_DATA:
+        for r in get_current_org_restaurants():
             metrics = r.get('metrics', {})
             valor_bruto = metrics.get('valor_bruto') or 0
             total_revenue += valor_bruto
@@ -1725,7 +2033,7 @@ def api_cancel_restaurant():
         
         # Find restaurant
         restaurant = None
-        for r in RESTAURANTS_DATA:
+        for r in get_current_org_restaurants():
             if r['id'] == restaurant_id:
                 restaurant = r
                 break
@@ -1750,7 +2058,7 @@ def api_cancel_restaurant():
         CANCELLED_RESTAURANTS.append(cancelled_entry)
         
         # Remove from active restaurants
-        RESTAURANTS_DATA = [r for r in RESTAURANTS_DATA if r['id'] != restaurant_id]
+        RESTAURANTS_DATA = [r for r in get_current_org_restaurants() if r['id'] != restaurant_id]
         
         return jsonify({
             'success': True,
@@ -2404,7 +2712,7 @@ def api_add_squad_restaurants(squad_id):
         for restaurant_id in restaurant_ids:
             # Find restaurant name from RESTAURANTS_DATA
             restaurant_name = 'Unknown'
-            for r in RESTAURANTS_DATA:
+            for r in get_current_org_restaurants():
                 if r['id'] == restaurant_id:
                     restaurant_name = r.get('name', 'Unknown')
                     break
@@ -2528,7 +2836,7 @@ def public_group_page(slug):
             store_name = store_row[1]
             
             # Find in global data
-            for r in RESTAURANTS_DATA:
+            for r in get_current_org_restaurants():
                 if r['id'] == store_id:
                     # Clean data (remove internal caches)
                     store_data = {k: v for k, v in r.items() if not k.startswith('_')}
@@ -2675,7 +2983,7 @@ def api_create_group():
         for store_id in store_ids:
             # Get store name from RESTAURANTS_DATA
             store_name = store_id
-            for r in RESTAURANTS_DATA:
+            for r in get_current_org_restaurants():
                 if r['id'] == store_id:
                     store_name = r.get('name', store_id)
                     break
@@ -2754,7 +3062,7 @@ def api_update_group(group_id):
         
         for store_id in store_ids:
             store_name = store_id
-            for r in RESTAURANTS_DATA:
+            for r in get_current_org_restaurants():
                 if r['id'] == store_id:
                     store_name = r.get('name', store_id)
                     break
@@ -3079,63 +3387,54 @@ def initialize_database():
 
 
 def initialize_app():
-    """Initialize the application with fast cold start support"""
+    """Initialize the application with SaaS multi-tenant support"""
     print("="*60)
-    print("Restaurant Dashboard Server - iFood API Version")
-    print("  Features: Real-time SSE, Background Refresh,")
-    print("  Comparative Analytics, Data Caching")
+    print("TIMO Dashboard Server - SaaS Multi-Tenant")
+    print("  Features: Per-org data, Self-service registration,")
+    print("  Real-time SSE, Background Refresh, Plans & Billing")
     print("="*60)
     
     # Check setup
     setup_ok = check_setup()
     
-    # Initialize database
+    # Initialize database (includes SaaS tables)
     initialize_database()
     
-    # Initialize iFood API
-    ifood_ok = initialize_ifood_api()
+    # Try per-org initialization first (SaaS mode)
+    initialize_all_orgs()
     
-    if ifood_ok:
-        # Try fast cold start from DB snapshot first
-        snapshot_loaded = _load_data_snapshot()
-        
-        if snapshot_loaded:
-            # Data loaded from cache - start bg refresh to update in background
-            print("⚡ Fast start: serving cached data while refreshing in background")
-            threading.Thread(target=bg_refresher.refresh_now, daemon=True).start()
-        else:
-            # No cache, load from API (blocking on first start)
-            print("📊 First start: loading data from iFood API...")
-            load_restaurants_from_ifood()
-            _save_data_snapshot()
-        
-        # Start periodic background refresh
-        refresh_minutes = IFOOD_CONFIG.get('refresh_interval_minutes', 30)
-        bg_refresher.interval = refresh_minutes * 60
-        bg_refresher.start()
+    # Fallback: if no orgs have data, try legacy config file
+    if not any(od['restaurants'] for od in ORG_DATA.values()):
+        print("\n📁 No org data found, trying legacy config file...")
+        ifood_ok = initialize_ifood_api()
+        if ifood_ok:
+            snapshot_loaded = _load_data_snapshot()
+            if snapshot_loaded:
+                print("⚡ Fast start: serving cached data while refreshing in background")
+                threading.Thread(target=bg_refresher.refresh_now, daemon=True).start()
+            else:
+                print("📊 First start: loading data from iFood API...")
+                load_restaurants_from_ifood()
+                _save_data_snapshot()
+            refresh_minutes = IFOOD_CONFIG.get('refresh_interval_minutes', 30)
+            bg_refresher.interval = refresh_minutes * 60
+            bg_refresher.start()
     else:
-        print("\n⚠️  iFood API not configured properly")
-        print(f"   Please update {CONFIG_FILE} with your credentials")
+        # Start background refresh for all orgs
+        bg_refresher.interval = 1800  # 30 min
+        bg_refresher.start()
+    
+    total_restaurants = sum(len(od['restaurants']) for od in ORG_DATA.values()) + len(RESTAURANTS_DATA)
+    total_orgs = len([o for o in ORG_DATA.values() if o['restaurants']])
     
     print("\n" + "="*60)
-    if setup_ok and ifood_ok:
-        print("🚀 Server Ready!")
-    else:
-        print("⚠️  Server Starting with Issues")
+    print("🚀 TIMO Server Ready!")
     print("="*60)
-    print(f"\n🌐 Access the dashboard at: http://localhost:5000")
-    print(f"👤 Default credentials:")
-    print(f"   Admin:  admin@dashboard.com / admin123")
-    print(f"   User:   user@dashboard.com / user123")
-    print(f"\n📁 Files:")
-    print(f"   Dashboard: {DASHBOARD_OUTPUT}")
-    print(f"   Config:    {CONFIG_FILE}")
-    print(f"\n📊 Status:")
-    print(f"   Restaurants: {len(RESTAURANTS_DATA)}")
-    print(f"   iFood API:   {'✅ Connected' if IFOOD_API else '❌ Not configured'}")
-    print(f"   Background:  🔄 Every {IFOOD_CONFIG.get('refresh_interval_minutes', 30)} min")
-    print(f"   SSE:         ✅ Ready on /api/events")
-    print(f"\nPress Ctrl+C to stop the server")
+    print(f"\n🏢 Organizations: {total_orgs}")
+    print(f"📊 Total Restaurants: {total_restaurants}")
+    print(f"🔄 Background refresh: every 30 min")
+    print(f"📡 SSE: ready on /api/events")
+    print(f"\n🌐 Access: http://localhost:{os.environ.get('PORT', 5000)}")
     print("="*60)
     print()
 

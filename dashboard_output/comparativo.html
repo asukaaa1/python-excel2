@@ -11,9 +11,9 @@
             --bg-primary: #ffffff; --bg-secondary: #f8fafc; --bg-card: #ffffff;
             --bg-hover: #ffffff; --text-primary: #000000; --text-secondary: #666666;
             --text-muted: #a0a0a0; --border: #e2e8f0; --accent: #f97015;
-            --accent-hover: #ea580c; --green: #22c55e; --green-bg: rgba(34,197,94,0.1);
+            --accent-hover: #e06510; --green: #22c55e; --green-bg: rgba(34,197,94,0.1);
             --red: #ef4444; --red-bg: rgba(239,68,68,0.1); --blue: #3b82f6;
-            --orange: #f97316;
+            --orange: #f97015;
             --shadow: 0 1px 3px rgba(0,0,0,0.1); --shadow-lg: 0 4px 6px rgba(0,0,0,0.1);
         }
         [data-theme="dark"] {
@@ -600,7 +600,7 @@
         }
         .compare-preset{padding:8px 16px;background:var(--bg-subtle);border:1px solid var(--border-subtle);border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-secondary);cursor:pointer;transition:all .2s}
         .compare-preset:hover{border-color:var(--border-default);color:var(--text-primary)}
-        .compare-preset.active{background:#f96743;border-color:#f96743;color:#fff}
+        .compare-preset.active{background:#f97015;border-color:#f97015;color:#fff}
         .comp-delta{font-size:12px;font-weight:600;margin-top:4px;display:flex;align-items:center;gap:4px}
         .comp-delta.positive{color:#10b981}
         .comp-delta.negative{color:#f43f5e}
@@ -620,10 +620,18 @@
                     <h3 id="sidebarUserName">Admin</h3>
                     <p><span class="role-dot"></span><span id="sidebarUserRole">Administrador</span></p>
                 </div>
+                        <div class="org-switcher" id="orgSwitcher" style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:var(--radius-lg);cursor:pointer">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <div style="width:32px;height:32px;border-radius:8px;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px" id="orgAvatar">ORG</div>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:13px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="orgName">Minha Empresa</div>
+                        <div style="font-size:10px;color:var(--text-tertiary);display:flex;align-items:center;gap:4px"><span style="padding:1px 6px;background:rgba(249,112,21,.1);color:#f97015;border-radius:4px;font-weight:700;font-size:9px" id="planBadge">PRO</span><span id="orgStoreCount">0 lojas</span></div>
+                    </div>
+                </div>
             </div>
         </div>
         
-        <nav class="sidebar-nav">
+        <nav class="sidebar-nav">>
             <div class="sidebar-section">
                 <div class="sidebar-section-title">Menu</div>
                 <a href="/" class="sidebar-link">
@@ -712,7 +720,7 @@
             <div style="background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:16px;padding:20px;position:relative;min-height:260px">
                 <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;font-size:12px;color:var(--text-muted)">
                     <span id="compPeriodALabel" style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:3px;background:var(--text-muted);border-radius:2px;display:inline-block"></span>Período anterior</span>
-                    <span id="compPeriodBLabel" style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:3px;background:#f96743;border-radius:2px;display:inline-block"></span>Período atual</span>
+                    <span id="compPeriodBLabel" style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:3px;background:#f97015;border-radius:2px;display:inline-block"></span>Período atual</span>
                 </div>
                 <canvas id="comparisonChart" height="220"></canvas>
             </div>
@@ -779,7 +787,7 @@
                     <div class="sort-option" onclick="changeSortOrder('name-desc')">Nome (Z-A)</div>
                     <div class="sort-option" onclick="changeSortOrder('revenue-desc')">Vendas (Maior)</div>
                     <div class="sort-option" onclick="changeSortOrder('revenue-asc')">Vendas (Menor)</div>
-                    <div class="sort-option" onclick="changeSortOrder('ticket-desc')">Ticket Médio (Maior)</div>
+                    
                     <div class="sort-option" onclick="changeSortOrder('stores-desc')">Nº de Lojas (Maior)</div>
                 </div>
             </div>
@@ -822,7 +830,7 @@
                         <tr>
                             <th>Restaurante</th>
                             <th>Faturamento</th>
-                            <th>Ticket Médio</th>
+                            
                             <th>Pedidos</th>
                             <th>Tendência</th>
                         </tr>
@@ -956,7 +964,7 @@
         
         // Get avatar color
         function getAvatarColor(name) {
-            const colors = ['#f97015', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899'];
+            const colors = ['#f97015', '#f97015', '#f59e0b', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899'];
             const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
             return colors[hash % colors.length];
         }
@@ -1042,7 +1050,7 @@
                             </div>
                         </td>
                         <td><strong>${formatCurrency(metrics.valor_bruto || 0)}</strong></td>
-                        <td>${formatCurrency(metrics.ticket_medio || 0)}</td>
+                        <td></td>
                         <td>${metrics.total_pedidos || 0}</td>
                         <td>
                             <span class="performance-badge ${isPositive ? 'positive' : 'negative'}">
@@ -1285,7 +1293,7 @@
                     // Update labels
                     const fmtDate = d => d.split('-').reverse().slice(0,2).join('/');
                     document.getElementById('compPeriodALabel').innerHTML = `<span style="width:12px;height:3px;background:var(--text-muted);border-radius:2px;display:inline-block"></span>${fmtDate(data.period_a.start)} - ${fmtDate(data.period_a.end)}`;
-                    document.getElementById('compPeriodBLabel').innerHTML = `<span style="width:12px;height:3px;background:#f96743;border-radius:2px;display:inline-block"></span>${fmtDate(data.period_b.start)} - ${fmtDate(data.period_b.end)}`;
+                    document.getElementById('compPeriodBLabel').innerHTML = `<span style="width:12px;height:3px;background:#f97015;border-radius:2px;display:inline-block"></span>${fmtDate(data.period_b.start)} - ${fmtDate(data.period_b.end)}`;
                 }
                 
                 // Load daily chart data
@@ -1335,10 +1343,10 @@
                         {
                             label: 'Período atual',
                             data: dailyB.map(d => d.revenue),
-                            borderColor: '#f96743',
-                            backgroundColor: 'rgba(249,103,67,0.08)',
+                            borderColor: '#f97015',
+                            backgroundColor: 'rgba(249,112,21,0.08)',
                             borderWidth: 2.5, fill: true, tension: 0.3, pointRadius: 4,
-                            pointBackgroundColor: '#f96743', pointBorderColor: isDark ? '#0a0a0a' : '#fff', pointBorderWidth: 2
+                            pointBackgroundColor: '#f97015', pointBorderColor: isDark ? '#0a0a0a' : '#fff', pointBorderWidth: 2
                         }
                     ]
                 },
