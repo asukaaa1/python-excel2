@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TIMO - Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -1550,12 +1550,26 @@
                     url += `?month=${month}`;
                 }
 
-                const response = await fetch(url);
+                // Fetch restaurants and hidden stores in parallel
+                const [response, hiddenResponse] = await Promise.all([
+                    fetch(url),
+                    fetch('/api/hidden-stores').catch(() => null)
+                ]);
                 if (response.status === 401) { window.location.href = '/login'; return; }
                 const data = await response.json();
+                
+                // Process hidden stores
+                if (hiddenResponse && hiddenResponse.ok) {
+                    try {
+                        const hiddenData = await hiddenResponse.json();
+                        if (hiddenData.success) {
+                            hiddenStores = hiddenData.hidden_stores.map(h => h.id);
+                        }
+                    } catch(e) {}
+                }
+                
                 if (data.success) {
                     restaurantsData = data.restaurants || [];
-                    await loadHiddenStores();
                     updateFilterCounts();
                     updateOverviewKPIs();
                     renderRestaurants();
@@ -2084,8 +2098,8 @@
             showToast(`🔔 ${order.restaurant_name}: ${order.display_id} · ${total}`, 'success');
         }
         
-        // Start SSE connection
-        initSSE();
+        // Start SSE connection after initial data is loaded (non-blocking)
+        setTimeout(initSSE, 2000);
     </script>
     <style>@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}</style>
 </body>

@@ -387,6 +387,7 @@ function renderMainChart() {
     });
     let values = activeChartType === 'revenue' ? data.map(d => d.revenue || d.vendas || 0) : 
                  activeChartType === 'orders' ? data.map(d => d.orders || d.pedidos || 0) : 
+                 data.map(d => d.revenue || d.vendas || 0);
     
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     

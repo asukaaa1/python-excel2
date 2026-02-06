@@ -23,6 +23,13 @@ import time
 import queue
 import copy
 
+# Try to enable gzip compression
+try:
+    from flask_compress import Compress
+    _HAS_COMPRESS = True
+except ImportError:
+    _HAS_COMPRESS = False
+
 
 # Configure paths FIRST - before Flask app creation
 BASE_DIR = Path(__file__).parent.absolute()
@@ -56,6 +63,44 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = IS_BEHIND_PROXY
 
+# Enable gzip compression if available
+if _HAS_COMPRESS:
+    Compress(app)
+    print("🗜️  Response compression enabled")
+else:
+    # Fallback: manual gzip via after_request
+    import gzip as _gzip
+    import io as _io
+    
+    @app.after_request
+    def compress_response(response):
+        if (response.status_code < 200 or response.status_code >= 300 or
+            response.direct_passthrough or
+            'Content-Encoding' in response.headers or
+            not response.content_type or
+            'text/event-stream' in response.content_type):
+            return response
+        
+        accept_encoding = request.headers.get('Accept-Encoding', '')
+        if 'gzip' not in accept_encoding.lower():
+            return response
+        
+        # Only compress text-like responses > 500 bytes
+        if response.content_length and response.content_length < 500:
+            return response
+        
+        if any(t in response.content_type for t in ['text/', 'application/json', 'application/javascript']):
+            data = response.get_data()
+            buf = _io.BytesIO()
+            with _gzip.GzipFile(fileobj=buf, mode='wb', compresslevel=6) as gz:
+                gz.write(data)
+            response.set_data(buf.getvalue())
+            response.headers['Content-Encoding'] = 'gzip'
+            response.headers['Content-Length'] = len(response.get_data())
+            response.headers['Vary'] = 'Accept-Encoding'
+        return response
+    print("🗜️  Manual gzip compression enabled")
+
 print(f"📁 Base directory: {BASE_DIR}")
 print(f"📁 Static folder: {STATIC_DIR}")
 print(f"📁 Dashboard output: {DASHBOARD_OUTPUT}")
@@ -63,15 +108,39 @@ print(f"📁 Config file: {CONFIG_FILE}")
 
 @app.after_request
 def add_cache_headers(response):
-    """Prevent caching of HTML pages to avoid stale session issues"""
+    """Set caching and compression headers"""
     if response.content_type and 'text/html' in response.content_type:
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
+    elif response.content_type and 'application/json' in response.content_type:
+        # Allow short caching for API responses (5s)
+        response.headers['Cache-Control'] = 'private, max-age=5'
     return response
 
 # Database configuration
 db = DashboardDatabase()
+
+# In-memory cache for processed API responses
+_api_cache = {}  # key: (org_id, month) -> {'data': [...], 'timestamp': datetime}
+_API_CACHE_TTL = 30  # seconds
+
+def get_cached_restaurants(org_id, month_filter):
+    """Get cached processed restaurant data if still fresh"""
+    key = (org_id, month_filter)
+    cached = _api_cache.get(key)
+    if cached and (datetime.now() - cached['timestamp']).total_seconds() < _API_CACHE_TTL:
+        return cached['data']
+    return None
+
+def set_cached_restaurants(org_id, month_filter, data):
+    """Cache processed restaurant data"""
+    key = (org_id, month_filter)
+    _api_cache[key] = {'data': data, 'timestamp': datetime.now()}
+
+def invalidate_cache():
+    """Clear all API caches (called after data refresh)"""
+    _api_cache.clear()
 
 # Per-org data store: {org_id: {'restaurants': [], 'api': IFoodAPI, 'last_refresh': datetime, 'config': {}}}
 ORG_DATA = {}
@@ -272,6 +341,9 @@ def _do_data_refresh():
     # Atomic swap
     RESTAURANTS_DATA = new_data
     LAST_DATA_REFRESH = datetime.now()
+    
+    # Invalidate API response caches since data changed
+    invalidate_cache()
     
     # Save snapshot to DB for fast cold starts
     _save_data_snapshot()
@@ -1015,6 +1087,12 @@ def api_restaurants():
         # Get month filter from query parameters
         month_filter = request.args.get('month', 'all')
         
+        # Check in-memory cache first (avoids re-processing orders every request)
+        org_id = get_current_org_id()
+        cached = get_cached_restaurants(org_id, month_filter)
+        if cached:
+            return jsonify(cached)
+        
         # Get user's allowed restaurants based on squad membership
         user = session.get('user', {})
         allowed_ids = get_user_allowed_restaurant_ids(user.get('id'), user.get('role'))
@@ -1092,12 +1170,17 @@ def api_restaurants():
         org_id = get_current_org_id()
         org_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') if org_id else None
         
-        return jsonify({
+        result = {
             'success': True,
             'restaurants': restaurants,
             'last_refresh': (org_refresh or LAST_DATA_REFRESH).isoformat() if (org_refresh or LAST_DATA_REFRESH) else None,
             'month_filter': month_filter
-        })
+        }
+        
+        # Cache the processed result
+        set_cached_restaurants(org_id, month_filter, result)
+        
+        return jsonify(result)
     except Exception as e:
         print(f"Error getting restaurants: {e}")
         import traceback
