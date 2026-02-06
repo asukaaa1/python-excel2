@@ -58,7 +58,7 @@ class MockIFoodDataGenerator:
         neighborhood = random.choice(MockIFoodDataGenerator.NEIGHBORHOODS)
         
         # 30% chance of being an iFood Super restaurant
-        is_super = random.random() < 0.8
+        is_super = random.random() < 0.3
         
         merchant_details = {
             'id': merchant_id,
