@@ -432,7 +432,8 @@ class IFoodDataProcessor:
                         'label': 'Pedidos por Hora',
                         'data': [hourly_data[str(h).zfill(2)]['orders'] for h in range(24)],
                         'backgroundColor': '#22c55e'
-                    }]
+                    }],
+                    'revenue_data': [hourly_data[str(h).zfill(2)]['revenue'] for h in range(24)]
                 },
                 # Available months for filtering
                 'available_months': available_months,
