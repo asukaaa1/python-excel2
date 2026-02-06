@@ -124,14 +124,18 @@ async function fetchRestaurantData() {
             const hourlyChartRaw = rawCharts.hourly_chart || {};
             const hourlyLabels = hourlyChartRaw.labels || [];
             const hourlyOrders = (hourlyChartRaw.datasets && hourlyChartRaw.datasets[0] && hourlyChartRaw.datasets[0].data) || [];
+            const hourlyRevenue = hourlyChartRaw.revenue_data || [];
             
             if (hourlyLabels.length > 0) {
                 chartsData.hourly = hourlyLabels.map((label, i) => ({
                     hour: parseInt(label) || i,
                     orders: hourlyOrders[i] || 0,
-                    revenue: 0  // hourly revenue not provided separately
+                    revenue: hourlyRevenue[i] || 0
                 }));
             }
+            
+            // Store interruption periods for chart overlay
+            chartsData.interruptions = rawCharts.interruptions || [];
             
             // Also keep raw charts for any direct access
             chartsData._raw = rawCharts;
@@ -410,14 +414,92 @@ function renderHourlyChart() {
     const ctx = document.getElementById('hourlyChart').getContext('2d');
     if (hourlyChart) hourlyChart.destroy();
     
-    const data = chartsData.hourly, labels = data.map(d => `${d.hour}h`);
-    const values = activeHourlyType === 'revenue' ? data.map(d => d.revenue || d.vendas || 0) : data.map(d => d.orders || d.pedidos || 0);
+    const data = chartsData.hourly;
+    const labels = data.map(d => `${d.hour}h`);
+    const values = activeHourlyType === 'revenue' ? data.map(d => d.revenue || 0) : data.map(d => d.orders || 0);
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    
+    // Build interruption zones for the chart background
+    const interruptions = chartsData.interruptions || [];
+    // Also check top-level interruptionsData
+    const allInterruptions = interruptions.length > 0 ? interruptions : (interruptionsData || []);
+    
+    // Chart.js plugin to draw shaded interruption zones
+    const interruptionPlugin = {
+        id: 'interruptionZones',
+        beforeDraw(chart) {
+            if (!allInterruptions || allInterruptions.length === 0) return;
+            const { ctx: c, chartArea: { left, right, top, bottom }, scales: { x } } = chart;
+            
+            allInterruptions.forEach(int => {
+                let startH, endH;
+                if (int.start_hour !== undefined) {
+                    startH = int.start_hour;
+                    endH = int.end_hour;
+                } else if (int.start) {
+                    try {
+                        const s = new Date(int.start);
+                        const e = new Date(int.end);
+                        startH = s.getHours();
+                        endH = e.getHours();
+                    } catch(e) { return; }
+                } else { return; }
+                
+                // Get pixel positions for the hour range
+                const startIdx = Math.max(0, startH);
+                const endIdx = Math.min(23, endH || startH + 1);
+                
+                const x0 = x.getPixelForValue(startIdx) - (x.getPixelForValue(1) - x.getPixelForValue(0)) / 2;
+                const x1 = x.getPixelForValue(endIdx) + (x.getPixelForValue(1) - x.getPixelForValue(0)) / 2;
+                
+                // Draw shaded zone
+                c.save();
+                c.fillStyle = isDark ? 'rgba(244, 63, 94, 0.12)' : 'rgba(244, 63, 94, 0.08)';
+                c.fillRect(x0, top, x1 - x0, bottom - top);
+                
+                // Draw left/right borders
+                c.strokeStyle = isDark ? 'rgba(244, 63, 94, 0.4)' : 'rgba(244, 63, 94, 0.3)';
+                c.lineWidth = 1;
+                c.setLineDash([4, 4]);
+                c.beginPath();
+                c.moveTo(x0, top); c.lineTo(x0, bottom);
+                c.moveTo(x1, top); c.lineTo(x1, bottom);
+                c.stroke();
+                
+                // Draw label
+                c.setLineDash([]);
+                c.fillStyle = isDark ? 'rgba(244, 63, 94, 0.8)' : 'rgba(244, 63, 94, 0.7)';
+                c.font = '600 10px Outfit, sans-serif';
+                c.textAlign = 'center';
+                const label = int.description || 'Fechado';
+                const timeLabel = (int.start_hour !== undefined) 
+                    ? `${String(startH).padStart(2,'0')}:00-${String(endH).padStart(2,'0')}:00` 
+                    : `${int.start || ''}-${int.end || ''}`;
+                c.fillText(label, (x0 + x1) / 2, top + 14);
+                c.font = '400 9px Outfit, sans-serif';
+                c.fillText(timeLabel, (x0 + x1) / 2, top + 26);
+                c.restore();
+            });
+        }
+    };
     
     hourlyChart = new Chart(ctx, {
         type: 'bar',
         data: { labels, datasets: [{ data: values, backgroundColor: 'rgba(249,103,67,0.2)', borderColor: '#f96743', borderWidth: 2, borderRadius: 6 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: isDark ? '#737373' : '#a3a3a3' } }, y: { grid: { color: isDark ? '#262626' : '#f5f5f5' }, ticks: { color: isDark ? '#737373' : '#a3a3a3' } } } }
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false },
+                tooltip: {
+                    backgroundColor: isDark ? '#262626' : '#fff', titleColor: isDark ? '#fff' : '#171717', bodyColor: isDark ? '#a3a3a3' : '#525252', borderColor: isDark ? '#404040' : '#e5e5e5', borderWidth: 1, padding: 12, cornerRadius: 8, displayColors: false,
+                    callbacks: { label: c => activeHourlyType === 'revenue' ? formatCurrency(c.parsed.y) : `${c.parsed.y} pedidos` }
+                }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { color: isDark ? '#737373' : '#a3a3a3' } },
+                y: { grid: { color: isDark ? '#262626' : '#f5f5f5' }, ticks: { color: isDark ? '#737373' : '#a3a3a3', callback: v => activeHourlyType === 'revenue' ? 'R$ ' + (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v.toFixed(0)) : v } }
+            }
+        },
+        plugins: [interruptionPlugin]
     });
     
     const maxIdx = values.indexOf(Math.max(...values));
