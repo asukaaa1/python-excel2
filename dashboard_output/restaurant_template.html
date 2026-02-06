@@ -95,8 +95,46 @@ async function fetchRestaurantData() {
         
         if (data.success) {
             restaurantData = data.restaurant;
-            chartsData = data.charts || {};
             interruptionsData = data.interruptions || [];
+            
+            // Transform backend chart structure into frontend format
+            // Backend: {revenue_chart: {labels, datasets, dates}, orders_chart: {...}, hourly_chart: {...}}
+            // Frontend expects: {daily: [{date, revenue, orders, ticket}], hourly: [{hour, revenue, orders}]}
+            const rawCharts = data.charts || {};
+            chartsData = {};
+            
+            // Build daily array from revenue_chart + orders_chart
+            const revenueChart = rawCharts.revenue_chart || {};
+            const ordersChart = rawCharts.orders_chart || {};
+            const revLabels = revenueChart.labels || [];
+            const revData = (revenueChart.datasets && revenueChart.datasets[0] && revenueChart.datasets[0].data) || [];
+            const ordData = (ordersChart.datasets && ordersChart.datasets[0] && ordersChart.datasets[0].data) || [];
+            const revDates = revenueChart.dates || [];
+            
+            if (revLabels.length > 0) {
+                chartsData.daily = revLabels.map((label, i) => ({
+                    date: revDates[i] || label,
+                    revenue: revData[i] || 0,
+                    orders: ordData[i] || 0,
+                    ticket: (ordData[i] > 0) ? (revData[i] || 0) / ordData[i] : 0
+                }));
+            }
+            
+            // Build hourly array from hourly_chart
+            const hourlyChartRaw = rawCharts.hourly_chart || {};
+            const hourlyLabels = hourlyChartRaw.labels || [];
+            const hourlyOrders = (hourlyChartRaw.datasets && hourlyChartRaw.datasets[0] && hourlyChartRaw.datasets[0].data) || [];
+            
+            if (hourlyLabels.length > 0) {
+                chartsData.hourly = hourlyLabels.map((label, i) => ({
+                    hour: parseInt(label) || i,
+                    orders: hourlyOrders[i] || 0,
+                    revenue: 0  // hourly revenue not provided separately
+                }));
+            }
+            
+            // Also keep raw charts for any direct access
+            chartsData._raw = rawCharts;
             
             updateUI();
             renderMainChart();
@@ -287,32 +325,32 @@ function updateUI() {
     }
     
     // Super badge
-    if (restaurantData.isSuperRestaurant || restaurantData.super) {
+    if (restaurantData.isSuperRestaurant || restaurantData.isSuper || restaurantData.super) {
         document.getElementById('restaurantSuper').style.display = 'inline-flex';
     }
     
-    // Metrics
-    const m = restaurantData.metrics || restaurantData || {};
+    // Metrics - map backend field names to UI
+    const m = restaurantData.metrics || {};
     const t = m.trends || {};
     
-    // KPIs
-    updateKPI('kpiRevenue', formatCurrency(m.vendas || m.revenue || 0), t.vendas);
-    updateKPI('kpiOrders', m.pedidos || m.orders || 0, t.pedidos);
-    updateKPI('kpiTicket', formatCurrency(m.ticket_medio || m.ticket || 0), t.ticket_medio);
-    updateKPI('kpiCancellation', `${(m.taxa_cancelamento || 0).toFixed(1)}%`, -(t.taxa_cancelamento || 0), true);
+    // KPIs: revenue = liquido (net), orders = vendas (count), ticket = ticket_medio, cancellation = percent_cancelamento
+    updateKPI('kpiRevenue', formatCurrency(m.liquido || restaurantData.revenue || 0), t.liquido);
+    updateKPI('kpiOrders', m.vendas || m.total_pedidos || restaurantData.orders || 0, t.vendas);
+    updateKPI('kpiTicket', formatCurrency(m.ticket_medio || restaurantData.ticket || 0), t.ticket_medio);
+    updateKPI('kpiCancellation', `${(m.percent_cancelamento || 0).toFixed(1)}%`, -(t.cancelamentos || 0), true);
     
     // Revenue metrics
-    document.getElementById('metricGross').textContent = formatCurrency(m.venda_bruta || m.gross || 0);
-    document.getElementById('metricDiscount').textContent = formatCurrency(m.desconto || m.discount || 0);
-    document.getElementById('metricDelivery').textContent = formatCurrency(m.taxa_entrega || m.delivery_fee || 0);
-    document.getElementById('metricCommission').textContent = formatCurrency(m.comissao_ifood || m.commission || 0);
-    document.getElementById('metricNet').textContent = formatCurrency(m.repasse || m.net || 0);
+    document.getElementById('metricGross').textContent = formatCurrency(m.valor_bruto || 0);
+    document.getElementById('metricDiscount').textContent = formatCurrency(m.descontos || 0);
+    document.getElementById('metricDelivery').textContent = formatCurrency(m.via_loja || 0);
+    document.getElementById('metricCommission').textContent = `${(m.percent_desconto || 0).toFixed(1)}%`;
+    document.getElementById('metricNet').textContent = formatCurrency(m.liquido || restaurantData.revenue || 0);
     
     // Order metrics
-    document.getElementById('metricCompleted').textContent = m.pedidos_concluidos || m.completed || 0;
-    document.getElementById('metricCancelled').textContent = m.pedidos_cancelados || m.cancelled || 0;
-    document.getElementById('metricItems').textContent = m.itens_vendidos || m.items || 0;
-    document.getElementById('metricDays').textContent = m.dias_ativos || m.active_days || 0;
+    document.getElementById('metricCompleted').textContent = m.vendas || m.total_pedidos || restaurantData.orders || 0;
+    document.getElementById('metricCancelled').textContent = m.cancelamentos || 0;
+    document.getElementById('metricItems').textContent = m.novos_clientes || 0;
+    document.getElementById('metricDays').textContent = m.tempo_aberto_hours || 0;
 }
 
 function updateKPI(id, v, t, inv = false) {
@@ -337,7 +375,13 @@ function renderMainChart() {
     if (mainChart) mainChart.destroy();
     
     const data = chartsData.daily;
-    const labels = data.map(d => new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+    const labels = data.map(d => {
+        // d.date could be 'YYYY-MM-DD' or 'dd/mm' - handle both
+        if (d.date && d.date.includes('-')) {
+            return new Date(d.date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        }
+        return d.date || '--';
+    });
     let values = activeChartType === 'revenue' ? data.map(d => d.revenue || d.vendas || 0) : 
                  activeChartType === 'orders' ? data.map(d => d.orders || d.pedidos || 0) : 
                  data.map(d => d.ticket || d.ticket_medio || 0);
