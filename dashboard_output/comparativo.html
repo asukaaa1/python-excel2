@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Comparativo por Gestor - Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -1265,45 +1268,47 @@
             document.querySelectorAll('.compare-preset').forEach(b => b.classList.toggle('active', b.dataset.preset === preset));
             
             try {
-                // Load summary comparison
-                const resp = await fetch(`/api/analytics/compare?preset=${preset}&restaurant_id=all`);
-                if (!resp.ok) return;
-                const data = await resp.json();
+                // Load summary and chart data in parallel
+                const [resp, chartResp] = await Promise.all([
+                    fetch(`/api/analytics/compare?preset=${preset}&restaurant_id=all`),
+                    fetch(`/api/analytics/daily-comparison?preset=${preset}&restaurant_id=all`)
+                ]);
                 
-                if (data.success && data.totals) {
-                    const ta = data.totals.period_a;
-                    const tb = data.totals.period_b;
-                    const d = data.totals.deltas;
-                    
-                    document.getElementById('compRevenue').textContent = formatCurrency(tb.revenue);
-                    document.getElementById('compOrders').textContent = tb.orders;
-                    document.getElementById('compTicket').textContent = formatCurrency(tb.ticket || 0);
-                    document.getElementById('compCancelled').textContent = tb.cancelled;
-                    
-                    setDelta('compRevenueDelta', d.revenue);
-                    setDelta('compOrdersDelta', d.orders);
-                    setDelta('compCancelledDelta', d.cancelled, true);
-                    
-                    // Ticket delta
-                    const ticketDelta = tb.ticket && ta.ticket ? {
-                        percent: ta.ticket > 0 ? ((tb.ticket - ta.ticket) / ta.ticket * 100).toFixed(1) : 0,
-                        absolute: (tb.ticket - ta.ticket).toFixed(2)
-                    } : {percent: 0, absolute: 0};
-                    setDelta('compTicketDelta', ticketDelta);
-                    
-                    // Update labels
-                    const fmtDate = d => d.split('-').reverse().slice(0,2).join('/');
-                    document.getElementById('compPeriodALabel').innerHTML = `<span style="width:12px;height:3px;background:var(--text-muted);border-radius:2px;display:inline-block"></span>${fmtDate(data.period_a.start)} - ${fmtDate(data.period_a.end)}`;
-                    document.getElementById('compPeriodBLabel').innerHTML = `<span style="width:12px;height:3px;background:#f97015;border-radius:2px;display:inline-block"></span>${fmtDate(data.period_b.start)} - ${fmtDate(data.period_b.end)}`;
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.success && data.totals) {
+                        const ta = data.totals.period_a;
+                        const tb = data.totals.period_b;
+                        const d = data.totals.deltas;
+                        
+                        document.getElementById('compRevenue').textContent = formatCurrency(tb.revenue);
+                        document.getElementById('compOrders').textContent = tb.orders;
+                        document.getElementById('compTicket').textContent = formatCurrency(tb.ticket || 0);
+                        document.getElementById('compCancelled').textContent = tb.cancelled;
+                        
+                        setDelta('compRevenueDelta', d.revenue);
+                        setDelta('compOrdersDelta', d.orders);
+                        setDelta('compCancelledDelta', d.cancelled, true);
+                        
+                        // Ticket delta
+                        const ticketDelta = tb.ticket && ta.ticket ? {
+                            percent: ta.ticket > 0 ? ((tb.ticket - ta.ticket) / ta.ticket * 100).toFixed(1) : 0,
+                            absolute: (tb.ticket - ta.ticket).toFixed(2)
+                        } : {percent: 0, absolute: 0};
+                        setDelta('compTicketDelta', ticketDelta);
+                        
+                        // Update labels
+                        const fmtDate = d => d.split('-').reverse().slice(0,2).join('/');
+                        document.getElementById('compPeriodALabel').innerHTML = `<span style="width:12px;height:3px;background:var(--text-muted);border-radius:2px;display:inline-block"></span>${fmtDate(data.period_a.start)} - ${fmtDate(data.period_a.end)}`;
+                        document.getElementById('compPeriodBLabel').innerHTML = `<span style="width:12px;height:3px;background:#f97015;border-radius:2px;display:inline-block"></span>${fmtDate(data.period_b.start)} - ${fmtDate(data.period_b.end)}`;
+                    }
                 }
                 
-                // Load daily chart data
-                const chartResp = await fetch(`/api/analytics/daily-comparison?preset=${preset}&restaurant_id=all`);
-                if (!chartResp.ok) return;
-                const chartData = await chartResp.json();
-                
-                if (chartData.success) {
-                    renderComparisonChart(chartData.period_a.daily, chartData.period_b.daily);
+                if (chartResp.ok) {
+                    const chartData = await chartResp.json();
+                    if (chartData.success) {
+                        renderComparisonChart(chartData.period_a.daily, chartData.period_b.daily);
+                    }
                 }
             } catch (e) {
                 console.error('Comparison load error:', e);
@@ -1376,8 +1381,7 @@
             
             generateMonthOptions();
             checkUser();
-            loadData(); // Initial load without filter
-            loadComparison('week'); // Load period comparison
+            Promise.all([loadData(), loadComparison('week')]); // Load in parallel
             
             // Initialize sort dropdown
             setTimeout(() => {
