@@ -598,6 +598,13 @@
                 padding: 0.75rem 0.5rem;
             }
         }
+        .compare-preset{padding:8px 16px;background:var(--bg-subtle);border:1px solid var(--border-subtle);border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-secondary);cursor:pointer;transition:all .2s}
+        .compare-preset:hover{border-color:var(--border-default);color:var(--text-primary)}
+        .compare-preset.active{background:#f96743;border-color:#f96743;color:#fff}
+        .comp-delta{font-size:12px;font-weight:600;margin-top:4px;display:flex;align-items:center;gap:4px}
+        .comp-delta.positive{color:#10b981}
+        .comp-delta.negative{color:#f43f5e}
+        .comp-delta svg{width:14px;height:14px}
     </style>
 </head>
 <body>
@@ -680,6 +687,34 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
                     </svg>
                 </button>
+            </div>
+        </div>
+        
+        <!-- Period Comparison Section -->
+        <div class="period-comparison" id="periodComparison" style="margin-bottom:24px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:12px">
+                <h3 style="font-size:18px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px">
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    Comparativo por Período
+                </h3>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="compare-preset active" data-preset="week" onclick="loadComparison('week')">Semana</button>
+                    <button class="compare-preset" data-preset="month" onclick="loadComparison('month')">Mês</button>
+                    <button class="compare-preset" data-preset="quarter" onclick="loadComparison('quarter')">Trimestre</button>
+                </div>
+            </div>
+            <div class="stats-grid" id="comparisonCards" style="margin-bottom:16px">
+                <div class="stat-card"><div class="stat-label">Faturamento</div><div class="stat-value" id="compRevenue">--</div><div class="comp-delta" id="compRevenueDelta"></div></div>
+                <div class="stat-card"><div class="stat-label">Pedidos</div><div class="stat-value" id="compOrders">--</div><div class="comp-delta" id="compOrdersDelta"></div></div>
+                <div class="stat-card"><div class="stat-label">Ticket Médio</div><div class="stat-value" id="compTicket">--</div><div class="comp-delta" id="compTicketDelta"></div></div>
+                <div class="stat-card"><div class="stat-label">Cancelamentos</div><div class="stat-value" id="compCancelled">--</div><div class="comp-delta" id="compCancelledDelta"></div></div>
+            </div>
+            <div style="background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:16px;padding:20px;position:relative;min-height:260px">
+                <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+                    <span id="compPeriodALabel" style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:3px;background:var(--text-muted);border-radius:2px;display:inline-block"></span>Período anterior</span>
+                    <span id="compPeriodBLabel" style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:3px;background:#f96743;border-radius:2px;display:inline-block"></span>Período atual</span>
+                </div>
+                <canvas id="comparisonChart" height="220"></canvas>
             </div>
         </div>
         
@@ -1211,6 +1246,118 @@
                 });
         }
         
+        // ============================================================
+        // PERIOD COMPARISON
+        // ============================================================
+        let compChart = null;
+        
+        async function loadComparison(preset) {
+            // Update active button
+            document.querySelectorAll('.compare-preset').forEach(b => b.classList.toggle('active', b.dataset.preset === preset));
+            
+            try {
+                // Load summary comparison
+                const resp = await fetch(`/api/analytics/compare?preset=${preset}&restaurant_id=all`);
+                if (!resp.ok) return;
+                const data = await resp.json();
+                
+                if (data.success && data.totals) {
+                    const ta = data.totals.period_a;
+                    const tb = data.totals.period_b;
+                    const d = data.totals.deltas;
+                    
+                    document.getElementById('compRevenue').textContent = formatCurrency(tb.revenue);
+                    document.getElementById('compOrders').textContent = tb.orders;
+                    document.getElementById('compTicket').textContent = formatCurrency(tb.ticket || 0);
+                    document.getElementById('compCancelled').textContent = tb.cancelled;
+                    
+                    setDelta('compRevenueDelta', d.revenue);
+                    setDelta('compOrdersDelta', d.orders);
+                    setDelta('compCancelledDelta', d.cancelled, true);
+                    
+                    // Ticket delta
+                    const ticketDelta = tb.ticket && ta.ticket ? {
+                        percent: ta.ticket > 0 ? ((tb.ticket - ta.ticket) / ta.ticket * 100).toFixed(1) : 0,
+                        absolute: (tb.ticket - ta.ticket).toFixed(2)
+                    } : {percent: 0, absolute: 0};
+                    setDelta('compTicketDelta', ticketDelta);
+                    
+                    // Update labels
+                    const fmtDate = d => d.split('-').reverse().slice(0,2).join('/');
+                    document.getElementById('compPeriodALabel').innerHTML = `<span style="width:12px;height:3px;background:var(--text-muted);border-radius:2px;display:inline-block"></span>${fmtDate(data.period_a.start)} - ${fmtDate(data.period_a.end)}`;
+                    document.getElementById('compPeriodBLabel').innerHTML = `<span style="width:12px;height:3px;background:#f96743;border-radius:2px;display:inline-block"></span>${fmtDate(data.period_b.start)} - ${fmtDate(data.period_b.end)}`;
+                }
+                
+                // Load daily chart data
+                const chartResp = await fetch(`/api/analytics/daily-comparison?preset=${preset}&restaurant_id=all`);
+                if (!chartResp.ok) return;
+                const chartData = await chartResp.json();
+                
+                if (chartData.success) {
+                    renderComparisonChart(chartData.period_a.daily, chartData.period_b.daily);
+                }
+            } catch (e) {
+                console.error('Comparison load error:', e);
+            }
+        }
+        
+        function setDelta(elId, delta, invert = false) {
+            const el = document.getElementById(elId);
+            if (!el || !delta) return;
+            const pct = parseFloat(delta.percent);
+            const isPositive = invert ? pct < 0 : pct > 0;
+            el.className = `comp-delta ${isPositive ? 'positive' : 'negative'}`;
+            el.innerHTML = `<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${isPositive ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/></svg>${pct > 0 ? '+' : ''}${pct}%`;
+        }
+        
+        function renderComparisonChart(dailyA, dailyB) {
+            const ctx = document.getElementById('comparisonChart');
+            if (!ctx) return;
+            if (compChart) compChart.destroy();
+            
+            const maxLen = Math.max(dailyA.length, dailyB.length);
+            const labels = Array.from({length: maxLen}, (_, i) => `Dia ${i + 1}`);
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            
+            compChart = new Chart(ctx.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Período anterior',
+                            data: dailyA.map(d => d.revenue),
+                            borderColor: isDark ? '#737373' : '#a3a3a3',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2, borderDash: [6, 4], tension: 0.3, pointRadius: 3,
+                            pointBackgroundColor: isDark ? '#737373' : '#a3a3a3'
+                        },
+                        {
+                            label: 'Período atual',
+                            data: dailyB.map(d => d.revenue),
+                            borderColor: '#f96743',
+                            backgroundColor: 'rgba(249,103,67,0.08)',
+                            borderWidth: 2.5, fill: true, tension: 0.3, pointRadius: 4,
+                            pointBackgroundColor: '#f96743', pointBorderColor: isDark ? '#0a0a0a' : '#fff', pointBorderWidth: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: {
+                        backgroundColor: isDark ? '#262626' : '#fff', titleColor: isDark ? '#fff' : '#171717',
+                        bodyColor: isDark ? '#a3a3a3' : '#525252', borderColor: isDark ? '#404040' : '#e5e5e5',
+                        borderWidth: 1, padding: 12, cornerRadius: 8,
+                        callbacks: { label: c => `${c.dataset.label}: ${formatCurrency(c.parsed.y)}` }
+                    }},
+                    scales: {
+                        x: { grid: { color: isDark ? '#1a1a1a' : '#f5f5f5' }, ticks: { color: isDark ? '#525252' : '#a3a3a3', font: { size: 11 } } },
+                        y: { grid: { color: isDark ? '#1a1a1a' : '#f5f5f5' }, ticks: { color: isDark ? '#525252' : '#a3a3a3', callback: v => 'R$ ' + (v >= 1000 ? (v/1000).toFixed(0) + 'k' : v) } }
+                    }
+                }
+            });
+        }
+        
         // Initialize
         (function init() {
             const theme = localStorage.getItem('theme') || 'light';
@@ -1221,6 +1368,7 @@
             generateMonthOptions();
             checkUser();
             loadData(); // Initial load without filter
+            loadComparison('week'); // Load period comparison
             
             // Initialize sort dropdown
             setTimeout(() => {
