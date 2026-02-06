@@ -1296,7 +1296,7 @@
             </div>
         </div>
         
-        <nav class="sidebar-nav">>
+        <nav class="sidebar-nav">
             <div class="sidebar-section">
                 <div class="sidebar-section-title">Menu</div>
                 <a href="/" class="sidebar-link active">
@@ -1702,6 +1702,26 @@
                                     ${formatTrend(trendVendas)}
                                 </span>
                             </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Valor Bruto</span>
+                                <span class="stat-value">${formatCurrency(valorBruto)}</span>
+                                <span class="trend ${trendBruto >= 0 ? 'positive' : 'negative'}">
+                                    <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trendBruto >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
+                                    </svg>
+                                    ${formatTrend(trendBruto)}
+                                </span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Líquido</span>
+                                <span class="stat-value">${formatCurrency(liquido)}</span>
+                                <span class="trend ${trendLiquido >= 0 ? 'positive' : 'negative'}">
+                                    <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${trendLiquido >= 0 ? 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' : 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6'}"/>
+                                    </svg>
+                                    ${formatTrend(trendLiquido)}
+                                </span>
+                            </div>
                             <div class="restaurant-actions" onclick="event.stopPropagation()">
                             ${isAdmin ? `
                                 <button class="action-btn danger" onclick="hideStore('${r.id}', '${r.name.replace(/'/g, "\\'")}')" title="Ocultar loja">
@@ -1887,7 +1907,7 @@
                     document.getElementById('sidebarAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase();
                     document.getElementById('sidebarUserRole').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
                     isAdmin = (u.role === 'admin');
-                    if (isAdmin) const adminEl = document.getElementById('adminSection'); if (adminEl) adminEl.style.display = 'block';
+                    if (isAdmin) { const adminEl = document.getElementById('adminSection'); if (adminEl) adminEl.style.display = 'block'; }
                 }
             }).catch(() => {});
         }
