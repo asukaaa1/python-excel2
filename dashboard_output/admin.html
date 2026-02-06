@@ -195,7 +195,8 @@
                     <h3 id="userName">Admin</h3>
                     <p><span class="role-dot"></span><span id="userRoleText">Administrador</span></p>
                 </div>
-                        <div class="org-switcher" id="orgSwitcher" style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:var(--radius-lg);cursor:pointer">
+            </div>
+            <div class="org-switcher" id="orgSwitcher" style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:var(--radius-lg);cursor:pointer">
                 <div style="display:flex;align-items:center;gap:10px">
                     <div style="width:32px;height:32px;border-radius:8px;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px" id="orgAvatar">ORG</div>
                     <div style="flex:1;min-width:0">
@@ -412,7 +413,7 @@
             }
             return response;
         };
-        async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig(), loadRestaurants()]); }
+        async function loadData() { await loadUsers(); await loadIfoodConfig(); }
 
         async function loadUsers() {
             try {
@@ -445,15 +446,8 @@
                     const apiStatus = document.getElementById('apiStatus');
                     if (data.config.configured) { statusBadge.className = 'badge badge-connected'; statusBadge.textContent = 'Conectado'; apiStatus.textContent = 'Ativo'; }
                     else { statusBadge.className = 'badge badge-disconnected'; statusBadge.textContent = 'Desconectado'; apiStatus.textContent = 'Inativo'; }
-                }
-            } catch (error) { console.error('Error loading config:', error); document.getElementById('apiStatus').textContent = 'Erro'; }
-        }
-
-        async function loadRestaurants() {
-            try {
-                const response = await fetch('/api/ifood/config');
-                const data = await response.json();
-                if (data.success && data.config) {
+                    
+                    // Also populate merchants table from the same response
                     const merchants = data.config.merchants || [];
                     document.getElementById('merchantCount').textContent = merchants.length;
                     const tbody = document.getElementById('merchantsTable');
@@ -468,7 +462,7 @@
                         </tr>
                     `).join('');
                 }
-            } catch (error) { console.error('Error loading merchants:', error); document.getElementById('merchantsTable').innerHTML = '<tr><td colspan="5" class="empty-state">Erro ao carregar merchants</td></tr>'; }
+            } catch (error) { console.error('Error loading config:', error); document.getElementById('apiStatus').textContent = 'Erro'; }
         }
 
         function openModal(id) { document.getElementById(id).classList.add('show'); }
@@ -482,7 +476,7 @@
             try {
                 const response = await fetch('/api/ifood/merchants', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ merchant_id: merchantId, name, manager }) });
                 const data = await response.json();
-                if (data.success) { showToast('Merchant adicionado!', 'success'); closeModal('addMerchantModal'); await loadIfoodConfig(); await loadRestaurants(); }
+                if (data.success) { showToast('Merchant adicionado!', 'success'); closeModal('addMerchantModal'); await loadIfoodConfig(); }
                 else { showToast(data.error || 'Erro ao adicionar', 'error'); }
             } catch (error) { showToast('Erro de conexão', 'error'); }
         }
@@ -492,7 +486,7 @@
             try {
                 const response = await fetch(`/api/ifood/merchants/${merchantId}`, { method: 'DELETE' });
                 const data = await response.json();
-                if (data.success) { showToast('Merchant removido', 'success'); await loadIfoodConfig(); await loadRestaurants(); }
+                if (data.success) { showToast('Merchant removido', 'success'); await loadIfoodConfig(); }
                 else { showToast(data.error || 'Erro ao remover', 'error'); }
             } catch (error) { showToast('Erro de conexão', 'error'); }
         }
