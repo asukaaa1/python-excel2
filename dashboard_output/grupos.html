@@ -554,15 +554,17 @@
                     
                     isAdmin = u.role === 'admin';
                     if (isAdmin) {
-                        document.getElementById('adminSection').style.display = 'block';
-                        document.getElementById('createBtn').style.display = 'flex';
+                        const adminEl = document.getElementById('adminSection');
+                        if (adminEl) adminEl.style.display = 'block';
+                        const createEl = document.getElementById('createBtn');
+                        if (createEl) createEl.style.display = 'flex';
                     }
                     
                     loadData();
                 } else {
                     window.location.href = '/login';
                 }
-            }).catch(() => { window.location.href = '/login'; });
+            }).catch((err) => { console.error('Auth check failed:', err); window.location.href = '/login'; });
         }
 
         (function() {

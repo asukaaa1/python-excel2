@@ -1196,7 +1196,8 @@
                         document.getElementById('sidebarUserRole').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
                         
                         if (u.role === 'admin') {
-                            document.getElementById('adminSection').style.display = 'block';
+                            const adminEl = document.getElementById('adminSection');
+                            if (adminEl) adminEl.style.display = 'block';
                         } else {
                             window.location.href = '/dashboard';
                         }
@@ -1204,7 +1205,8 @@
                         window.location.href = '/login';
                     }
                 })
-                .catch(() => {
+                .catch((err) => {
+                    console.error('Auth check failed:', err);
                     window.location.href = '/login';
                 });
         }
