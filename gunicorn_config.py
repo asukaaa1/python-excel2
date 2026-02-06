@@ -6,8 +6,15 @@ bind = "0.0.0.0:5000"
 backlog = 2048
 
 # Worker processes
+# IMPORTANT: Using 'gevent' async workers because the app uses SSE (Server-Sent Events).
+# Sync workers get permanently blocked by each SSE connection (/api/events),
+# starving all other requests and causing "loads forever" on page navigation.
+# Gevent uses green threads so one worker can handle thousands of concurrent
+# connections (including long-lived SSE streams) without blocking.
+#
+# Install: pip install gevent
 workers = multiprocessing.cpu_count() * 2 + 1
-worker_class = 'sync'
+worker_class = 'gevent'
 worker_connections = 1000
 timeout = 30
 keepalive = 2
