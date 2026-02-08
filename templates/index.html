@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Restaurantes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1507,9 +1509,19 @@
         // Data
         const restaurantsData = [{"id": "a2a3d683", "name": "Dados", "file": "dados.xlsx", "manager": "Gerente", "platforms": ["iFood"], "metrics": {"vendas": 502.0, "ticket_medio": 34.76, "valor_bruto": 20056.82, "liquido": 14266.3, "trends": {"vendas": 24.875621890547265, "ticket_medio": 0.5496094879953651, "valor_bruto": 19.542519421289096, "liquido": 35.20201216091221}, "last_period": "Dez/26"}}];
         
-        // Cache restaurant data for admin page
+        // Cache restaurant data for admin page without blocking initial render
+        const deferWork = (work) => {
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(work, { timeout: 1000 });
+            } else {
+                setTimeout(work, 0);
+            }
+        };
+        
         if (restaurantsData?.length > 0) {
-            localStorage.setItem('restaurantsData', JSON.stringify(restaurantsData));
+            deferWork(() => {
+                localStorage.setItem('restaurantsData', JSON.stringify(restaurantsData));
+            });
         }
         
         // State
@@ -1524,19 +1536,27 @@
         ];
         
         // Computed data for filters
-        const sortedByGrowth = [...restaurantsData]
-            .filter(r => (r.metrics?.trends?.vendas ?? 0) > 0)
-            .sort((a, b) => (b.metrics?.trends?.vendas ?? 0) - (a.metrics?.trends?.vendas ?? 0))
-            .slice(0, 10);
-            
-        const sortedByDecline = [...restaurantsData]
-            .filter(r => (r.metrics?.trends?.vendas ?? 0) < 0)
-            .sort((a, b) => (a.metrics?.trends?.vendas ?? 0) - (b.metrics?.trends?.vendas ?? 0))
-            .slice(0, 10);
+        const sortedByGrowth = [];
+        const sortedByDecline = [];
         
-        // Update filter counts
-        document.getElementById('growthCount').textContent = `${sortedByGrowth.length} lojas`;
-        document.getElementById('declineCount').textContent = `${sortedByDecline.length} lojas`;
+        deferWork(() => {
+            sortedByGrowth.push(
+                ...restaurantsData
+                    .filter(r => (r.metrics?.trends?.vendas ?? 0) > 0)
+                    .sort((a, b) => (b.metrics?.trends?.vendas ?? 0) - (a.metrics?.trends?.vendas ?? 0))
+                    .slice(0, 10)
+            );
+            sortedByDecline.push(
+                ...restaurantsData
+                    .filter(r => (r.metrics?.trends?.vendas ?? 0) < 0)
+                    .sort((a, b) => (a.metrics?.trends?.vendas ?? 0) - (b.metrics?.trends?.vendas ?? 0))
+                    .slice(0, 10)
+            );
+            
+            // Update filter counts
+            document.getElementById('growthCount').textContent = `${sortedByGrowth.length} lojas`;
+            document.getElementById('declineCount').textContent = `${sortedByDecline.length} lojas`;
+        });
         
         // Utility functions
         const getAvatarColor = (index) => AVATAR_COLORS[index % AVATAR_COLORS.length];
