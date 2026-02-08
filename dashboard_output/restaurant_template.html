@@ -72,6 +72,7 @@ let restaurantData = null;
 let chartsData = null;
 let ordersData = [];
 let interruptionsData = [];
+let menuPerformanceData = null;
 let mainChart = null;
 let hourlyChart = null;
 let activeChartType = 'revenue';
@@ -98,6 +99,7 @@ async function fetchRestaurantData() {
         if (data.success) {
             restaurantData = data.restaurant;
             interruptionsData = data.interruptions || [];
+            menuPerformanceData = data.menu_performance || null;
             
             // Transform backend chart structure into frontend format
             // Backend: {revenue_chart: {labels, datasets, dates}, orders_chart: {...}, hourly_chart: {...}}
@@ -143,6 +145,7 @@ async function fetchRestaurantData() {
             chartsData._raw = rawCharts;
             
             updateUI();
+            renderMenuPerformance();
             renderMainChart();
             updateInterruptionBanner();
             
@@ -356,6 +359,83 @@ function updateUI() {
     document.getElementById('metricCancelled').textContent = m.cancelamentos || 0;
     document.getElementById('metricItems').textContent = m.novos_clientes || 0;
     document.getElementById('metricDays').textContent = m.tempo_aberto_hours || 0;
+}
+
+function ensureMenuPerformanceSection() {
+    if (document.getElementById('menuPerformanceSection')) return;
+    const dashboardView = document.getElementById('dashboardView');
+    if (!dashboardView) return;
+    const section = document.createElement('section');
+    section.className = 'data-section';
+    section.id = 'menuPerformanceSection';
+    section.innerHTML = `
+        <div class="data-header"><h3>Menu Item Performance</h3></div>
+        <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); display: flex; gap: 12px; flex-wrap: wrap;" id="menuSummary"></div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0; border-top: 1px solid var(--border-subtle);">
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead><tr><th colspan="4">Top Itens</th></tr><tr><th>Item</th><th>Qtd</th><th>Receita</th><th>Cancel.</th></tr></thead>
+                    <tbody id="menuTopItemsBody"></tbody>
+                </table>
+            </div>
+            <div class="table-wrapper" style="border-left: 1px solid var(--border-subtle);">
+                <table class="data-table">
+                    <thead><tr><th colspan="4">Itens de Atenção</th></tr><tr><th>Item</th><th>Qtd</th><th>Receita</th><th>Cancel.</th></tr></thead>
+                    <tbody id="menuBottomItemsBody"></tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    dashboardView.appendChild(section);
+}
+
+function renderMenuPerformance() {
+    ensureMenuPerformanceSection();
+
+    const summaryEl = document.getElementById('menuSummary');
+    const topBody = document.getElementById('menuTopItemsBody');
+    const bottomBody = document.getElementById('menuBottomItemsBody');
+    if (!summaryEl || !topBody || !bottomBody) return;
+
+    if (!menuPerformanceData || !menuPerformanceData.summary) {
+        summaryEl.innerHTML = '<span style="color: var(--text-muted); font-size: 0.9rem;">Sem dados de itens para o período selecionado.</span>';
+        topBody.innerHTML = '<tr><td colspan="4" class="empty-state"><p>Sem dados</p></td></tr>';
+        bottomBody.innerHTML = '<tr><td colspan="4" class="empty-state"><p>Sem dados</p></td></tr>';
+        return;
+    }
+
+    const s = menuPerformanceData.summary;
+    summaryEl.innerHTML = `
+        <span class="platform-badge">Itens únicos: ${s.total_unique_items || 0}</span>
+        <span class="platform-badge">Qtd vendida: ${s.total_quantity_sold || 0}</span>
+        <span class="platform-badge">Receita itens: ${formatCurrency(s.total_item_revenue || 0)}</span>
+        <span class="platform-badge">Avaliação média: ${(s.average_item_rating || 0).toFixed(2)}</span>
+    `;
+
+    const topItems = menuPerformanceData.top_items || [];
+    const bottomItems = menuPerformanceData.bottom_items || [];
+
+    topBody.innerHTML = topItems.length > 0
+        ? topItems.map(item => `
+            <tr>
+                <td>${item.item_name || '-'}</td>
+                <td>${item.quantity_sold || 0}</td>
+                <td>${formatCurrency(item.revenue || 0)}</td>
+                <td>${(item.cancellation_rate || 0).toFixed(1)}%</td>
+            </tr>
+        `).join('')
+        : '<tr><td colspan="4" class="empty-state"><p>Sem dados</p></td></tr>';
+
+    bottomBody.innerHTML = bottomItems.length > 0
+        ? bottomItems.map(item => `
+            <tr>
+                <td>${item.item_name || '-'}</td>
+                <td>${item.quantity_total || 0}</td>
+                <td>${formatCurrency(item.revenue || 0)}</td>
+                <td>${(item.cancellation_rate || 0).toFixed(1)}%</td>
+            </tr>
+        `).join('')
+        : '<tr><td colspan="4" class="empty-state"><p>Sem dados</p></td></tr>';
 }
 
 function updateKPI(id, v, t, inv = false) {

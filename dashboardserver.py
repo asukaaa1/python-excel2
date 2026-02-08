@@ -1274,6 +1274,10 @@ def api_restaurant_detail(restaurant_id):
         
         # Generate charts from filtered orders
         orders_for_charts = filtered_orders if (start_date or end_date) else all_orders
+        top_n = request.args.get('top_n', default=10, type=int)
+        top_n = max(1, min(top_n or 10, 50))
+        menu_performance = IFoodDataProcessor.calculate_menu_item_performance(orders_for_charts, top_n=top_n)
+
         if orders_for_charts:
             if hasattr(IFoodDataProcessor, 'generate_charts_data_with_interruptions'):
                 chart_data = IFoodDataProcessor.generate_charts_data_with_interruptions(
@@ -1288,6 +1292,7 @@ def api_restaurant_detail(restaurant_id):
             'success': True,
             'restaurant': response_data,
             'charts': chart_data,
+            'menu_performance': menu_performance,
             'interruptions': interruptions,
             'filter': {
                 'start_date': start_date,
@@ -1344,6 +1349,65 @@ def api_restaurant_orders(restaurant_id):
         
     except Exception as e:
         print(f"Error getting restaurant orders: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/restaurant/<restaurant_id>/menu-performance')
+@login_required
+def api_restaurant_menu_performance(restaurant_id):
+    """Get menu item performance for a specific restaurant."""
+    try:
+        restaurant = None
+        for r in get_current_org_restaurants():
+            if r['id'] == restaurant_id:
+                restaurant = r
+                break
+
+        if not restaurant:
+            return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
+
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        top_n = request.args.get('top_n', default=10, type=int)
+        top_n = max(1, min(top_n or 10, 50))
+
+        orders = restaurant.get('_orders_cache', [])
+        if start_date or end_date:
+            filtered = []
+            for order in orders:
+                try:
+                    created_at = order.get('createdAt', '')
+                    if not created_at:
+                        continue
+                    order_date = datetime.fromisoformat(str(created_at).replace('Z', '+00:00')).date()
+                    include_order = True
+                    if start_date:
+                        if order_date < datetime.strptime(start_date, '%Y-%m-%d').date():
+                            include_order = False
+                    if end_date:
+                        if order_date > datetime.strptime(end_date, '%Y-%m-%d').date():
+                            include_order = False
+                    if include_order:
+                        filtered.append(order)
+                except Exception:
+                    continue
+            orders = filtered
+
+        performance = IFoodDataProcessor.calculate_menu_item_performance(orders, top_n=top_n)
+        return jsonify({
+            'success': True,
+            'restaurant_id': restaurant_id,
+            'menu_performance': performance,
+            'filter': {
+                'start_date': start_date,
+                'end_date': end_date,
+                'top_n': top_n,
+                'orders_considered': len(orders)
+            }
+        })
+    except Exception as e:
+        print(f"Error getting menu performance: {e}")
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 

@@ -493,6 +493,124 @@ class IFoodDataProcessor:
         chart_data['interruption_count'] = len(interruption_periods)
         
         return chart_data
+
+    @staticmethod
+    def calculate_menu_item_performance(orders: List[Dict], top_n: int = 10) -> Dict:
+        """Aggregate item-level performance from iFood orders."""
+        top_n = max(1, min(int(top_n or 10), 50))
+        item_map = {}
+
+        for order in orders or []:
+            status = str(order.get('orderStatus', '')).upper()
+            is_concluded = status == 'CONCLUDED'
+            is_cancelled = status == 'CANCELLED'
+            rating = order.get('feedback', {}).get('rating')
+
+            for item in order.get('items') or []:
+                name = str(item.get('name') or 'Item sem nome').strip() or 'Item sem nome'
+
+                try:
+                    quantity = int(item.get('quantity', 1) or 1)
+                except Exception:
+                    quantity = 1
+                quantity = max(1, quantity)
+
+                try:
+                    unit_price = float(item.get('unitPrice', 0) or 0)
+                except Exception:
+                    unit_price = 0.0
+
+                try:
+                    total_price = float(item.get('totalPrice', 0) or 0)
+                except Exception:
+                    total_price = 0.0
+                if total_price <= 0 and unit_price > 0:
+                    total_price = unit_price * quantity
+
+                data = item_map.setdefault(name, {
+                    'item_name': name,
+                    'orders_with_item': 0,
+                    'quantity_total': 0,
+                    'quantity_sold': 0,
+                    'cancelled_quantity': 0,
+                    'cancelled_orders': 0,
+                    'revenue': 0.0,
+                    'rating_weighted_sum': 0.0,
+                    'rating_weight': 0
+                })
+
+                data['orders_with_item'] += 1
+                data['quantity_total'] += quantity
+
+                if is_concluded:
+                    data['quantity_sold'] += quantity
+                    data['revenue'] += total_price
+                    if rating is not None:
+                        try:
+                            rating_value = float(rating)
+                            data['rating_weighted_sum'] += rating_value * quantity
+                            data['rating_weight'] += quantity
+                        except Exception:
+                            pass
+                elif is_cancelled:
+                    data['cancelled_quantity'] += quantity
+                    data['cancelled_orders'] += 1
+
+        enriched_items = []
+        for data in item_map.values():
+            sold_qty = data['quantity_sold']
+            total_qty = data['quantity_total']
+            cancelled_qty = data['cancelled_quantity']
+            rating_weight = data['rating_weight']
+
+            avg_rating = (data['rating_weighted_sum'] / rating_weight) if rating_weight > 0 else 0.0
+            avg_unit_price = (data['revenue'] / sold_qty) if sold_qty > 0 else 0.0
+            cancellation_rate = (cancelled_qty / total_qty * 100) if total_qty > 0 else 0.0
+
+            data['avg_rating'] = round(avg_rating, 2)
+            data['avg_unit_price'] = round(avg_unit_price, 2)
+            data['cancellation_rate'] = round(cancellation_rate, 2)
+            data['performance_score'] = round(
+                (data['revenue'] * (1 - (cancellation_rate / 100))) + (data['avg_rating'] * 25) + (sold_qty * 2),
+                2
+            )
+            data['revenue'] = round(data['revenue'], 2)
+
+            # Remove internal aggregation fields
+            data.pop('rating_weighted_sum', None)
+            data.pop('rating_weight', None)
+            enriched_items.append(data)
+
+        top_items = sorted(
+            enriched_items,
+            key=lambda x: (x['performance_score'], x['revenue'], x['quantity_sold']),
+            reverse=True
+        )[:top_n]
+
+        bottom_candidates = [x for x in enriched_items if x['quantity_total'] >= 3]
+        bottom_items = sorted(
+            bottom_candidates,
+            key=lambda x: (x['cancellation_rate'], -x['avg_rating'], -x['revenue']),
+            reverse=True
+        )[:top_n]
+
+        total_revenue = sum(x['revenue'] for x in enriched_items)
+        total_sold_qty = sum(x['quantity_sold'] for x in enriched_items)
+        total_cancelled_qty = sum(x['cancelled_quantity'] for x in enriched_items)
+        rating_items = [x['avg_rating'] for x in enriched_items if x['avg_rating'] > 0]
+
+        return {
+            'summary': {
+                'total_unique_items': len(enriched_items),
+                'total_item_revenue': round(total_revenue, 2),
+                'total_quantity_sold': total_sold_qty,
+                'total_cancelled_quantity': total_cancelled_qty,
+                'average_item_rating': round((sum(rating_items) / len(rating_items)), 2) if rating_items else 0.0
+            },
+            'top_items': top_items,
+            'bottom_items': bottom_items,
+            'generated_at': datetime.now().isoformat()
+        }
     
     @staticmethod
     def _generate_color(name: str) -> str:
