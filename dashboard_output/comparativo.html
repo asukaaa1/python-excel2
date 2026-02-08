@@ -1263,18 +1263,28 @@
         // PERIOD COMPARISON
         // ============================================================
         let compChart = null;
+        let comparisonRequestId = 0;
+        let comparisonAbortController = null;
         
         async function loadComparison(preset) {
             // Update active button
             document.querySelectorAll('.compare-preset').forEach(b => b.classList.toggle('active', b.dataset.preset === preset));
-            
+            const requestId = ++comparisonRequestId;
+            if (comparisonAbortController) {
+                comparisonAbortController.abort();
+            }
+            comparisonAbortController = new AbortController();
+            const { signal } = comparisonAbortController;
+
             try {
                 // Load summary and chart data in parallel
                 const [resp, chartResp] = await Promise.all([
-                    fetch(`/api/analytics/compare?preset=${preset}&restaurant_id=all`),
-                    fetch(`/api/analytics/daily-comparison?preset=${preset}&restaurant_id=all`)
+                    fetch(`/api/analytics/compare?preset=${preset}&restaurant_id=all`, { signal }),
+                    fetch(`/api/analytics/daily-comparison?preset=${preset}&restaurant_id=all`, { signal })
                 ]);
                 
+                if (requestId !== comparisonRequestId) return;
+
                 if (resp.ok) {
                     const data = await resp.json();
                     if (data.success && data.totals) {
@@ -1308,11 +1318,19 @@
                 if (chartResp.ok) {
                     const chartData = await chartResp.json();
                     if (chartData.success) {
-                        renderComparisonChart(chartData.period_a.daily, chartData.period_b.daily);
+                        const dailyA = Array.isArray(chartData?.period_a?.daily) ? chartData.period_a.daily : [];
+                        const dailyB = Array.isArray(chartData?.period_b?.daily) ? chartData.period_b.daily : [];
+                        renderComparisonChart(dailyA, dailyB);
                     }
                 }
             } catch (e) {
-                console.error('Comparison load error:', e);
+                if (e.name !== 'AbortError') {
+                    console.error('Comparison load error:', e);
+                }
+            } finally {
+                if (requestId === comparisonRequestId) {
+                    comparisonAbortController = null;
+                }
             }
         }
         
@@ -1328,9 +1346,11 @@
         function renderComparisonChart(dailyA, dailyB) {
             const ctx = document.getElementById('comparisonChart');
             if (!ctx) return;
+            const safeDailyA = Array.isArray(dailyA) ? dailyA : [];
+            const safeDailyB = Array.isArray(dailyB) ? dailyB : [];
             if (compChart) compChart.destroy();
             
-            const maxLen = Math.max(dailyA.length, dailyB.length);
+            const maxLen = Math.max(safeDailyA.length, safeDailyB.length);
             const labels = Array.from({length: maxLen}, (_, i) => `Dia ${i + 1}`);
             const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
             
@@ -1341,7 +1361,7 @@
                     datasets: [
                         {
                             label: 'Período anterior',
-                            data: dailyA.map(d => d.revenue),
+                            data: safeDailyA.map(d => d.revenue),
                             borderColor: isDark ? '#737373' : '#a3a3a3',
                             backgroundColor: 'transparent',
                             borderWidth: 2, borderDash: [6, 4], tension: 0.3, pointRadius: 3,
@@ -1349,7 +1369,7 @@
                         },
                         {
                             label: 'Período atual',
-                            data: dailyB.map(d => d.revenue),
+                            data: safeDailyB.map(d => d.revenue),
                             borderColor: '#f97015',
                             backgroundColor: 'rgba(249,112,21,0.08)',
                             borderWidth: 2.5, fill: true, tension: 0.3, pointRadius: 4,
@@ -1358,6 +1378,7 @@
                     ]
                 },
                 options: {
+                    animation: false,
                     responsive: true, maintainAspectRatio: false,
                     plugins: { legend: { display: false }, tooltip: {
                         backgroundColor: isDark ? '#262626' : '#fff', titleColor: isDark ? '#fff' : '#171717',
