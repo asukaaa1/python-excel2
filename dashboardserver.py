@@ -1318,14 +1318,52 @@ def api_org_ifood_config():
     if not org_id:
         return jsonify({'success': False, 'error': 'No organization'}), 403
     if request.method == 'GET':
-        config = db.get_org_ifood_config(org_id)
-        if not config:
-            return jsonify({'success': True, 'config': {'client_id': None, 'merchants': []}})
+        config = db.get_org_ifood_config(org_id) or {}
+        client_id = config.get('client_id')
+        client_secret = config.get('client_secret')
+        merchants = config.get('merchants', []) or []
+
+        org_has_credentials = bool(client_id)
+        org_mode = 'none'
+        if org_has_credentials:
+            org_mode = 'mock' if str(client_id).strip().upper() == 'MOCK_DATA_MODE' else 'live'
+
+        # Current org API instance (if initialized for this tenant)
+        org_api = None
+        if org_id in ORG_DATA:
+            org_api = ORG_DATA[org_id].get('api')
+        org_connected = bool(org_api)
+
+        # Legacy global fallback (single-tenant/mock mode)
+        legacy_client_id = (IFOOD_CONFIG or {}).get('client_id') if isinstance(IFOOD_CONFIG, dict) else None
+        legacy_mode = 'none'
+        if legacy_client_id:
+            legacy_mode = 'mock' if str(legacy_client_id).strip().upper() == 'MOCK_DATA_MODE' else 'live'
+        legacy_available = bool(IFOOD_API and legacy_client_id)
+
+        using_legacy_fallback = (not org_has_credentials) and legacy_available
+        connection_active = org_connected or using_legacy_fallback
+        effective_mode = org_mode if org_mode != 'none' else legacy_mode
+        source = 'org' if org_has_credentials else ('legacy' if using_legacy_fallback else 'none')
+
         masked = None
-        if config.get('client_secret'):
-            s = config['client_secret']
+        if client_secret:
+            s = client_secret
             masked = s[:4] + '****' + s[-4:] if len(s) > 8 else '****'
-        return jsonify({'success': True, 'config': {'client_id': config.get('client_id'), 'client_secret_masked': masked, 'merchants': config.get('merchants', []), 'has_credentials': bool(config.get('client_id'))}})
+        return jsonify({
+            'success': True,
+            'config': {
+                'client_id': client_id,
+                'client_secret_masked': masked,
+                'merchants': merchants,
+                'has_credentials': org_has_credentials,
+                'connection_active': bool(connection_active),
+                'mode': effective_mode,
+                'source': source,
+                'using_legacy_fallback': bool(using_legacy_fallback),
+                'use_mock_data': effective_mode == 'mock'
+            }
+        })
     # POST
     data = get_json_payload()
     if not data:

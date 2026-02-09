@@ -1022,14 +1022,25 @@
                 }
                 const cfg = data.config || {};
                 const configured = !!(cfg.has_credentials || cfg.client_id);
-                document.getElementById('clientId').textContent = configured ? 'Configurado' : 'Nao configurado';
+                const connected = !!(cfg.connection_active ?? configured);
+                const mode = String(cfg.mode || '').toLowerCase();
+                const usingLegacyFallback = !!cfg.using_legacy_fallback;
+                const isMock = mode === 'mock' || !!cfg.use_mock_data;
+
+                let clientLabel = 'Nao configurado';
+                if (configured) {
+                    clientLabel = isMock ? 'Mock' : 'Configurado';
+                } else if (usingLegacyFallback) {
+                    clientLabel = isMock ? 'Mock (global)' : 'Configurado (global)';
+                }
+                document.getElementById('clientId').textContent = clientLabel;
 
                 const statusBadge = document.getElementById('connectionStatus');
                 const apiStatus = document.getElementById('apiStatus');
-                if (configured) {
+                if (connected) {
                     statusBadge.className = 'badge badge-connected';
-                    statusBadge.textContent = 'Conectado';
-                    apiStatus.textContent = 'Ativo';
+                    statusBadge.textContent = isMock ? 'Conectado (Mock)' : 'Conectado';
+                    apiStatus.textContent = isMock ? 'Ativo (Mock)' : 'Ativo';
                 } else {
                     statusBadge.className = 'badge badge-disconnected';
                     statusBadge.textContent = 'Desconectado';
