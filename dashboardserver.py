@@ -1385,6 +1385,115 @@ def api_org_users():
     return jsonify({'success': True, 'users': users})
 
 
+@app.route('/api/org/users/candidates')
+@login_required
+@org_owner_required
+def api_org_user_candidates():
+    """List users that are not yet members of the current org."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+    users = db.list_users_not_in_org(org_id)
+    return jsonify({'success': True, 'users': users})
+
+
+@app.route('/api/org/users/assign', methods=['POST'])
+@login_required
+@org_owner_required
+def api_org_user_assign():
+    """Assign an existing user to the current organization."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    data = get_json_payload()
+    user_id = data.get('user_id')
+    if isinstance(user_id, str) and user_id.strip().isdigit():
+        user_id = int(user_id.strip())
+    org_role = (data.get('org_role') or 'viewer').strip().lower()
+
+    if not isinstance(user_id, int):
+        return jsonify({'success': False, 'error': 'user_id is required'}), 400
+
+    result = db.assign_user_to_org(org_id, user_id, org_role)
+    if not result.get('success'):
+        code = str(result.get('error') or '')
+        if code in ('user_not_found', 'org_not_found'):
+            status = 404
+        elif code in ('already_member', 'user_limit_exceeded'):
+            status = 409
+        else:
+            status = 400
+        return jsonify(result), status
+
+    db.log_action(
+        'org.member_assigned',
+        org_id=org_id,
+        user_id=session['user']['id'],
+        details={'assigned_user_id': user_id, 'org_role': result.get('org_role')},
+        ip_address=request.remote_addr
+    )
+    return jsonify({'success': True, 'user_id': user_id, 'org_role': result.get('org_role')})
+
+
+@app.route('/api/org/users/<int:user_id>/role', methods=['PATCH'])
+@login_required
+@org_owner_required
+def api_org_user_role_update(user_id):
+    """Update a member role inside current organization."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    data = get_json_payload()
+    org_role = (data.get('org_role') or '').strip().lower()
+    if not org_role:
+        return jsonify({'success': False, 'error': 'org_role is required'}), 400
+
+    result = db.update_org_member_role(org_id, user_id, org_role)
+    if not result.get('success'):
+        code = str(result.get('error') or '')
+        status = 404 if code == 'member_not_found' else 400
+        return jsonify(result), status
+
+    db.log_action(
+        'org.member_role_updated',
+        org_id=org_id,
+        user_id=session['user']['id'],
+        details={'target_user_id': user_id, 'org_role': result.get('org_role')},
+        ip_address=request.remote_addr
+    )
+    return jsonify({'success': True, 'user_id': user_id, 'org_role': result.get('org_role')})
+
+
+@app.route('/api/org/users/<int:user_id>', methods=['DELETE'])
+@login_required
+@org_owner_required
+def api_org_user_remove(user_id):
+    """Remove a user from current organization (keeps account intact)."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    if session.get('user', {}).get('id') == user_id:
+        return jsonify({'success': False, 'error': 'Cannot remove your own membership from active org'}), 400
+
+    result = db.remove_user_from_org(org_id, user_id)
+    if not result.get('success'):
+        code = str(result.get('error') or '')
+        status = 404 if code == 'member_not_found' else 400
+        return jsonify(result), status
+
+    db.log_action(
+        'org.member_removed',
+        org_id=org_id,
+        user_id=session['user']['id'],
+        details={'removed_user_id': user_id},
+        ip_address=request.remote_addr
+    )
+    return jsonify({'success': True, 'user_id': user_id})
+
+
 @app.route('/api/org/capabilities')
 @login_required
 def api_org_capabilities():
@@ -2881,7 +2990,7 @@ def api_users():
 @app.route('/api/users', methods=['POST'])
 @admin_required
 def api_create_user():
-    """Create new user (admin only)"""
+    """Create new user (admin only) and assign to active org when available."""
     try:
         data = get_json_payload()
         
@@ -2890,20 +2999,62 @@ def api_create_user():
         full_name = data.get('full_name')
         email = data.get('email')
         role = data.get('role', 'user')
+        org_role = (data.get('org_role') or ('admin' if role == 'admin' else 'viewer')).strip().lower()
+        org_id = get_current_org_id()
         
         if not all([username, password, full_name]):
             return jsonify({
                 'success': False,
                 'error': 'Username, password, and full name required'
             }), 400
+
+        if org_role not in ('owner', 'admin', 'viewer'):
+            return jsonify({'success': False, 'error': 'Invalid org role'}), 400
+
+        if org_id:
+            user_limit = db.check_user_limit(org_id)
+            if not user_limit.get('allowed'):
+                return jsonify({
+                    'success': False,
+                    'error': 'User limit reached for current organization',
+                    'code': 'user_limit_exceeded',
+                    'current_users': user_limit.get('current'),
+                    'max_users': user_limit.get('max')
+                }), 409
         
         user_id = db.create_user(username, password, full_name, email, role)
         
         if user_id:
+            assigned_to_org = False
+            assigned_role = None
+            if org_id:
+                assign_result = db.assign_user_to_org(org_id, user_id, org_role)
+                if not assign_result.get('success'):
+                    # Best-effort cleanup to avoid orphan account if org assignment fails.
+                    cleanup_conn = db.get_connection()
+                    if cleanup_conn:
+                        try:
+                            cleanup_cursor = cleanup_conn.cursor()
+                            cleanup_cursor.execute("DELETE FROM dashboard_users WHERE id=%s", (user_id,))
+                            cleanup_conn.commit()
+                            cleanup_cursor.close()
+                        except Exception:
+                            cleanup_conn.rollback()
+                        finally:
+                            cleanup_conn.close()
+                    return jsonify({
+                        'success': False,
+                        'error': assign_result.get('error', 'Failed to assign user to organization')
+                    }), 400
+                assigned_to_org = True
+                assigned_role = assign_result.get('org_role')
+
             return jsonify({
                 'success': True,
                 'message': 'User created successfully',
-                'user_id': user_id
+                'user_id': user_id,
+                'assigned_to_org': assigned_to_org,
+                'org_role': assigned_role
             })
         else:
             return jsonify({

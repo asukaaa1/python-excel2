@@ -1400,6 +1400,160 @@ class DashboardDatabase:
         finally:
             cursor.close(); conn.close()
 
+    def list_users_not_in_org(self, org_id):
+        conn = self.get_connection()
+        if not conn: return []
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT u.id, u.username, u.full_name, u.email, u.role
+                FROM dashboard_users u
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM org_members om
+                    WHERE om.org_id=%s AND om.user_id=u.id
+                )
+                ORDER BY u.full_name NULLS LAST, u.username
+            """, (org_id,))
+            return [{
+                'id': r[0],
+                'username': r[1],
+                'name': r[2],
+                'email': r[3],
+                'role': r[4]
+            } for r in cursor.fetchall()]
+        except Exception:
+            return []
+        finally:
+            cursor.close(); conn.close()
+
+    def assign_user_to_org(self, org_id, user_id, org_role='viewer'):
+        conn = self.get_connection()
+        if not conn:
+            return {'success': False, 'error': 'db_unavailable'}
+        cursor = conn.cursor()
+        try:
+            role = (org_role or 'viewer').strip().lower()
+            if role not in ('owner', 'admin', 'viewer'):
+                return {'success': False, 'error': 'invalid_org_role'}
+
+            cursor.execute("SELECT id FROM organizations WHERE id=%s AND is_active=true", (org_id,))
+            if not cursor.fetchone():
+                return {'success': False, 'error': 'org_not_found'}
+
+            cursor.execute("SELECT id, primary_org_id FROM dashboard_users WHERE id=%s", (user_id,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                return {'success': False, 'error': 'user_not_found'}
+
+            cursor.execute("SELECT 1 FROM org_members WHERE org_id=%s AND user_id=%s", (org_id, user_id))
+            if cursor.fetchone():
+                return {'success': False, 'error': 'already_member'}
+
+            cursor.execute("SELECT max_users FROM organizations WHERE id=%s", (org_id,))
+            max_users = int(cursor.fetchone()[0] or 0)
+            cursor.execute("SELECT COUNT(*) FROM org_members WHERE org_id=%s", (org_id,))
+            current_users = int(cursor.fetchone()[0] or 0)
+            if current_users >= max_users:
+                return {
+                    'success': False,
+                    'error': 'user_limit_exceeded',
+                    'current_users': current_users,
+                    'max_users': max_users
+                }
+
+            cursor.execute("""
+                INSERT INTO org_members (org_id, user_id, org_role)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (org_id, user_id) DO NOTHING
+            """, (org_id, user_id, role))
+
+            if user_row[1] is None:
+                cursor.execute("UPDATE dashboard_users SET primary_org_id=%s WHERE id=%s", (org_id, user_id))
+
+            conn.commit()
+            return {'success': True, 'org_role': role}
+        except Exception as e:
+            conn.rollback()
+            return {'success': False, 'error': str(e)}
+        finally:
+            cursor.close(); conn.close()
+
+    def update_org_member_role(self, org_id, user_id, org_role):
+        conn = self.get_connection()
+        if not conn:
+            return {'success': False, 'error': 'db_unavailable'}
+        cursor = conn.cursor()
+        try:
+            role = (org_role or '').strip().lower()
+            if role not in ('owner', 'admin', 'viewer'):
+                return {'success': False, 'error': 'invalid_org_role'}
+
+            cursor.execute("SELECT org_role FROM org_members WHERE org_id=%s AND user_id=%s", (org_id, user_id))
+            row = cursor.fetchone()
+            if not row:
+                return {'success': False, 'error': 'member_not_found'}
+
+            current_role = row[0]
+            if current_role == 'owner' and role != 'owner':
+                cursor.execute("SELECT COUNT(*) FROM org_members WHERE org_id=%s AND org_role='owner'", (org_id,))
+                owner_count = int(cursor.fetchone()[0] or 0)
+                if owner_count <= 1:
+                    return {'success': False, 'error': 'cannot_demote_last_owner'}
+
+            cursor.execute("""
+                UPDATE org_members
+                SET org_role=%s
+                WHERE org_id=%s AND user_id=%s
+            """, (role, org_id, user_id))
+            conn.commit()
+            return {'success': True, 'org_role': role}
+        except Exception as e:
+            conn.rollback()
+            return {'success': False, 'error': str(e)}
+        finally:
+            cursor.close(); conn.close()
+
+    def remove_user_from_org(self, org_id, user_id):
+        conn = self.get_connection()
+        if not conn:
+            return {'success': False, 'error': 'db_unavailable'}
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT org_role FROM org_members WHERE org_id=%s AND user_id=%s", (org_id, user_id))
+            row = cursor.fetchone()
+            if not row:
+                return {'success': False, 'error': 'member_not_found'}
+
+            current_role = row[0]
+            if current_role == 'owner':
+                cursor.execute("SELECT COUNT(*) FROM org_members WHERE org_id=%s AND org_role='owner'", (org_id,))
+                owner_count = int(cursor.fetchone()[0] or 0)
+                if owner_count <= 1:
+                    return {'success': False, 'error': 'cannot_remove_last_owner'}
+
+            cursor.execute("DELETE FROM org_members WHERE org_id=%s AND user_id=%s", (org_id, user_id))
+
+            cursor.execute("SELECT primary_org_id FROM dashboard_users WHERE id=%s", (user_id,))
+            user_row = cursor.fetchone()
+            if user_row and user_row[0] == org_id:
+                cursor.execute("""
+                    SELECT org_id FROM org_members
+                    WHERE user_id=%s
+                    ORDER BY joined_at ASC
+                    LIMIT 1
+                """, (user_id,))
+                next_org = cursor.fetchone()
+                next_org_id = next_org[0] if next_org else None
+                cursor.execute("UPDATE dashboard_users SET primary_org_id=%s WHERE id=%s", (next_org_id, user_id))
+
+            conn.commit()
+            return {'success': True}
+        except Exception as e:
+            conn.rollback()
+            return {'success': False, 'error': str(e)}
+        finally:
+            cursor.close(); conn.close()
+
 
 def setup_database():
     """Quick setup function"""

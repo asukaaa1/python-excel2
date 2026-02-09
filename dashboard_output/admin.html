@@ -339,15 +339,21 @@
 
         <div class="section animate-in">
             <div class="section-header">
-                <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>Usuários</h2>
-                <button class="btn btn-primary" onclick="openModal('addUserModal')">
-                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
-                    Adicionar Usuário
-                </button>
+                <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>Membros da Organização</h2>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="btn btn-secondary" onclick="openAssignUserModal()">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8M8 12h5m-5 5h8M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
+                        Vincular Existente
+                    </button>
+                    <button class="btn btn-primary" onclick="openModal('addUserModal')">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                        Criar e Vincular
+                    </button>
+                </div>
             </div>
             <div class="section-body">
                 <table class="table">
-                    <thead><tr><th>Nome</th><th>Email</th><th>Função</th><th>Último Login</th><th>Ações</th></tr></thead>
+                    <thead><tr><th>Nome</th><th>Email</th><th>Papel na Org</th><th>Último Login</th><th>Ações</th></tr></thead>
                     <tbody id="usersTable"><tr><td colspan="5" class="empty-state">Carregando...</td></tr></tbody>
                 </table>
             </div>
@@ -419,10 +425,48 @@
                         <option value="admin">Administrador</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label class="form-label">Papel na Organização</label>
+                    <select class="form-select" id="userOrgRole">
+                        <option value="viewer">Viewer</option>
+                        <option value="admin">Admin</option>
+                        <option value="owner">Owner</option>
+                    </select>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('addUserModal')">Cancelar</button>
                 <button class="btn btn-primary" onclick="addUser()">Adicionar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assign Existing User Modal -->
+    <div class="modal-overlay" id="assignUserModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Vincular Usuário Existente</h3>
+                <button class="modal-close" onclick="closeModal('assignUserModal')"><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Usuário *</label>
+                    <select class="form-select" id="assignUserId">
+                        <option value="">Selecione um usuário</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Papel na Organização</label>
+                    <select class="form-select" id="assignUserRole">
+                        <option value="viewer">Viewer</option>
+                        <option value="admin">Admin</option>
+                        <option value="owner">Owner</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('assignUserModal')">Cancelar</button>
+                <button class="btn btn-primary" onclick="assignExistingUser()">Vincular</button>
             </div>
         </div>
     </div>
@@ -469,23 +513,37 @@
 
         async function loadUsers() {
             try {
-                const response = await fetch('/api/users');
+                const response = await fetch('/api/org/users');
                 const data = await response.json();
                 if (data.success) {
                     document.getElementById('userCount').textContent = data.users.length;
                     const tbody = document.getElementById('usersTable');
-                    if (data.users.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum usuário encontrado</td></tr>'; return; }
+                    if (data.users.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum usuário vinculado</td></tr>'; return; }
                     tbody.innerHTML = data.users.map(user => `
                         <tr>
-                            <td>${user.name}</td>
+                            <td>${escapeHtml(user.name || user.username || 'Usuário')}</td>
                             <td>${user.email || '-'}</td>
-                            <td><span class="badge badge-${user.role === 'admin' ? 'admin' : 'user'}">${user.role === 'admin' ? 'Admin' : 'Usuário'}</span></td>
+                            <td>${renderOrgRoleBadge(user.org_role)}</td>
                             <td>${user.last_login ? new Date(user.last_login).toLocaleDateString('pt-BR') : 'Nunca'}</td>
-                            <td><button class="btn btn-secondary btn-danger" onclick="deleteUser(${user.id}, '${user.name}')">Excluir</button></td>
+                            <td style="display:flex;gap:8px;flex-wrap:wrap">
+                                <select class="form-select" style="max-width:120px;padding:6px 8px" onchange="updateOrgUserRole(${user.id}, this.value)" ${String(user.org_role || '').toLowerCase() === 'owner' ? 'disabled' : ''}>
+                                    <option value="viewer" ${String(user.org_role || '').toLowerCase() === 'viewer' ? 'selected' : ''}>Viewer</option>
+                                    <option value="admin" ${String(user.org_role || '').toLowerCase() === 'admin' ? 'selected' : ''}>Admin</option>
+                                    <option value="owner" ${String(user.org_role || '').toLowerCase() === 'owner' ? 'selected' : ''}>Owner</option>
+                                </select>
+                                <button class="btn btn-secondary btn-danger" onclick="removeOrgUser(${user.id}, '${escapeJs(user.name || user.username || 'Usuário')}')">Desvincular</button>
+                            </td>
                         </tr>
                     `).join('');
                 }
             } catch (error) { console.error('Error loading users:', error); document.getElementById('usersTable').innerHTML = '<tr><td colspan="5" class="empty-state">Erro ao carregar usuários</td></tr>'; }
+        }
+
+        function renderOrgRoleBadge(orgRole) {
+            const role = String(orgRole || 'viewer').toLowerCase();
+            if (role === 'owner') return '<span class="badge badge-admin">Owner</span>';
+            if (role === 'admin') return '<span class="badge badge-admin">Admin</span>';
+            return '<span class="badge badge-user">Viewer</span>';
         }
 
         async function loadIfoodConfig() {
@@ -649,6 +707,56 @@
         function openModal(id) { document.getElementById(id).classList.add('show'); }
         function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 
+        async function openAssignUserModal() {
+            try {
+                const response = await fetch('/api/org/users/candidates');
+                const data = await response.json();
+                if (!data.success) {
+                    showToast(data.error || 'Falha ao carregar usuários disponíveis', 'error');
+                    return;
+                }
+                const select = document.getElementById('assignUserId');
+                if (!select) return;
+                if (!data.users || data.users.length === 0) {
+                    select.innerHTML = '<option value="">Todos os usuários já estão vinculados</option>';
+                } else {
+                    select.innerHTML = '<option value="">Selecione um usuário</option>' + data.users.map(u => {
+                        const label = `${u.name || u.username} (${u.email || u.username})`;
+                        return `<option value="${u.id}">${escapeHtml(label)}</option>`;
+                    }).join('');
+                }
+                openModal('assignUserModal');
+            } catch (error) {
+                showToast('Erro ao carregar usuários disponíveis', 'error');
+            }
+        }
+
+        async function assignExistingUser() {
+            const userId = parseInt(document.getElementById('assignUserId').value, 10);
+            const orgRole = document.getElementById('assignUserRole').value;
+            if (!userId) {
+                showToast('Selecione um usuário', 'error');
+                return;
+            }
+            try {
+                const response = await fetch('/api/org/users/assign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, org_role: orgRole })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    showToast(data.error || 'Falha ao vincular usuário', 'error');
+                    return;
+                }
+                showToast('Usuário vinculado à organização', 'success');
+                closeModal('assignUserModal');
+                await loadUsers();
+            } catch (error) {
+                showToast('Erro de conexão ao vincular usuário', 'error');
+            }
+        }
+
         async function addMerchant() {
             const merchantId = document.getElementById('merchantId').value.trim();
             const name = document.getElementById('merchantName').value.trim();
@@ -678,23 +786,51 @@
             const email = document.getElementById('userEmail').value.trim();
             const password = document.getElementById('userPassword').value;
             const role = document.getElementById('userRole').value;
+            const orgRole = document.getElementById('userOrgRole').value;
             if (!fullName || !username || !email || !password) { showToast('Preencha todos os campos obrigatórios', 'error'); return; }
             try {
-                const response = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ full_name: fullName, username, email, password, role }) });
+                const response = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ full_name: fullName, username, email, password, role, org_role: orgRole }) });
                 const data = await response.json();
-                if (data.success) { showToast('Usuário criado!', 'success'); closeModal('addUserModal'); await loadUsers(); }
+                if (data.success) { showToast('Usuário criado e vinculado!', 'success'); closeModal('addUserModal'); await loadUsers(); }
                 else { showToast(data.error || 'Erro ao criar usuário', 'error'); }
             } catch (error) { showToast('Erro de conexão', 'error'); }
         }
 
-        async function deleteUser(userId, name) {
-            if (!confirm(`Excluir usuário "${name}"?`)) return;
+        async function updateOrgUserRole(userId, orgRole) {
             try {
-                const response = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
+                const response = await fetch(`/api/org/users/${userId}/role`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ org_role: orgRole })
+                });
                 const data = await response.json();
-                if (data.success) { showToast('Usuário excluído', 'success'); await loadUsers(); }
-                else { showToast(data.error || 'Erro ao excluir', 'error'); }
-            } catch (error) { showToast('Erro de conexão', 'error'); }
+                if (!response.ok || !data.success) {
+                    showToast(data.error || 'Falha ao atualizar papel', 'error');
+                    await loadUsers();
+                    return;
+                }
+                showToast('Papel atualizado', 'success');
+                await loadUsers();
+            } catch (error) {
+                showToast('Erro ao atualizar papel', 'error');
+                await loadUsers();
+            }
+        }
+
+        async function removeOrgUser(userId, name) {
+            if (!confirm(`Desvincular usuário "${name}" desta organização?`)) return;
+            try {
+                const response = await fetch(`/api/org/users/${userId}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    showToast(data.error || 'Erro ao desvincular usuário', 'error');
+                    return;
+                }
+                showToast('Usuário desvinculado da organização', 'success');
+                await loadUsers();
+            } catch (error) {
+                showToast('Erro de conexão', 'error');
+            }
         }
 
         function showToast(message, type = 'success') {
@@ -760,7 +896,7 @@
             loadData();
         })();
 
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal('addMerchantModal'); closeModal('addUserModal'); closeSidebar(); } });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal('addMerchantModal'); closeModal('addUserModal'); closeModal('assignUserModal'); closeSidebar(); } });
         document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(e.target.id); }));
     </script>
 </body>
