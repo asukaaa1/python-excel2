@@ -734,6 +734,41 @@ def admin_required(f):
     return decorated_function
 
 
+def require_feature(feature_name):
+    """Decorator to enforce plan-based feature access in SaaS mode."""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            org_id = get_current_org_id()
+            if not org_id:
+                return jsonify({'success': False, 'error': 'Organization context required'}), 403
+
+            if db.check_feature(org_id, feature_name):
+                return f(*args, **kwargs)
+
+            details = db.get_org_details(org_id) or {}
+            payload = {
+                'success': False,
+                'error': 'Feature not available in current plan',
+                'code': 'feature_not_enabled',
+                'required_feature': feature_name,
+                'plan': details.get('plan', 'free'),
+                'plan_display': details.get('plan_display', 'Gratuito'),
+                'upgrade_required': True
+            }
+            is_api = (
+                request.is_json or
+                request.path.startswith('/api/') or
+                request.headers.get('X-Requested-With') == 'XMLHttpRequest' or
+                'application/json' in (request.headers.get('Accept', ''))
+            )
+            if is_api:
+                return jsonify(payload), 403
+            return redirect('/dashboard')
+        return decorated_function
+    return decorator
+
+
 # ============================================================================
 # STATIC FILE ROUTES
 # ============================================================================
@@ -780,6 +815,7 @@ def admin_page():
 
 @app.route('/comparativo')
 @admin_required
+@require_feature('comparativo')
 def comparativo_page():
     """Serve comparativo por gestor page"""
     comparativo_file = DASHBOARD_OUTPUT / 'comparativo.html'
@@ -1073,6 +1109,58 @@ def api_org_users():
     if not org_id: return jsonify({'success': False}), 403
     users = db.get_org_users(org_id)
     return jsonify({'success': True, 'users': users})
+
+
+@app.route('/api/org/capabilities')
+@login_required
+def api_org_capabilities():
+    """Get tenant plan, enabled features and usage health."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False}), 403
+
+    details = db.get_org_details(org_id) or {}
+    features = details.get('features') or []
+    if isinstance(features, str):
+        try:
+            features = json.loads(features)
+        except Exception:
+            features = []
+
+    restaurant_limit = db.check_restaurant_limit(org_id)
+    users = db.get_org_users(org_id)
+    user_count = len(users)
+    max_users = int(details.get('max_users') or 0)
+    restaurant_current = int(restaurant_limit.get('current') or 0)
+    restaurant_max = int(restaurant_limit.get('max') or 0)
+
+    users_pct = (user_count / max_users * 100) if max_users > 0 else 0
+    restaurants_pct = (restaurant_current / restaurant_max * 100) if restaurant_max > 0 else 0
+    near_limit = users_pct >= 80 or restaurants_pct >= 80
+
+    return jsonify({
+        'success': True,
+        'plan': details.get('plan', 'free'),
+        'plan_display': details.get('plan_display', 'Gratuito'),
+        'features': features,
+        'limits': {
+            'users': {
+                'current': user_count,
+                'max': max_users,
+                'usage_pct': round(users_pct, 1)
+            },
+            'restaurants': {
+                'current': restaurant_current,
+                'max': restaurant_max,
+                'usage_pct': round(restaurants_pct, 1)
+            }
+        },
+        'health': {
+            'near_limit': near_limit,
+            'users_near_limit': users_pct >= 80,
+            'restaurants_near_limit': restaurants_pct >= 80
+        }
+    })
 
 
 # ============================================================================
@@ -1702,6 +1790,7 @@ def api_refresh_status():
 
 @app.route('/api/analytics/compare')
 @login_required
+@require_feature('analytics')
 def api_compare_periods():
     """Compare restaurant metrics between two time periods.
     
@@ -1830,6 +1919,7 @@ def api_compare_periods():
 
 @app.route('/api/analytics/daily-comparison')
 @login_required
+@require_feature('analytics')
 def api_daily_comparison():
     """Get day-by-day data for two periods for chart overlay.
     Returns arrays aligned by day offset for easy chart rendering."""
@@ -2125,6 +2215,7 @@ CANCELLED_RESTAURANTS = []
 
 @app.route('/api/comparativo/stats')
 @admin_required
+@require_feature('comparativo')
 def api_comparativo_stats():
     """Get consolidated stats for comparativo page"""
     try:
@@ -2175,6 +2266,7 @@ def api_comparativo_stats():
 
 @app.route('/api/comparativo/managers')
 @admin_required
+@require_feature('comparativo')
 def api_comparativo_managers():
     """Get data grouped by manager"""
     try:
@@ -2244,6 +2336,7 @@ def api_comparativo_managers():
 
 @app.route('/api/comparativo/cancelled')
 @admin_required
+@require_feature('comparativo')
 def api_comparativo_cancelled():
     """Get cancelled restaurants"""
     return jsonify({
@@ -2254,6 +2347,7 @@ def api_comparativo_cancelled():
 
 @app.route('/api/comparativo/cancelled', methods=['POST'])
 @admin_required
+@require_feature('comparativo')
 def api_cancel_restaurant():
     """Mark a restaurant as cancelled"""
     global RESTAURANTS_DATA
@@ -2307,6 +2401,7 @@ def api_cancel_restaurant():
 
 @app.route('/api/comparativo/cancelled/<restaurant_id>', methods=['DELETE'])
 @admin_required
+@require_feature('comparativo')
 def api_restore_restaurant(restaurant_id):
     """Restore a cancelled restaurant"""
     try:

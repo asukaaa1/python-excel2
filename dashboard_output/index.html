@@ -1312,7 +1312,7 @@
             
             <div class="sidebar-section" id="adminSection" style="display: none;">
                 <div class="sidebar-section-title">Admin</div>
-                <a href="/comparativo" class="sidebar-link">
+                <a href="/comparativo" class="sidebar-link" id="comparativoNavLink">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
                     Comparativo
                 </a>
@@ -1380,7 +1380,7 @@
         </header>
 
         <!-- KPI Overview Strip -->
-        <div class="kpi-strip" id="kpiStrip" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
+        <div class="kpi-strip" id="kpiStrip" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
             <div class="kpi-overview-card" style="background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:var(--radius-xl);padding:20px;position:relative;overflow:hidden;box-shadow:var(--shadow-xs)">
                 <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:rgba(249,112,21,.04)"></div>
                 <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Faturamento Total</div>
@@ -1398,6 +1398,14 @@
                 <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Lojas Ativas</div>
                 <div style="font-family:var(--font-mono);font-size:24px;font-weight:500;color:var(--text-primary)" id="overviewStores">0</div>
                 <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px" id="overviewLastRefresh">Última atualização: --</div>
+            </div>
+            <div class="kpi-overview-card" style="background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:var(--radius-xl);padding:20px;position:relative;overflow:hidden;box-shadow:var(--shadow-xs)">
+                <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:rgba(16,185,129,.05)"></div>
+                <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Plano e Limites</div>
+                <div style="font-family:var(--font-mono);font-size:20px;font-weight:600;color:var(--text-primary)" id="overviewPlan">--</div>
+                <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px" id="usageRestaurants">Lojas: --/--</div>
+                <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px" id="usageUsers">Usuarios: --/--</div>
+                <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px" id="usageHint">Dentro da capacidade</div>
             </div>
         </div>
 
@@ -1530,6 +1538,7 @@ let currentMonthFilter = 'all';
 let searchQuery = '';
 let isAdmin = false;
 let lastRefreshAt = null;
+let orgCapabilities = null;
 
         // Initialize current month filter
         (function initMonth() {
@@ -1552,9 +1561,10 @@ let lastRefreshAt = null;
                 }
 
                 // Fetch restaurants and hidden stores in parallel
-                const [response, hiddenResponse] = await Promise.all([
+                const [response, hiddenResponse, capResponse] = await Promise.all([
                     fetch(url),
-                    fetch('/api/hidden-stores').catch(() => null)
+                    fetch('/api/hidden-stores').catch(() => null),
+                    fetch('/api/org/capabilities').catch(() => null)
                 ]);
                 if (response.status === 401) { window.location.href = '/login'; return; }
                 const data = await response.json();
@@ -1567,6 +1577,16 @@ let lastRefreshAt = null;
                             hiddenStores = hiddenData.hidden_stores.map(h => h.id);
                         }
                     } catch(e) {}
+                }
+
+                if (capResponse && capResponse.ok) {
+                    try {
+                        const capData = await capResponse.json();
+                        if (capData.success) {
+                            orgCapabilities = capData;
+                            updateSaaSUsageCard();
+                        }
+                    } catch (e) {}
                 }
                 
                 if (data.success) {
@@ -1631,6 +1651,34 @@ let lastRefreshAt = null;
             const diffH = Math.floor(diffMin / 60);
             if (diffH < 24) return `${diffH} h atrás`;
             return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+        }
+
+        function updateSaaSUsageCard() {
+            if (!orgCapabilities) return;
+            const planEl = document.getElementById('overviewPlan');
+            const restEl = document.getElementById('usageRestaurants');
+            const userEl = document.getElementById('usageUsers');
+            const hintEl = document.getElementById('usageHint');
+            const badgeEl = document.getElementById('planBadge');
+            const storeCountEl = document.getElementById('orgStoreCount');
+            const comparativoLink = document.getElementById('comparativoNavLink');
+
+            const plan = orgCapabilities.plan_display || orgCapabilities.plan || 'Free';
+            const r = orgCapabilities.limits?.restaurants || {};
+            const u = orgCapabilities.limits?.users || {};
+            const near = !!orgCapabilities.health?.near_limit;
+            const canComparativo = (orgCapabilities.features || []).includes('comparativo');
+
+            if (planEl) planEl.textContent = plan;
+            if (restEl) restEl.textContent = `Lojas: ${r.current ?? 0}/${r.max ?? 0}`;
+            if (userEl) userEl.textContent = `Usuarios: ${u.current ?? 0}/${u.max ?? 0}`;
+            if (hintEl) {
+                hintEl.textContent = near ? 'Limite proximo. Considere upgrade.' : 'Dentro da capacidade';
+                hintEl.style.color = near ? 'var(--warning-500)' : 'var(--text-tertiary)';
+            }
+            if (badgeEl) badgeEl.textContent = String(plan).toUpperCase();
+            if (storeCountEl) storeCountEl.textContent = `${r.current ?? 0} lojas`;
+            if (comparativoLink) comparativoLink.style.display = canComparativo ? '' : 'none';
         }
 
         function updateOverviewKPIs() {
