@@ -69,7 +69,7 @@ if IS_BEHIND_PROXY:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
     print("ProxyFix enabled (detected reverse proxy)")
 
-secret_key = os.environ.get('SECRET_KEY')
+secret_key = os.environ.get('FLASK_SECRET_KEY')
 if secret_key:
     app.secret_key = secret_key
 else:
