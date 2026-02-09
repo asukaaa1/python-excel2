@@ -1619,9 +1619,9 @@ let orgCapabilities = null;
         // API Functions - Matching index.html exactly
         async function loadRestaurants(month = 'all') {
             try {
-                let url = '/api/restaurants';
+                let url = '/api/restaurants?all_orgs=true';
                 if (month !== 'all') {
-                    url += `?month=${month}`;
+                    url += `&month=${month}`;
                 }
 
                 // Fetch restaurants and hidden stores in parallel
@@ -1969,7 +1969,7 @@ let orgCapabilities = null;
             }
             if (btn) btn.disabled = true;
             const monthParam = encodeURIComponent(currentMonthFilter || 'all');
-            window.location.href = `/api/restaurants/export.csv?month=${monthParam}`;
+            window.location.href = `/api/restaurants/export.csv?month=${monthParam}&all_orgs=true`;
             setTimeout(() => { if (btn) btn.disabled = false; }, 1500);
         }
 

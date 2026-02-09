@@ -173,6 +173,15 @@
         <div class="sidebar-header">
             <div class="sidebar-brand"><div class="sidebar-logo">T</div><span class="sidebar-brand-text">TIMO</span></div>
             <div class="sidebar-user"><div class="sidebar-avatar" id="userAvatar">A</div><div class="sidebar-user-info"><h3 id="userName">Admin</h3><p><span class="role-dot"></span><span id="userRoleText">Administrador</span></p></div></div>
+            <div class="org-switcher" id="orgSwitcher" style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:var(--radius-lg);cursor:pointer">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <div style="width:32px;height:32px;border-radius:8px;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px" id="orgAvatar">ORG</div>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:13px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="orgName">Minha Empresa</div>
+                        <div style="font-size:10px;color:var(--text-tertiary);display:flex;align-items:center;gap:4px"><span style="padding:1px 6px;background:rgba(249,112,21,.1);color:#f97015;border-radius:4px;font-weight:700;font-size:9px" id="planBadge">PRO</span><span id="orgStoreCount">0 lojas</span></div>
+                    </div>
+                </div>
+            </div>
         </div>
         <nav class="sidebar-nav">
             <div class="sidebar-section">
@@ -274,7 +283,7 @@
         function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('sidebarOverlay').classList.toggle('show');}
         function closeSidebar(){document.getElementById('sidebar').classList.remove('open');document.getElementById('sidebarOverlay').classList.remove('show');}
         function logout(){if(confirm('Deseja sair?')){fetch('/api/logout',{method:'POST'}).then(()=>{localStorage.removeItem('currentUser');window.location.href='/login';}).catch(()=>{window.location.href='/login';});}}
-        function loadUserInfo(){fetch('/api/me').then(r=>r.json()).then(d=>{if(d.success&&d.user){const u=d.user;document.getElementById('userName').textContent=u.name||u.username||'Usuário';document.getElementById('userAvatar').textContent=(u.name||u.username||'U').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase();document.getElementById('userRoleText').textContent=u.role==='admin'?'Administrador':'Usuário';if(u.role!=='admin')window.location.href='/dashboard';}else{window.location.href='/login';}}).catch(()=>{window.location.href='/login';});}
+        function loadUserInfo(){fetch('/api/me').then(r=>r.json()).then(d=>{if(d.success&&d.user){const u=d.user;document.getElementById('userName').textContent=u.name||u.username||'Usuário';document.getElementById('userAvatar').textContent=(u.name||u.username||'U').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase();document.getElementById('userRoleText').textContent=u.role==='admin'?'Administrador':'Usuário';if(u.role!=='admin')window.location.href='/dashboard';const org=d.org||{};if(org.name){const on=document.getElementById('orgName');if(on)on.textContent=org.name;const oa=document.getElementById('orgAvatar');if(oa)oa.textContent=String(org.name).split(' ').map(v=>v[0]).join('').slice(0,3).toUpperCase()||'ORG';}if(org.plan_display||org.plan){const pb=document.getElementById('planBadge');if(pb)pb.textContent=String(org.plan_display||org.plan).toUpperCase();}}else{window.location.href='/login';}}).catch(()=>{window.location.href='/login';});}
         (function(){const t=localStorage.getItem('theme')||'dark';document.documentElement.setAttribute('data-theme',t);document.getElementById('sunIcon').style.display=t==='dark'?'block':'none';document.getElementById('moonIcon').style.display=t==='dark'?'none':'block';loadUserInfo();loadData();})();
         document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal('createSquadModal');closeModal('editSquadModal');closeModal('addMembersModal');closeModal('addRestaurantsModal');closeSidebar();}});
         document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal(e.target.id);}));
