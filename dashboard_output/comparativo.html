@@ -613,6 +613,14 @@
         .comp-delta.positive{color:#10b981}
         .comp-delta.negative{color:#f43f5e}
         .comp-delta svg{width:14px;height:14px}
+        .comparison-chart-card{background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:16px;padding:20px;position:relative}
+        .comparison-chart-legend{display:flex;align-items:center;gap:16px;margin-bottom:12px;font-size:12px;color:var(--text-muted)}
+        .comparison-chart-wrap{position:relative;height:260px;min-height:260px;max-height:260px;overflow:hidden}
+        #comparisonChart{display:block;width:100% !important;height:260px !important;max-height:260px}
+        @media (max-width: 768px) {
+            .comparison-chart-wrap{height:220px;min-height:220px;max-height:220px}
+            #comparisonChart{height:220px !important;max-height:220px}
+        }
     </style>
 </head>
 <body>
@@ -726,12 +734,14 @@
                 <div class="stat-card"><div class="stat-label">Ticket Médio</div><div class="stat-value" id="compTicket">--</div><div class="comp-delta" id="compTicketDelta"></div></div>
                 <div class="stat-card"><div class="stat-label">Cancelamentos</div><div class="stat-value" id="compCancelled">--</div><div class="comp-delta" id="compCancelledDelta"></div></div>
             </div>
-            <div style="background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:16px;padding:20px;position:relative;min-height:260px">
-                <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+            <div class="comparison-chart-card">
+                <div class="comparison-chart-legend">
                     <span id="compPeriodALabel" style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:3px;background:var(--text-muted);border-radius:2px;display:inline-block"></span>Período anterior</span>
                     <span id="compPeriodBLabel" style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:3px;background:#f97015;border-radius:2px;display:inline-block"></span>Período atual</span>
                 </div>
-                <canvas id="comparisonChart" height="220"></canvas>
+                <div class="comparison-chart-wrap">
+                    <canvas id="comparisonChart" width="1200" height="260"></canvas>
+                </div>
             </div>
         </div>
         
@@ -1611,6 +1621,17 @@
             if (signature === lastComparisonSignature) return;
             lastComparisonSignature = signature;
             lastComparisonTheme = theme;
+            const targetHeight = window.matchMedia('(max-width: 768px)').matches ? 220 : 260;
+            const chartWrap = ctx.parentElement;
+            if (chartWrap) {
+                chartWrap.style.height = `${targetHeight}px`;
+                chartWrap.style.minHeight = `${targetHeight}px`;
+                chartWrap.style.maxHeight = `${targetHeight}px`;
+            }
+            ctx.style.width = '100%';
+            ctx.style.height = `${targetHeight}px`;
+            ctx.width = Math.max(chartWrap?.clientWidth || ctx.clientWidth || 1200, 320);
+            ctx.height = targetHeight;
             if (compChart) compChart.destroy();
             
             compChart = new Chart(ctx.getContext('2d'), {
