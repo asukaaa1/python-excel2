@@ -231,6 +231,7 @@
             width: auto;
             display: block;
             object-fit: contain;
+            margin-top: 2px;
         }
 
         .sidebar-brand-text {
@@ -405,7 +406,7 @@
 
         .header-left {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: var(--space-4);
         }
 
@@ -437,7 +438,9 @@
         .page-title {
             display: flex;
             flex-direction: column;
-            gap: var(--space-1);
+            align-items: flex-start;
+            gap: 4px;
+            line-height: 1;
         }
 
         .page-title h1 {
@@ -931,15 +934,17 @@
         }
 
         .restaurant-stats {
-            display: flex;
-            gap: var(--space-6);
+            display: grid;
+            grid-template-columns: repeat(4, minmax(120px, 1fr));
+            gap: var(--space-4);
+            align-items: start;
         }
 
         .stat-item {
             display: flex;
             flex-direction: column;
             gap: 2px;
-            min-width: 100px;
+            min-width: 0;
         }
 
         .stat-label {
