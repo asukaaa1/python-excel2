@@ -2026,6 +2026,44 @@ def api_health():
     }), (200 if ok else 503)
 
 
+@app.route('/api/debug/session')
+def api_debug_session():
+    """Debug route for session cookie visibility and server cookie flags."""
+    if not os.environ.get('ENABLE_SESSION_DEBUG'):
+        return jsonify({'success': False, 'error': 'disabled'}), 404
+
+    cookie_name = app.config.get('SESSION_COOKIE_NAME', 'session')
+    cookie_value = request.cookies.get(cookie_name)
+    return jsonify({
+        'success': True,
+        'has_session_cookie': cookie_value is not None,
+        'session_cookie_name': cookie_name,
+        'session_cookie_length': len(cookie_value) if cookie_value else 0,
+        'cookie_flags': {
+            'secure': app.config.get('SESSION_COOKIE_SECURE'),
+            'httponly': app.config.get('SESSION_COOKIE_HTTPONLY'),
+            'samesite': app.config.get('SESSION_COOKIE_SAMESITE'),
+            'domain': app.config.get('SESSION_COOKIE_DOMAIN'),
+            'path': app.config.get('SESSION_COOKIE_PATH'),
+        },
+        'session': {
+            'keys': list(session.keys()),
+            'permanent': session.permanent,
+            'modified': session.modified,
+            'new': session.new,
+        },
+        'request': {
+            'is_secure': request.is_secure,
+            'scheme': request.scheme,
+            'host': request.host,
+            'remote_addr': request.remote_addr,
+            'forwarded_proto': request.headers.get('X-Forwarded-Proto'),
+            'forwarded_host': request.headers.get('X-Forwarded-Host'),
+            'forwarded_for': request.headers.get('X-Forwarded-For'),
+        }
+    })
+
+
 # ============================================================================
 # COMPARATIVE ANALYTICS API
 # ============================================================================
