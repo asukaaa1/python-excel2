@@ -3216,18 +3216,46 @@ def api_delete_user(user_id):
 # HIDDEN STORES API ENDPOINTS
 # ============================================================================
 
+def _table_has_column(cursor, table_name, column_name):
+    """Return True when a table has the requested column."""
+    cursor.execute("""
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = %s AND column_name = %s
+        LIMIT 1
+    """, (table_name, column_name))
+    return cursor.fetchone() is not None
+
+
+def _table_has_org_id(cursor, table_name):
+    return _table_has_column(cursor, table_name, 'org_id')
+
+
 @app.route('/api/hidden-stores', methods=['GET'])
 @login_required
 def get_hidden_stores():
     """Get list of all hidden stores"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         conn = db.get_connection()
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT store_id, store_name, hidden_at, hidden_by 
-            FROM hidden_stores 
-            ORDER BY hidden_at DESC
-        """)
+
+        if _table_has_org_id(cursor, 'hidden_stores'):
+            cursor.execute("""
+                SELECT store_id, store_name, hidden_at, hidden_by
+                FROM hidden_stores
+                WHERE org_id = %s
+                ORDER BY hidden_at DESC
+            """, (org_id,))
+        else:
+            cursor.execute("""
+                SELECT store_id, store_name, hidden_at, hidden_by
+                FROM hidden_stores
+                ORDER BY hidden_at DESC
+            """)
         hidden = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -3253,6 +3281,10 @@ def get_hidden_stores():
 def hide_store(store_id):
     """Hide a store from the main dashboard"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         data = get_json_payload() or {}
         store_name = data.get('name', 'Unknown Store')
         hidden_by = session.get('user', {}).get('username', 'Unknown')
@@ -3260,18 +3292,32 @@ def hide_store(store_id):
         conn = db.get_connection()
         cursor = conn.cursor()
         
+        has_org_id = _table_has_org_id(cursor, 'hidden_stores')
+
         # Check if already hidden
-        cursor.execute("SELECT store_id FROM hidden_stores WHERE store_id = %s", (store_id,))
+        if has_org_id:
+            cursor.execute(
+                "SELECT store_id FROM hidden_stores WHERE store_id = %s AND org_id = %s",
+                (store_id, org_id)
+            )
+        else:
+            cursor.execute("SELECT store_id FROM hidden_stores WHERE store_id = %s", (store_id,))
         if cursor.fetchone():
             cursor.close()
             conn.close()
             return jsonify({'success': False, 'error': 'Store already hidden'}), 400
         
         # Insert into hidden stores
-        cursor.execute("""
-            INSERT INTO hidden_stores (store_id, store_name, hidden_by) 
-            VALUES (%s, %s, %s)
-        """, (store_id, store_name, hidden_by))
+        if has_org_id:
+            cursor.execute("""
+                INSERT INTO hidden_stores (store_id, store_name, hidden_by, org_id)
+                VALUES (%s, %s, %s, %s)
+            """, (store_id, store_name, hidden_by, org_id))
+        else:
+            cursor.execute("""
+                INSERT INTO hidden_stores (store_id, store_name, hidden_by)
+                VALUES (%s, %s, %s)
+            """, (store_id, store_name, hidden_by))
         conn.commit()
         cursor.close()
         conn.close()
@@ -3290,11 +3336,22 @@ def hide_store(store_id):
 def unhide_store(store_id):
     """Unhide a store and show it on the main dashboard"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         conn = db.get_connection()
         cursor = conn.cursor()
+        has_org_id = _table_has_org_id(cursor, 'hidden_stores')
         
         # Get store name before deleting
-        cursor.execute("SELECT store_name FROM hidden_stores WHERE store_id = %s", (store_id,))
+        if has_org_id:
+            cursor.execute(
+                "SELECT store_name FROM hidden_stores WHERE store_id = %s AND org_id = %s",
+                (store_id, org_id)
+            )
+        else:
+            cursor.execute("SELECT store_name FROM hidden_stores WHERE store_id = %s", (store_id,))
         result = cursor.fetchone()
         
         if not result:
@@ -3305,7 +3362,13 @@ def unhide_store(store_id):
         store_name = result[0]
         
         # Remove from hidden stores
-        cursor.execute("DELETE FROM hidden_stores WHERE store_id = %s", (store_id,))
+        if has_org_id:
+            cursor.execute(
+                "DELETE FROM hidden_stores WHERE store_id = %s AND org_id = %s",
+                (store_id, org_id)
+            )
+        else:
+            cursor.execute("DELETE FROM hidden_stores WHERE store_id = %s", (store_id,))
         conn.commit()
         cursor.close()
         conn.close()
@@ -3327,29 +3390,49 @@ def get_user_allowed_restaurant_ids(user_id, user_role):
     """Helper function to get allowed restaurant IDs for a user based on squad membership"""
     if user_role == 'admin':
         return None  # None means all restaurants allowed
-    
+
     try:
+        org_id = get_current_org_id()
         conn = db.get_connection()
         cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT DISTINCT sr.restaurant_id
-            FROM squad_restaurants sr
-            JOIN squad_members sm ON sr.squad_id = sm.squad_id
-            WHERE sm.user_id = %s
-        """, (user_id,))
-        
+
+        if _table_has_org_id(cursor, 'squads') and org_id:
+            cursor.execute("""
+                SELECT DISTINCT sr.restaurant_id
+                FROM squad_restaurants sr
+                JOIN squad_members sm ON sr.squad_id = sm.squad_id
+                JOIN squads s ON s.id = sr.squad_id
+                WHERE sm.user_id = %s
+                  AND s.org_id = %s
+            """, (user_id, org_id))
+        else:
+            cursor.execute("""
+                SELECT DISTINCT sr.restaurant_id
+                FROM squad_restaurants sr
+                JOIN squad_members sm ON sr.squad_id = sm.squad_id
+                WHERE sm.user_id = %s
+            """, (user_id,))
+
         restaurant_ids = [row[0] for row in cursor.fetchall()]
-        
+
         cursor.close()
         conn.close()
-        
+
         # Return None if user has no squad assignments (sees all by default)
         return restaurant_ids if restaurant_ids else None
-        
+
     except Exception as e:
         print(f"Error getting user allowed restaurants: {e}")
         return None  # Default to all on error
+
+
+def _squad_belongs_to_org(cursor, squad_id, org_id):
+    """Return True when squad is visible under current org context."""
+    if _table_has_org_id(cursor, 'squads') and org_id:
+        cursor.execute("SELECT id FROM squads WHERE id = %s AND org_id = %s", (squad_id, org_id))
+    else:
+        cursor.execute("SELECT id FROM squads WHERE id = %s", (squad_id,))
+    return cursor.fetchone() is not None
 
 
 @app.route('/api/squads', methods=['GET'])
@@ -3357,9 +3440,13 @@ def get_user_allowed_restaurant_ids(user_id, user_role):
 def api_get_squads():
     """Get all squads with their members and restaurants"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         conn = db.get_connection()
         cursor = conn.cursor()
-        
+
         # Check which schema we have by inspecting columns
         cursor.execute("""
             SELECT column_name FROM information_schema.columns
@@ -3367,44 +3454,62 @@ def api_get_squads():
             ORDER BY ordinal_position
         """)
         columns = [row[0] for row in cursor.fetchall()]
-        
+
         # Determine schema type
         has_old_schema = 'squad_id' in columns and 'leader' in columns
-        
+        has_org_id = 'org_id' in columns
+
         if has_old_schema:
             # Old schema: id, squad_id, name, leader, members, restaurants, active, created_at
-            cursor.execute("""
-                SELECT id, squad_id, name, leader, members, restaurants, active, created_at
-                FROM squads 
-                WHERE active = true
-                ORDER BY name
-            """)
+            if has_org_id:
+                cursor.execute("""
+                    SELECT id, squad_id, name, leader, members, restaurants, active, created_at
+                    FROM squads
+                    WHERE active = true AND org_id = %s
+                    ORDER BY name
+                """, (org_id,))
+            else:
+                cursor.execute("""
+                    SELECT id, squad_id, name, leader, members, restaurants, active, created_at
+                    FROM squads
+                    WHERE active = true
+                    ORDER BY name
+                """)
         else:
             # New schema: id, name, description, created_at, created_by
-            cursor.execute("""
-                SELECT id, NULL as squad_id, name, created_by as leader, 
-                       NULL as members, NULL as restaurants, true as active, created_at
-                FROM squads
-                ORDER BY name
-            """)
-        
+            if has_org_id:
+                cursor.execute("""
+                    SELECT id, NULL as squad_id, name, created_by as leader,
+                           NULL as members, NULL as restaurants, true as active, created_at
+                    FROM squads
+                    WHERE org_id = %s
+                    ORDER BY name
+                """, (org_id,))
+            else:
+                cursor.execute("""
+                    SELECT id, NULL as squad_id, name, created_by as leader,
+                           NULL as members, NULL as restaurants, true as active, created_at
+                    FROM squads
+                    ORDER BY name
+                """)
+
         squads_raw = cursor.fetchall()
-        
+
         squads = []
         for squad in squads_raw:
             squad_id = squad[0]
-            
+
             # Parse members and restaurants from JSON text fields (old schema)
             try:
                 members_list = json.loads(squad[4]) if squad[4] else []
-            except:
+            except Exception:
                 members_list = []
-            
+
             try:
                 restaurants_list = json.loads(squad[5]) if squad[5] else []
-            except:
+            except Exception:
                 restaurants_list = []
-            
+
             # Get members for this squad from squad_members table
             cursor.execute("""
                 SELECT u.id, u.full_name, u.username, u.role
@@ -3414,7 +3519,7 @@ def api_get_squads():
                 ORDER BY u.full_name
             """, (squad_id,))
             members_from_table = cursor.fetchall()
-            
+
             # Get restaurants for this squad from squad_restaurants table
             cursor.execute("""
                 SELECT restaurant_id, restaurant_name
@@ -3423,7 +3528,7 @@ def api_get_squads():
                 ORDER BY restaurant_name
             """, (squad_id,))
             restaurants_from_table = cursor.fetchall()
-            
+
             squads.append({
                 'id': squad_id,
                 'squad_id': squad[1] or str(squad_id),
@@ -3442,15 +3547,15 @@ def api_get_squads():
                     for r in restaurants_from_table
                 ] if restaurants_from_table else restaurants_list
             })
-        
+
         cursor.close()
         conn.close()
-        
+
         return jsonify({
             'success': True,
             'squads': squads
         })
-        
+
     except Exception as e:
         print(f"Error getting squads: {e}")
         traceback.print_exc()
@@ -3462,25 +3567,33 @@ def api_get_squads():
 def api_create_squad():
     """Create a new squad"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         data = get_json_payload()
         name = data.get('name', '').strip()
         description = data.get('description', '').strip()
-        
+
         if not name:
-            return jsonify({'success': False, 'error': 'Nome Ã© obrigatÃ³rio'}), 400
-        
+            return jsonify({'success': False, 'error': 'Nome obrigatorio'}), 400
+
         created_by = session.get('user', {}).get('username', 'Unknown')
-        
+
         conn = db.get_connection()
         cursor = conn.cursor()
-        
+        has_org_id = _table_has_org_id(cursor, 'squads')
+
         # Check if squad with same name exists
-        cursor.execute("SELECT id FROM squads WHERE name = %s", (name,))
+        if has_org_id:
+            cursor.execute("SELECT id FROM squads WHERE name = %s AND org_id = %s", (name, org_id))
+        else:
+            cursor.execute("SELECT id FROM squads WHERE name = %s", (name,))
         if cursor.fetchone():
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'JÃ¡ existe um squad com este nome'}), 400
-        
+            return jsonify({'success': False, 'error': 'Ja existe um squad com este nome'}), 400
+
         # Create squad - check which schema we have
         cursor.execute("""
             SELECT column_name FROM information_schema.columns
@@ -3489,32 +3602,46 @@ def api_create_squad():
         """)
         columns = [row[0] for row in cursor.fetchall()]
         has_old_schema = 'squad_id' in columns and 'leader' in columns
-        
+
         if has_old_schema:
             squad_uid = str(uuid.uuid4())[:8]
-            cursor.execute("""
-                INSERT INTO squads (squad_id, name, leader, members, restaurants)
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING id
-            """, (squad_uid, name, created_by, '[]', '[]'))
+            if has_org_id:
+                cursor.execute("""
+                    INSERT INTO squads (squad_id, name, leader, members, restaurants, org_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (squad_uid, name, created_by, '[]', '[]', org_id))
+            else:
+                cursor.execute("""
+                    INSERT INTO squads (squad_id, name, leader, members, restaurants)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (squad_uid, name, created_by, '[]', '[]'))
         else:
-            cursor.execute("""
-                INSERT INTO squads (name, description, created_by)
-                VALUES (%s, %s, %s)
-                RETURNING id
-            """, (name, description, created_by))
+            if has_org_id:
+                cursor.execute("""
+                    INSERT INTO squads (name, description, created_by, org_id)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id
+                """, (name, description, created_by, org_id))
+            else:
+                cursor.execute("""
+                    INSERT INTO squads (name, description, created_by)
+                    VALUES (%s, %s, %s)
+                    RETURNING id
+                """, (name, description, created_by))
         squad_id = cursor.fetchone()[0]
         conn.commit()
-        
+
         cursor.close()
         conn.close()
-        
+
         return jsonify({
             'success': True,
             'message': 'Squad criado com sucesso',
             'squad_id': squad_id
         })
-        
+
     except Exception as e:
         print(f"Error creating squad: {e}")
         traceback.print_exc()
@@ -3526,44 +3653,59 @@ def api_create_squad():
 def api_update_squad(squad_id):
     """Update a squad"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         data = get_json_payload()
         name = data.get('name', '').strip()
-        description = data.get('description', '').strip()
-        
+        _description = data.get('description', '').strip()
+
         if not name:
-            return jsonify({'success': False, 'error': 'Nome Ã© obrigatÃ³rio'}), 400
-        
+            return jsonify({'success': False, 'error': 'Nome obrigatorio'}), 400
+
         conn = db.get_connection()
         cursor = conn.cursor()
-        
-        # Check if squad exists
-        cursor.execute("SELECT id FROM squads WHERE id = %s", (squad_id,))
+        has_org_id = _table_has_org_id(cursor, 'squads')
+
+        # Check if squad exists in current org
+        if has_org_id:
+            cursor.execute("SELECT id FROM squads WHERE id = %s AND org_id = %s", (squad_id, org_id))
+        else:
+            cursor.execute("SELECT id FROM squads WHERE id = %s", (squad_id,))
         if not cursor.fetchone():
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Squad nÃ£o encontrado'}), 404
-        
+            return jsonify({'success': False, 'error': 'Squad nao encontrado'}), 404
+
         # Check for duplicate name (excluding current squad)
-        cursor.execute("SELECT id FROM squads WHERE name = %s AND id != %s", (name, squad_id))
+        if has_org_id:
+            cursor.execute(
+                "SELECT id FROM squads WHERE name = %s AND id != %s AND org_id = %s",
+                (name, squad_id, org_id)
+            )
+        else:
+            cursor.execute("SELECT id FROM squads WHERE name = %s AND id != %s", (name, squad_id))
         if cursor.fetchone():
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'JÃ¡ existe outro squad com este nome'}), 400
-        
-        # Update squad - only update name since description doesn't exist in current schema
-        cursor.execute("""
-            UPDATE squads SET name = %s WHERE id = %s
-        """, (name, squad_id))
+            return jsonify({'success': False, 'error': 'Ja existe outro squad com este nome'}), 400
+
+        # Update squad - only update name since description may not exist in old schema
+        if has_org_id:
+            cursor.execute("UPDATE squads SET name = %s WHERE id = %s AND org_id = %s", (name, squad_id, org_id))
+        else:
+            cursor.execute("UPDATE squads SET name = %s WHERE id = %s", (name, squad_id))
         conn.commit()
-        
+
         cursor.close()
         conn.close()
-        
+
         return jsonify({
             'success': True,
             'message': 'Squad atualizado com sucesso'
         })
-        
+
     except Exception as e:
         print(f"Error updating squad: {e}")
         traceback.print_exc()
@@ -3575,31 +3717,42 @@ def api_update_squad(squad_id):
 def api_delete_squad(squad_id):
     """Delete a squad"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         conn = db.get_connection()
         cursor = conn.cursor()
-        
-        # Check if squad exists
-        cursor.execute("SELECT name FROM squads WHERE id = %s", (squad_id,))
+        has_org_id = _table_has_org_id(cursor, 'squads')
+
+        # Check if squad exists in current org
+        if has_org_id:
+            cursor.execute("SELECT name FROM squads WHERE id = %s AND org_id = %s", (squad_id, org_id))
+        else:
+            cursor.execute("SELECT name FROM squads WHERE id = %s", (squad_id,))
         result = cursor.fetchone()
         if not result:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Squad nÃ£o encontrado'}), 404
-        
+            return jsonify({'success': False, 'error': 'Squad nao encontrado'}), 404
+
         squad_name = result[0]
-        
+
         # Delete squad (cascade will delete members and restaurants)
-        cursor.execute("DELETE FROM squads WHERE id = %s", (squad_id,))
+        if has_org_id:
+            cursor.execute("DELETE FROM squads WHERE id = %s AND org_id = %s", (squad_id, org_id))
+        else:
+            cursor.execute("DELETE FROM squads WHERE id = %s", (squad_id,))
         conn.commit()
-        
+
         cursor.close()
         conn.close()
-        
+
         return jsonify({
             'success': True,
-            'message': f'Squad "{squad_name}" excluÃ­do com sucesso'
+            'message': f'Squad "{squad_name}" excluido com sucesso'
         })
-        
+
     except Exception as e:
         print(f"Error deleting squad: {e}")
         traceback.print_exc()
@@ -3611,22 +3764,25 @@ def api_delete_squad(squad_id):
 def api_add_squad_members(squad_id):
     """Add members to a squad"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         data = get_json_payload()
         user_ids = data.get('user_ids', [])
-        
+
         if not user_ids:
-            return jsonify({'success': False, 'error': 'Nenhum usuÃ¡rio selecionado'}), 400
-        
+            return jsonify({'success': False, 'error': 'Nenhum usuario selecionado'}), 400
+
         conn = db.get_connection()
         cursor = conn.cursor()
-        
-        # Check if squad exists
-        cursor.execute("SELECT id FROM squads WHERE id = %s", (squad_id,))
-        if not cursor.fetchone():
+
+        # Check if squad exists in current org
+        if not _squad_belongs_to_org(cursor, squad_id, org_id):
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Squad nÃ£o encontrado'}), 404
-        
+            return jsonify({'success': False, 'error': 'Squad nao encontrado'}), 404
+
         added_count = 0
         for user_id in user_ids:
             try:
@@ -3639,17 +3795,17 @@ def api_add_squad_members(squad_id):
                     added_count += 1
             except Exception as e:
                 print(f"Error adding member {user_id}: {e}")
-        
+
         conn.commit()
         cursor.close()
         conn.close()
-        
+
         return jsonify({
             'success': True,
             'message': f'{added_count} membro(s) adicionado(s)',
             'added_count': added_count
         })
-        
+
     except Exception as e:
         print(f"Error adding squad members: {e}")
         traceback.print_exc()
@@ -3661,28 +3817,37 @@ def api_add_squad_members(squad_id):
 def api_remove_squad_member(squad_id, user_id):
     """Remove a member from a squad"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         conn = db.get_connection()
         cursor = conn.cursor()
-        
+
+        if not _squad_belongs_to_org(cursor, squad_id, org_id):
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Squad nao encontrado'}), 404
+
         cursor.execute("""
-            DELETE FROM squad_members 
+            DELETE FROM squad_members
             WHERE squad_id = %s AND user_id = %s
         """, (squad_id, user_id))
-        
+
         if cursor.rowcount == 0:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Membro nÃ£o encontrado no squad'}), 404
-        
+            return jsonify({'success': False, 'error': 'Membro nao encontrado no squad'}), 404
+
         conn.commit()
         cursor.close()
         conn.close()
-        
+
         return jsonify({
             'success': True,
             'message': 'Membro removido do squad'
         })
-        
+
     except Exception as e:
         print(f"Error removing squad member: {e}")
         traceback.print_exc()
@@ -3694,31 +3859,34 @@ def api_remove_squad_member(squad_id, user_id):
 def api_add_squad_restaurants(squad_id):
     """Add restaurants to a squad"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         data = get_json_payload()
         restaurant_ids = data.get('restaurant_ids', [])
-        
+
         if not restaurant_ids:
             return jsonify({'success': False, 'error': 'Nenhum restaurante selecionado'}), 400
-        
+
         conn = db.get_connection()
         cursor = conn.cursor()
-        
-        # Check if squad exists
-        cursor.execute("SELECT id FROM squads WHERE id = %s", (squad_id,))
-        if not cursor.fetchone():
+
+        # Check if squad exists in current org
+        if not _squad_belongs_to_org(cursor, squad_id, org_id):
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Squad nÃ£o encontrado'}), 404
-        
+            return jsonify({'success': False, 'error': 'Squad nao encontrado'}), 404
+
         added_count = 0
         for restaurant_id in restaurant_ids:
-            # Find restaurant name from RESTAURANTS_DATA
+            # Find restaurant name from current org data
             restaurant_name = 'Unknown'
             for r in get_current_org_restaurants():
                 if r['id'] == restaurant_id:
                     restaurant_name = r.get('name', 'Unknown')
                     break
-            
+
             try:
                 cursor.execute("""
                     INSERT INTO squad_restaurants (squad_id, restaurant_id, restaurant_name)
@@ -3729,17 +3897,17 @@ def api_add_squad_restaurants(squad_id):
                     added_count += 1
             except Exception as e:
                 print(f"Error adding restaurant {restaurant_id}: {e}")
-        
+
         conn.commit()
         cursor.close()
         conn.close()
-        
+
         return jsonify({
             'success': True,
             'message': f'{added_count} restaurante(s) adicionado(s)',
             'added_count': added_count
         })
-        
+
     except Exception as e:
         print(f"Error adding squad restaurants: {e}")
         traceback.print_exc()
@@ -3751,28 +3919,37 @@ def api_add_squad_restaurants(squad_id):
 def api_remove_squad_restaurant(squad_id, restaurant_id):
     """Remove a restaurant from a squad"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         conn = db.get_connection()
         cursor = conn.cursor()
-        
+
+        if not _squad_belongs_to_org(cursor, squad_id, org_id):
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Squad nao encontrado'}), 404
+
         cursor.execute("""
-            DELETE FROM squad_restaurants 
+            DELETE FROM squad_restaurants
             WHERE squad_id = %s AND restaurant_id = %s
         """, (squad_id, restaurant_id))
-        
+
         if cursor.rowcount == 0:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Restaurante nÃ£o encontrado no squad'}), 404
-        
+            return jsonify({'success': False, 'error': 'Restaurante nao encontrado no squad'}), 404
+
         conn.commit()
         cursor.close()
         conn.close()
-        
+
         return jsonify({
             'success': True,
             'message': 'Restaurante removido do squad'
         })
-        
+
     except Exception as e:
         print(f"Error removing squad restaurant: {e}")
         traceback.print_exc()
@@ -3813,11 +3990,19 @@ def public_group_page(slug):
         cursor = conn.cursor()
         
         # Get group by slug
-        cursor.execute("""
-            SELECT id, name, slug, active
-            FROM client_groups
-            WHERE slug = %s AND active = true
-        """, (slug,))
+        has_group_org = _table_has_org_id(cursor, 'client_groups')
+        if has_group_org:
+            cursor.execute("""
+                SELECT id, name, slug, active, org_id
+                FROM client_groups
+                WHERE slug = %s AND active = true
+            """, (slug,))
+        else:
+            cursor.execute("""
+                SELECT id, name, slug, active, NULL::INTEGER as org_id
+                FROM client_groups
+                WHERE slug = %s AND active = true
+            """, (slug,))
         
         group = cursor.fetchone()
         
@@ -3828,6 +4013,7 @@ def public_group_page(slug):
         
         group_id = group[0]
         group_name = group[1]
+        group_org_id = group[4]
         
         # Get stores in this group
         cursor.execute("""
@@ -3841,14 +4027,23 @@ def public_group_page(slug):
         cursor.close()
         conn.close()
         
-        # Get store data from RESTAURANTS_DATA
+        # Resolve store data using the group's organization when available.
+        source_restaurants = get_current_org_restaurants()
+        if group_org_id:
+            source_restaurants = ORG_DATA.get(group_org_id, {}).get('restaurants') or []
+            if not source_restaurants:
+                cached_org_data = db.load_org_data_cache(group_org_id, 'restaurants', max_age_hours=12)
+                if isinstance(cached_org_data, list):
+                    source_restaurants = cached_org_data
+
+        # Get store data from the resolved org source
         stores_data = []
         for store_row in store_rows:
             store_id = store_row[0]
             store_name = store_row[1]
             
-            # Find in global data
-            for r in get_current_org_restaurants():
+            # Find in resolved org data
+            for r in source_restaurants:
                 if r['id'] == store_id:
                     # Clean data (remove internal caches)
                     store_data = {k: v for k, v in r.items() if not k.startswith('_')}
@@ -3897,15 +4092,28 @@ def public_group_page(slug):
 def api_get_groups():
     """Get all client groups with their stores"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         conn = db.get_connection()
         cursor = conn.cursor()
+        has_org_id = _table_has_org_id(cursor, 'client_groups')
         
         # Get all groups
-        cursor.execute("""
-            SELECT id, name, slug, active, created_by, created_at
-            FROM client_groups
-            ORDER BY name
-        """)
+        if has_org_id:
+            cursor.execute("""
+                SELECT id, name, slug, active, created_by, created_at
+                FROM client_groups
+                WHERE org_id = %s
+                ORDER BY name
+            """, (org_id,))
+        else:
+            cursor.execute("""
+                SELECT id, name, slug, active, created_by, created_at
+                FROM client_groups
+                ORDER BY name
+            """)
         
         groups_raw = cursor.fetchall()
         groups = []
@@ -3952,6 +4160,10 @@ def api_get_groups():
 def api_group_comparison(group_id):
     """Compare stores inside a client group over a date range."""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         start_str = request.args.get('start_date')
         end_str = request.args.get('end_date')
         sort_by = request.args.get('sort_by', 'revenue')
@@ -3964,12 +4176,20 @@ def api_group_comparison(group_id):
 
         conn = db.get_connection()
         cursor = conn.cursor()
+        has_org_id = _table_has_org_id(cursor, 'client_groups')
 
-        cursor.execute("""
-            SELECT id, name, slug, active
-            FROM client_groups
-            WHERE id = %s
-        """, (group_id,))
+        if has_org_id:
+            cursor.execute("""
+                SELECT id, name, slug, active
+                FROM client_groups
+                WHERE id = %s AND org_id = %s
+            """, (group_id, org_id))
+        else:
+            cursor.execute("""
+                SELECT id, name, slug, active
+                FROM client_groups
+                WHERE id = %s
+            """, (group_id,))
         group_row = cursor.fetchone()
         if not group_row:
             cursor.close()
@@ -4096,6 +4316,10 @@ def api_group_comparison(group_id):
 def api_create_group():
     """Create a new client group"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         data = get_json_payload()
         name = data.get('name', '').strip()
         slug = data.get('slug', '').strip()
@@ -4117,6 +4341,7 @@ def api_create_group():
         
         conn = db.get_connection()
         cursor = conn.cursor()
+        has_org_id = _table_has_org_id(cursor, 'client_groups')
         
         # Check if slug exists
         cursor.execute("SELECT id FROM client_groups WHERE slug = %s", (slug,))
@@ -4126,11 +4351,18 @@ def api_create_group():
             slug = f"{slug}-{random.randint(100, 999)}"
         
         # Create group
-        cursor.execute("""
-            INSERT INTO client_groups (name, slug, created_by)
-            VALUES (%s, %s, %s)
-            RETURNING id
-        """, (name, slug, created_by))
+        if has_org_id:
+            cursor.execute("""
+                INSERT INTO client_groups (name, slug, created_by, org_id)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+            """, (name, slug, created_by, org_id))
+        else:
+            cursor.execute("""
+                INSERT INTO client_groups (name, slug, created_by)
+                VALUES (%s, %s, %s)
+                RETURNING id
+            """, (name, slug, created_by))
         
         group_id = cursor.fetchone()[0]
         
@@ -4172,6 +4404,10 @@ def api_create_group():
 def api_update_group(group_id):
     """Update a client group"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         data = get_json_payload()
         name = data.get('name', '').strip()
         slug = data.get('slug', '').strip()
@@ -4183,9 +4419,13 @@ def api_update_group(group_id):
         
         conn = db.get_connection()
         cursor = conn.cursor()
+        has_org_id = _table_has_org_id(cursor, 'client_groups')
         
         # Check if group exists
-        cursor.execute("SELECT id, slug FROM client_groups WHERE id = %s", (group_id,))
+        if has_org_id:
+            cursor.execute("SELECT id, slug FROM client_groups WHERE id = %s AND org_id = %s", (group_id, org_id))
+        else:
+            cursor.execute("SELECT id, slug FROM client_groups WHERE id = %s", (group_id,))
         existing = cursor.fetchone()
         if not existing:
             cursor.close()
@@ -4197,7 +4437,13 @@ def api_update_group(group_id):
             import re
             slug = re.sub(r'[^a-z0-9-]', '', slug.lower())
             
-            cursor.execute("SELECT id FROM client_groups WHERE slug = %s AND id != %s", (slug, group_id))
+            if has_org_id:
+                cursor.execute(
+                    "SELECT id FROM client_groups WHERE slug = %s AND id != %s AND org_id = %s",
+                    (slug, group_id, org_id)
+                )
+            else:
+                cursor.execute("SELECT id FROM client_groups WHERE slug = %s AND id != %s", (slug, group_id))
             if cursor.fetchone():
                 cursor.close()
                 conn.close()
@@ -4206,11 +4452,18 @@ def api_update_group(group_id):
             slug = existing[1]
         
         # Update group
-        cursor.execute("""
-            UPDATE client_groups 
-            SET name = %s, slug = %s, active = %s, updated_at = CURRENT_TIMESTAMP
-            WHERE id = %s
-        """, (name, slug, active, group_id))
+        if has_org_id:
+            cursor.execute("""
+                UPDATE client_groups
+                SET name = %s, slug = %s, active = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s AND org_id = %s
+            """, (name, slug, active, group_id, org_id))
+        else:
+            cursor.execute("""
+                UPDATE client_groups
+                SET name = %s, slug = %s, active = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (name, slug, active, group_id))
         
         # Update stores - remove all and re-add
         cursor.execute("DELETE FROM group_stores WHERE group_id = %s", (group_id,))
@@ -4248,11 +4501,19 @@ def api_update_group(group_id):
 def api_delete_group(group_id):
     """Delete a client group"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
         conn = db.get_connection()
         cursor = conn.cursor()
+        has_org_id = _table_has_org_id(cursor, 'client_groups')
         
         # Check if group exists
-        cursor.execute("SELECT name FROM client_groups WHERE id = %s", (group_id,))
+        if has_org_id:
+            cursor.execute("SELECT name FROM client_groups WHERE id = %s AND org_id = %s", (group_id, org_id))
+        else:
+            cursor.execute("SELECT name FROM client_groups WHERE id = %s", (group_id,))
         result = cursor.fetchone()
         if not result:
             cursor.close()
@@ -4262,7 +4523,10 @@ def api_delete_group(group_id):
         group_name = result[0]
         
         # Delete group (cascade will delete stores)
-        cursor.execute("DELETE FROM client_groups WHERE id = %s", (group_id,))
+        if has_org_id:
+            cursor.execute("DELETE FROM client_groups WHERE id = %s AND org_id = %s", (group_id, org_id))
+        else:
+            cursor.execute("DELETE FROM client_groups WHERE id = %s", (group_id,))
         conn.commit()
         
         cursor.close()
@@ -4296,21 +4560,8 @@ def api_user_allowed_restaurants():
                 'restaurant_ids': []
             })
         
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        # Get all restaurant IDs the user has access to through squads
-        cursor.execute("""
-            SELECT DISTINCT sr.restaurant_id
-            FROM squad_restaurants sr
-            JOIN squad_members sm ON sr.squad_id = sm.squad_id
-            WHERE sm.user_id = %s
-        """, (user_id,))
-        
-        restaurant_ids = [row[0] for row in cursor.fetchall()]
-        
-        cursor.close()
-        conn.close()
+        allowed_ids = get_user_allowed_restaurant_ids(user_id, user_role)
+        restaurant_ids = allowed_ids or []
         
         # If user is not in any squad, they see all restaurants (default behavior)
         if not restaurant_ids:
@@ -4524,6 +4775,24 @@ def initialize_database():
                 UNIQUE(squad_id, restaurant_id)
             )
         """)
+
+        # Ensure org_id exists on tenant-scoped tables created in legacy setups.
+        for tbl in ('hidden_stores', 'squads', 'client_groups'):
+            try:
+                cursor.execute(f"""
+                    DO $$ BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_name = '{tbl}' AND column_name = 'org_id'
+                        ) THEN
+                            ALTER TABLE {tbl}
+                            ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE;
+                        END IF;
+                    END $$;
+                """)
+            except Exception as migration_error:
+                print(f"   Note: org_id migration for {tbl}: {migration_error}")
         
         conn.commit()
         cursor.close()
