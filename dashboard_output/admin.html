@@ -471,6 +471,49 @@
         </div>
     </div>
 
+    <!-- Organization Switcher Modal -->
+    <div class="modal-overlay" id="orgSwitcherModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Organizacoes</h3>
+                <button class="modal-close" onclick="closeModal('orgSwitcherModal')"><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <div class="modal-body">
+                <div id="orgListContainer" style="display:grid;gap:8px">
+                    <div class="empty-state" style="padding:1rem;border:1px dashed var(--border-light);border-radius:var(--radius-lg)">Carregando organizacoes...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('orgSwitcherModal')">Fechar</button>
+                <button class="btn btn-primary" onclick="openCreateOrgModal()">Criar Organizacao</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Organization Modal -->
+    <div class="modal-overlay" id="createOrgModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Criar Organizacao</h3>
+                <button class="modal-close" onclick="closeModal('createOrgModal')"><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Nome da Organizacao *</label>
+                    <input type="text" class="form-input" id="newOrgName" placeholder="Ex.: Operacao Sul">
+                </div>
+                <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.8125rem;color:var(--text-secondary);cursor:pointer">
+                    <input type="checkbox" id="newOrgCopyUsers" checked style="margin-top:2px">
+                    <span>Manter usuarios existentes (vincula os membros atuais tambem na nova organizacao).</span>
+                </label>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('createOrgModal')">Cancelar</button>
+                <button class="btn btn-primary" onclick="createOrganization()">Criar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Add Merchant Modal -->
     <div class="modal-overlay" id="addMerchantModal">
         <div class="modal">
@@ -509,7 +552,140 @@
             }
             return response;
         };
+        let currentOrgId = null;
+        let organizationsCache = [];
         async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig(), loadSubscription()]); }
+
+        async function refreshOrgContext() {
+            await loadUserInfo();
+            await loadData();
+        }
+
+        async function loadOrganizations(renderToModal = false) {
+            try {
+                const response = await fetch('/api/orgs');
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    if (renderToModal) {
+                        const container = document.getElementById('orgListContainer');
+                        if (container) {
+                            container.innerHTML = '<div class="empty-state" style="padding:1rem;border:1px dashed var(--border-light);border-radius:var(--radius-lg)">Nao foi possivel carregar organizacoes</div>';
+                        }
+                    }
+                    return;
+                }
+                organizationsCache = Array.isArray(data.organizations) ? data.organizations : [];
+                if (renderToModal) {
+                    renderOrganizationOptions();
+                }
+            } catch (error) {
+                if (renderToModal) {
+                    const container = document.getElementById('orgListContainer');
+                    if (container) {
+                        container.innerHTML = '<div class="empty-state" style="padding:1rem;border:1px dashed var(--border-light);border-radius:var(--radius-lg)">Erro ao carregar organizacoes</div>';
+                    }
+                }
+            }
+        }
+
+        function renderOrganizationOptions() {
+            const container = document.getElementById('orgListContainer');
+            if (!container) return;
+            if (!organizationsCache.length) {
+                container.innerHTML = '<div class="empty-state" style="padding:1rem;border:1px dashed var(--border-light);border-radius:var(--radius-lg)">Nenhuma organizacao encontrada</div>';
+                return;
+            }
+            container.innerHTML = organizationsCache.map(org => {
+                const orgId = Number(org.id);
+                const isCurrent = Number(currentOrgId) === orgId;
+                const plan = String(org.plan || '-').toUpperCase();
+                const role = String(org.org_role || 'viewer').toUpperCase();
+                return `
+                    <button class="btn btn-secondary" style="width:100%;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;text-align:left" onclick="switchOrganization(${orgId})" ${isCurrent ? 'disabled' : ''}>
+                        <span style="display:flex;flex-direction:column;align-items:flex-start;gap:2px">
+                            <span style="font-weight:700">${escapeHtml(org.name || 'Organizacao')}</span>
+                            <span style="font-size:11px;color:var(--text-tertiary)">${escapeHtml(plan)} / ${escapeHtml(role)}</span>
+                        </span>
+                        ${isCurrent ? '<span class="badge badge-connected">Atual</span>' : ''}
+                    </button>
+                `;
+            }).join('');
+        }
+
+        async function openOrgSwitcherModal() {
+            await loadOrganizations(true);
+            openModal('orgSwitcherModal');
+        }
+
+        async function switchOrganization(orgId) {
+            try {
+                const response = await fetch('/api/orgs/switch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ org_id: orgId })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    showToast(data.error || 'Falha ao trocar organizacao', 'error');
+                    return;
+                }
+                currentOrgId = Number(orgId);
+                closeModal('orgSwitcherModal');
+                await refreshOrgContext();
+                showToast('Organizacao atualizada', 'success');
+            } catch (error) {
+                showToast('Erro de conexao ao trocar organizacao', 'error');
+            }
+        }
+
+        function openCreateOrgModal() {
+            closeModal('orgSwitcherModal');
+            const orgInput = document.getElementById('newOrgName');
+            if (orgInput) orgInput.value = '';
+            const copyInput = document.getElementById('newOrgCopyUsers');
+            if (copyInput) copyInput.checked = true;
+            openModal('createOrgModal');
+            if (orgInput) orgInput.focus();
+        }
+
+        async function createOrganization() {
+            const orgName = document.getElementById('newOrgName').value.trim();
+            const copyUsers = !!document.getElementById('newOrgCopyUsers').checked;
+            if (!orgName) {
+                showToast('Informe o nome da organizacao', 'error');
+                return;
+            }
+            try {
+                const response = await fetch('/api/orgs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ org_name: orgName, copy_users: copyUsers })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    showToast(data.error || 'Falha ao criar organizacao', 'error');
+                    return;
+                }
+
+                currentOrgId = Number(data.org_id || (data.organization && data.organization.id) || currentOrgId);
+                organizationsCache = Array.isArray(data.organizations) ? data.organizations : organizationsCache;
+                closeModal('createOrgModal');
+                await refreshOrgContext();
+                await loadOrganizations(false);
+
+                const copyErrors = Array.isArray(data.copy_errors) ? data.copy_errors.length : 0;
+                const copiedUsers = Number(data.copied_users || 0);
+                if (copyErrors > 0) {
+                    showToast(`Organizacao criada, mas ${copyErrors} usuario(s) nao foram vinculados`, 'error');
+                } else if (copiedUsers > 0) {
+                    showToast(`Organizacao criada. ${copiedUsers} usuario(s) mantidos`, 'success');
+                } else {
+                    showToast('Organizacao criada com sucesso', 'success');
+                }
+            } catch (error) {
+                showToast('Erro de conexao ao criar organizacao', 'error');
+            }
+        }
 
         async function loadUsers() {
             try {
@@ -546,15 +722,18 @@
             return '<span class="badge badge-user">Viewer</span>';
         }
 
-        async function loadIfoodConfig() {
+        async function loadIfoodConfigLegacy() {
             try {
-                const response = await fetch('/api/ifood/config');
+                const response = await fetch('/api/org/ifood-config');
                 const data = await response.json();
+                const cfg = data.config || {};
+                const configured = !!(cfg.has_credentials || cfg.client_id);
                 if (data.success && data.config) {
                     document.getElementById('clientId').textContent = data.config.configured ? 'Configurado' : 'Não configurado';
+                    document.getElementById('clientId').textContent = configured ? 'Configurado' : 'Nao configurado';
                     const statusBadge = document.getElementById('connectionStatus');
                     const apiStatus = document.getElementById('apiStatus');
-                    if (data.config.configured) { statusBadge.className = 'badge badge-connected'; statusBadge.textContent = 'Conectado'; apiStatus.textContent = 'Ativo'; }
+                    if (configured) { statusBadge.className = 'badge badge-connected'; statusBadge.textContent = 'Conectado'; apiStatus.textContent = 'Ativo'; }
                     else { statusBadge.className = 'badge badge-disconnected'; statusBadge.textContent = 'Desconectado'; apiStatus.textContent = 'Inativo'; }
                     
                     // Also populate merchants table from the same response
@@ -757,7 +936,7 @@
             }
         }
 
-        async function addMerchant() {
+        async function addMerchantLegacy() {
             const merchantId = document.getElementById('merchantId').value.trim();
             const name = document.getElementById('merchantName').value.trim();
             const manager = document.getElementById('merchantManager').value.trim();
@@ -770,7 +949,7 @@
             } catch (error) { showToast('Erro de conexão', 'error'); }
         }
 
-        async function removeMerchant(merchantId, name) {
+        async function removeMerchantLegacy(merchantId, name) {
             if (!confirm(`Remover "${name}"?`)) return;
             try {
                 const response = await fetch(`/api/ifood/merchants/${merchantId}`, { method: 'DELETE' });
@@ -833,6 +1012,175 @@
             }
         }
 
+        // Override with org-scoped iFood + org context aware sidebar refresh.
+        async function loadIfoodConfig() {
+            try {
+                const response = await fetch('/api/org/ifood-config');
+                const data = await response.json();
+                if (!(response.ok && data.success && data.config)) {
+                    document.getElementById('apiStatus').textContent = 'Erro';
+                    return;
+                }
+                const cfg = data.config || {};
+                const configured = !!(cfg.has_credentials || cfg.client_id);
+                document.getElementById('clientId').textContent = configured ? 'Configurado' : 'Nao configurado';
+
+                const statusBadge = document.getElementById('connectionStatus');
+                const apiStatus = document.getElementById('apiStatus');
+                if (configured) {
+                    statusBadge.className = 'badge badge-connected';
+                    statusBadge.textContent = 'Conectado';
+                    apiStatus.textContent = 'Ativo';
+                } else {
+                    statusBadge.className = 'badge badge-disconnected';
+                    statusBadge.textContent = 'Desconectado';
+                    apiStatus.textContent = 'Inativo';
+                }
+
+                const merchants = Array.isArray(cfg.merchants) ? cfg.merchants : [];
+                document.getElementById('merchantCount').textContent = merchants.length;
+                const orgStoreCount = document.getElementById('orgStoreCount');
+                if (orgStoreCount) orgStoreCount.textContent = `${merchants.length} lojas`;
+                const tbody = document.getElementById('merchantsTable');
+                if (merchants.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum merchant configurado</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = merchants.map(merchant => `
+                    <tr>
+                        <td style="font-family: var(--font-mono); font-size: 0.75rem;">${String(merchant.merchant_id || '').substring(0, 8)}...</td>
+                        <td>${escapeHtml(merchant.name || '-')}</td>
+                        <td>${escapeHtml(merchant.manager || '-')}</td>
+                        <td><span class="badge badge-connected">Ativo</span></td>
+                        <td><button class="btn btn-secondary btn-danger" onclick="removeMerchant('${escapeJs(merchant.merchant_id)}', '${escapeJs(merchant.name || '')}')">Remover</button></td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading org config:', error);
+                document.getElementById('apiStatus').textContent = 'Erro';
+            }
+        }
+
+        async function addMerchant() {
+            const merchantId = document.getElementById('merchantId').value.trim();
+            const name = document.getElementById('merchantName').value.trim();
+            const manager = document.getElementById('merchantManager').value.trim();
+            if (!merchantId || !name) {
+                showToast('Preencha ID e nome do merchant', 'error');
+                return;
+            }
+            try {
+                const currentConfigResponse = await fetch('/api/org/ifood-config');
+                const currentConfigData = await currentConfigResponse.json();
+                if (!currentConfigResponse.ok || !currentConfigData.success) {
+                    showToast(currentConfigData.error || 'Erro ao carregar configuracao atual', 'error');
+                    return;
+                }
+                const currentConfig = currentConfigData.config || {};
+                const merchants = Array.isArray(currentConfig.merchants) ? [...currentConfig.merchants] : [];
+                if (merchants.some(m => String(m.merchant_id || '').trim() === merchantId)) {
+                    showToast('Merchant ja existe', 'error');
+                    return;
+                }
+                merchants.push({ merchant_id: merchantId, name, manager });
+                const saveResponse = await fetch('/api/org/ifood-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        client_id: currentConfig.client_id || null,
+                        client_secret: '****',
+                        merchants
+                    })
+                });
+                const saveData = await saveResponse.json();
+                if (saveResponse.ok && saveData.success) {
+                    showToast('Merchant adicionado!', 'success');
+                    closeModal('addMerchantModal');
+                    await loadIfoodConfig();
+                } else {
+                    showToast(saveData.error || 'Erro ao adicionar', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexao', 'error');
+            }
+        }
+
+        async function removeMerchant(merchantId, name) {
+            if (!confirm(`Remover "${name}"?`)) return;
+            try {
+                const currentConfigResponse = await fetch('/api/org/ifood-config');
+                const currentConfigData = await currentConfigResponse.json();
+                if (!currentConfigResponse.ok || !currentConfigData.success) {
+                    showToast(currentConfigData.error || 'Erro ao carregar configuracao atual', 'error');
+                    return;
+                }
+                const currentConfig = currentConfigData.config || {};
+                const merchants = Array.isArray(currentConfig.merchants) ? currentConfig.merchants : [];
+                const nextMerchants = merchants.filter(m => String(m.merchant_id || '') !== String(merchantId));
+                if (nextMerchants.length === merchants.length) {
+                    showToast('Merchant nao encontrado', 'error');
+                    return;
+                }
+                const saveResponse = await fetch('/api/org/ifood-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        client_id: currentConfig.client_id || null,
+                        client_secret: '****',
+                        merchants: nextMerchants
+                    })
+                });
+                const saveData = await saveResponse.json();
+                if (saveResponse.ok && saveData.success) {
+                    showToast('Merchant removido', 'success');
+                    await loadIfoodConfig();
+                } else {
+                    showToast(saveData.error || 'Erro ao remover', 'error');
+                }
+            } catch (error) {
+                showToast('Erro de conexao', 'error');
+            }
+        }
+
+        async function loadUserInfo() {
+            try {
+                const response = await fetch('/api/me');
+                const data = await response.json();
+                if (!(data.success && data.user)) {
+                    window.location.href = '/login';
+                    return;
+                }
+
+                const u = data.user;
+                document.getElementById('userName').textContent = u.name || u.username || 'Usuario';
+                const initials = (u.name || u.username || 'U').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                document.getElementById('userAvatar').textContent = initials;
+                document.getElementById('userRoleText').textContent = u.role === 'admin' ? 'Administrador' : 'Usuario';
+                if (u.role !== 'admin') {
+                    window.location.href = '/dashboard';
+                    return;
+                }
+
+                currentOrgId = Number(data.org_id || currentOrgId || 0);
+                const org = data.org || {};
+                if (org.name) {
+                    const orgName = document.getElementById('orgName');
+                    if (orgName) orgName.textContent = org.name;
+                    const orgAvatar = document.getElementById('orgAvatar');
+                    if (orgAvatar) {
+                        const orgInitials = String(org.name).split(' ').map(v => v[0]).join('').slice(0, 3).toUpperCase();
+                        orgAvatar.textContent = orgInitials || 'ORG';
+                    }
+                }
+                if (org.plan_display || org.plan) {
+                    const planBadge = document.getElementById('planBadge');
+                    if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
+                }
+            } catch (error) {
+                window.location.href = '/login';
+            }
+        }
+
         function showToast(message, type = 'success') {
             document.querySelectorAll('.toast').forEach(t => t.remove());
             const toast = document.createElement('div');
@@ -859,7 +1207,7 @@
             }
         }
 
-        function loadUserInfo() {
+        function loadUserInfoLegacy() {
             fetch('/api/me').then(r => r.json()).then(data => {
                 if (data.success && data.user) {
                     const u = data.user;
@@ -887,16 +1235,19 @@
             }).catch(() => { window.location.href = '/login'; });
         }
 
-        (function init() {
+        (async function init() {
             const theme = localStorage.getItem('theme') || 'dark';
             document.documentElement.setAttribute('data-theme', theme);
             document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
             document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
-            loadUserInfo();
-            loadData();
+            const orgSwitcher = document.getElementById('orgSwitcher');
+            if (orgSwitcher) orgSwitcher.addEventListener('click', openOrgSwitcherModal);
+            await loadUserInfo();
+            await loadData();
+            await loadOrganizations(false);
         })();
 
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal('addMerchantModal'); closeModal('addUserModal'); closeModal('assignUserModal'); closeSidebar(); } });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal('addMerchantModal'); closeModal('addUserModal'); closeModal('assignUserModal'); closeModal('orgSwitcherModal'); closeModal('createOrgModal'); closeSidebar(); } });
         document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(e.target.id); }));
     </script>
 </body>

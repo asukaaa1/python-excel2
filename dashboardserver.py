@@ -1171,12 +1171,108 @@ def api_register():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/orgs')
+@app.route('/api/orgs', methods=['GET', 'POST'])
 @login_required
 def api_user_orgs():
-    """Get all organizations the current user belongs to"""
-    orgs = db.get_user_orgs(session['user']['id'])
-    return jsonify({'success': True, 'organizations': orgs})
+    """Get or create organizations for the current user."""
+    user = session.get('user') or {}
+    user_id = user.get('id')
+    if not user_id:
+        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+
+    if request.method == 'GET':
+        orgs = db.get_user_orgs(user_id)
+        return jsonify({'success': True, 'organizations': orgs})
+
+    data = get_json_payload()
+    if not data:
+        return jsonify({'success': False, 'error': 'Invalid payload'}), 400
+
+    org_name = (data.get('org_name') or data.get('name') or '').strip()
+    if not org_name:
+        return jsonify({'success': False, 'error': 'Organization name is required'}), 400
+
+    current_org_id = get_current_org_id()
+    copy_users = bool(data.get('copy_users', True))
+    current_org = db.get_org_details(current_org_id) if current_org_id else None
+
+    plan = (data.get('plan') or '').strip().lower()
+    if not plan:
+        plan = (current_org or {}).get('plan') or 'free'
+
+    source_members = []
+    if copy_users and current_org_id:
+        current_member_role = db.get_org_member_role(current_org_id, user_id)
+        if current_member_role not in ('owner', 'admin'):
+            return jsonify({'success': False, 'error': 'Owner/admin role required to copy users'}), 403
+        source_members = db.get_org_users(current_org_id)
+
+    created = db.create_organization(
+        org_name,
+        user_id,
+        plan=plan,
+        billing_email=(user.get('email') or None)
+    )
+    if not created:
+        return jsonify({'success': False, 'error': 'Unable to create organization'}), 400
+
+    # Ensure in-memory org bucket exists for the new org context.
+    get_org_data(created['id'])
+
+    copied_users = 0
+    copy_errors = []
+    if copy_users and source_members:
+        for member in source_members:
+            member_id = member.get('id')
+            if not member_id or member_id == user_id:
+                continue
+            member_org_role = str(member.get('org_role') or 'viewer').strip().lower()
+            if member_org_role not in ('owner', 'admin', 'viewer'):
+                member_org_role = 'viewer'
+
+            assign_result = db.assign_user_to_org(created['id'], member_id, member_org_role)
+            if assign_result.get('success'):
+                copied_users += 1
+                continue
+
+            if assign_result.get('error') == 'already_member':
+                continue
+
+            copy_errors.append({
+                'user_id': member_id,
+                'error': assign_result.get('error') or 'assign_failed'
+            })
+
+    # Switch active organization so the sidebar/current page updates immediately.
+    session['org_id'] = created['id']
+    session['org_name'] = created['name']
+    session['org_plan'] = created['plan']
+    if session.get('user'):
+        session['user']['primary_org_id'] = created['id']
+
+    db.log_action(
+        'org.created',
+        org_id=created['id'],
+        user_id=user_id,
+        details={
+            'name': created['name'],
+            'plan': created.get('plan'),
+            'copy_users': copy_users,
+            'copied_users': copied_users,
+            'copy_errors': copy_errors[:10],
+            'source_org_id': current_org_id
+        },
+        ip_address=request.remote_addr
+    )
+
+    return jsonify({
+        'success': True,
+        'organization': created,
+        'org_id': created['id'],
+        'copied_users': copied_users,
+        'copy_errors': copy_errors,
+        'organizations': db.get_user_orgs(user_id)
+    }), 201
 
 
 @app.route('/api/orgs/switch', methods=['POST'])
