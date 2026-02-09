@@ -214,17 +214,15 @@
         }
 
         .sidebar-logo {
-            width: 40px;
-            height: 40px;
-            border-radius: var(--radius-lg);
-            background: var(--gradient-primary);
             display: flex;
             align-items: center;
-            justify-content: center;
-            font-weight: 800;
-            font-size: 1.125rem;
-            color: white;
-            box-shadow: var(--shadow-md), var(--shadow-glow);
+        }
+
+        .sidebar-logo img {
+            height: 26px;
+            width: auto;
+            display: block;
+            object-fit: contain;
         }
 
         .sidebar-brand-text {
@@ -1290,8 +1288,9 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="sidebar-brand">
-                <div class="sidebar-logo">T</div>
-                <span class="sidebar-brand-text">TIMO</span>
+                <div class="sidebar-logo">
+                    <img src="/static/LOGO.png" alt="Logo">
+                </div>
             </div>
             <div class="sidebar-user">
                 <div class="sidebar-avatar" id="sidebarAvatar">U</div>
