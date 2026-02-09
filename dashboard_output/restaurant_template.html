@@ -66,7 +66,7 @@
                 <div class="reviews-score">
                     <div class="reviews-score-value" id="reviewsAvgRating">-</div>
                     <div class="reviews-score-stars" id="reviewsStars"></div>
-                    <div class="reviews-score-count" id="reviewsTotalCount">0 avaliações</div>
+                    <div class="reviews-score-count" id="reviewsTotalCount">0 avaliaÃ§Ãµes</div>
                 </div>
                 <div class="reviews-bars" id="reviewsBars"></div>
             </div>
@@ -75,7 +75,7 @@
             <div class="reviews-trend">
                 <div class="reviews-trend-header">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-                    <h3>Tendência de Avaliações</h3>
+                    <h3>TendÃªncia de AvaliaÃ§Ãµes</h3>
                 </div>
                 <div class="reviews-trend-chart">
                     <div class="reviews-trend-wrapper"><canvas id="ratingTrendChart"></canvas></div>
@@ -86,31 +86,31 @@
             <section class="feedback-section">
                 <div class="feedback-header">
                     <div class="feedback-header-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg></div>
-                    <h2>Avaliações dos Clientes</h2>
+                    <h2>AvaliaÃ§Ãµes dos Clientes</h2>
                 </div>
                 <div class="reviews-filters" id="reviewsFilters">
                     <button class="reviews-filter-btn active" data-filter="all">Todas</button>
-                    <button class="reviews-filter-btn" data-filter="5">5?</button>
-                    <button class="reviews-filter-btn" data-filter="4">4?</button>
-                    <button class="reviews-filter-btn" data-filter="3">3?</button>
-                    <button class="reviews-filter-btn" data-filter="2">2?</button>
-                    <button class="reviews-filter-btn" data-filter="1">1?</button>
+                    <button class="reviews-filter-btn" data-filter="5">5â˜…</button>
+                    <button class="reviews-filter-btn" data-filter="4">4â˜…</button>
+                    <button class="reviews-filter-btn" data-filter="3">3â˜…</button>
+                    <button class="reviews-filter-btn" data-filter="2">2â˜…</button>
+                    <button class="reviews-filter-btn" data-filter="1">1â˜…</button>
                 </div>
                 <div class="reviews-list" id="reviewsList">
-                    <div class="empty-state"><p>Carregando avaliações...</p></div>
+                    <div class="empty-state"><p>Carregando avaliaÃ§Ãµes...</p></div>
                 </div>
-                <button class="reviews-load-more" id="reviewsLoadMore" style="display:none" onclick="loadMoreReviews()">Carregar mais avaliações</button>
+                <button class="reviews-load-more" id="reviewsLoadMore" style="display:none" onclick="loadMoreReviews()">Carregar mais avaliaÃ§Ãµes</button>
             </section>
 
             <!-- Existing Feedback Charts -->
             <section class="feedback-section" style="margin-top:24px">
                 <div class="feedback-header">
                     <div class="feedback-header-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg></div>
-                    <h2>Análise de Feedback</h2>
+                    <h2>AnÃ¡lise de Feedback</h2>
                 </div>
                 <div class="feedback-grid">
                     <div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon compliments"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"/></svg></div><h3>Elogios</h3></div><div class="feedback-chart-wrapper"><canvas id="complimentsChart"></canvas></div></div>
-                    <div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon complaints"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2"/></svg></div><h3>Reclamações</h3></div><div class="feedback-chart-wrapper"><canvas id="complaintsChart"></canvas></div></div>
+                    <div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon complaints"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2"/></svg></div><h3>ReclamaÃ§Ãµes</h3></div><div class="feedback-chart-wrapper"><canvas id="complaintsChart"></canvas></div></div>
                     <div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon cancellations"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><h3>Motivos Cancelamento</h3></div><div class="feedback-chart-wrapper"><canvas id="cancellationReasonsChart"></canvas></div></div>
                     <div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon origins"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><h3>Origem Cancelamentos</h3></div><div class="feedback-chart-wrapper"><canvas id="cancellationOriginsChart"></canvas></div></div>
                 </div>
@@ -711,7 +711,7 @@ function renderReviewsOverview() {
     const rd = reviewsData;
     document.getElementById('reviewsAvgRating').textContent = rd.average_rating > 0 ? rd.average_rating.toFixed(1) : '-';
     document.getElementById('reviewsStars').innerHTML = renderStarsHTML(Math.round(rd.average_rating), 20);
-    document.getElementById('reviewsTotalCount').textContent = `${rd.total_reviews} avaliação${rd.total_reviews !== 1 ? 'es' : ''}`;
+    document.getElementById('reviewsTotalCount').textContent = `${rd.total_reviews} avaliaÃ§Ã£o${rd.total_reviews !== 1 ? 'es' : ''}`;
 
     const barsEl = document.getElementById('reviewsBars');
     const dist = rd.rating_distribution || {};
@@ -720,7 +720,7 @@ function renderReviewsOverview() {
         const count = dist[i] || dist[String(i)] || 0;
         const pct = rd.total_reviews > 0 ? (count / rd.total_reviews * 100) : 0;
         barsHTML += `<div class="reviews-bar-row">
-            <span class="reviews-bar-label">${i}?</span>
+            <span class="reviews-bar-label">${i}â˜…</span>
             <div class="reviews-bar-track"><div class="reviews-bar-fill" style="width:${pct}%"></div></div>
             <span class="reviews-bar-count">${count}</span>
         </div>`;
@@ -758,7 +758,7 @@ function renderRatingTrend() {
         data: {
             labels: sortedDates,
             datasets: [{
-                label: 'Avaliação Média',
+                label: 'AvaliaÃ§Ã£o MÃ©dia',
                 data: avgData,
                 borderColor: '#f59e0b',
                 backgroundColor: 'rgba(245,158,11,0.1)',
@@ -804,7 +804,7 @@ function renderReviewsList() {
     reviewsPage = 0;
 
     if (filtered.length === 0) {
-        listEl.innerHTML = '<div class="empty-state"><p>Nenhuma avaliação encontrada</p></div>';
+        listEl.innerHTML = '<div class="empty-state"><p>Nenhuma avaliaÃ§Ã£o encontrada</p></div>';
         loadMoreBtn.style.display = 'none';
         return;
     }

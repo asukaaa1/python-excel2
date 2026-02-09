@@ -160,7 +160,13 @@ def get_org_data(org_id):
 
 def get_current_org_id():
     """Get active org_id from session"""
-    return session.get('org_id') or (session.get('user', {}).get('primary_org_id'))
+    org_id = session.get('org_id') or (session.get('user', {}).get('primary_org_id'))
+    # Normalize org_id to int when possible (avoids string/int mismatches)
+    if isinstance(org_id, str):
+        org_id_str = org_id.strip()
+        if org_id_str.isdigit():
+            return int(org_id_str)
+    return org_id
 
 
 def get_current_org_restaurants():
@@ -865,8 +871,8 @@ def restaurant_page(restaurant_id):
             template = f.read()
         
         # Replace placeholders with actual data
-        rendered = template.replace('{{restaurant_name}}', restaurant['name'])
-        rendered = rendered.replace('{{restaurant_id}}', restaurant['id'])
+        rendered = template.replace('{{restaurant_name}}', restaurant.get('name', 'Restaurante'))
+        rendered = rendered.replace('{{restaurant_id}}', restaurant.get('id', restaurant_id))
         rendered = rendered.replace('{{restaurant_manager}}', restaurant.get('manager', 'Gerente'))
         rendered = rendered.replace('{{restaurant_data}}', json.dumps(restaurant, ensure_ascii=False))
         
@@ -996,6 +1002,11 @@ def api_switch_org():
     """Switch active organization"""
     data = request.get_json()
     org_id = data.get('org_id')
+    # Normalize org_id to int if it's a numeric string
+    if isinstance(org_id, str):
+        org_id_str = org_id.strip()
+        if org_id_str.isdigit():
+            org_id = int(org_id_str)
     orgs = db.get_user_orgs(session['user']['id'])
     if not any(o['id'] == org_id for o in orgs):
         return jsonify({'success': False, 'error': 'Not a member'}), 403
@@ -1298,11 +1309,13 @@ def api_restaurants():
                 
                 # Reprocess restaurant data with filtered orders
                 if filtered_orders or month_filter != 'all':
+                    restaurant_name = r.get('name', 'Unknown Restaurant')
+                    restaurant_manager = r.get('manager', 'Gerente')
                     # Get merchant details (reconstruct basic structure)
                     merchant_details = {
                         'id': r['id'],
-                        'name': r['name'],
-                        'merchantManager': {'name': r.get('manager', 'Gerente')},
+                        'name': restaurant_name,
+                        'merchantManager': {'name': restaurant_manager},
                         'address': {'neighborhood': r.get('neighborhood', 'Centro')}
                     }
                     
@@ -1315,8 +1328,8 @@ def api_restaurants():
                     )
                     
                     # Keep original name and manager
-                    restaurant_data['name'] = r['name']
-                    restaurant_data['manager'] = r['manager']
+                    restaurant_data['name'] = restaurant_name
+                    restaurant_data['manager'] = restaurant_manager
                     
                     # Remove internal caches before sending
                     restaurant = {k: v for k, v in restaurant_data.items() if not k.startswith('_')}
