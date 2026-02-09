@@ -3121,6 +3121,16 @@ def grupos_page():
     return "Grupos page not found", 404
 
 
+@app.route('/grupos/comparativo')
+@login_required
+def grupos_comparativo_page():
+    """Serve multi-store comparison page for groups."""
+    comp_file = DASHBOARD_OUTPUT / 'grupos_comparativo.html'
+    if comp_file.exists():
+        return send_file(comp_file)
+    return "Grupos comparativo page not found", 404
+
+
 # Public group page (no auth required)
 @app.route('/grupo/<slug>')
 def public_group_page(slug):
@@ -3260,6 +3270,149 @@ def api_get_groups():
         
     except Exception as e:
         print(f"Error getting groups: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/groups/<int:group_id>/comparison', methods=['GET'])
+@login_required
+def api_group_comparison(group_id):
+    """Compare stores inside a client group over a date range."""
+    try:
+        start_str = request.args.get('start_date')
+        end_str = request.args.get('end_date')
+        sort_by = request.args.get('sort_by', 'revenue')
+        sort_dir = request.args.get('sort_dir', 'desc')
+
+        end_dt = datetime.strptime(end_str, '%Y-%m-%d') if end_str else datetime.now()
+        start_dt = datetime.strptime(start_str, '%Y-%m-%d') if start_str else (end_dt - timedelta(days=30))
+        if start_dt > end_dt:
+            return jsonify({'success': False, 'error': 'start_date must be before end_date'}), 400
+
+        conn = db.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, name, slug, active
+            FROM client_groups
+            WHERE id = %s
+        """, (group_id,))
+        group_row = cursor.fetchone()
+        if not group_row:
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Grupo não encontrado'}), 404
+
+        cursor.execute("""
+            SELECT store_id, store_name
+            FROM group_stores
+            WHERE group_id = %s
+            ORDER BY store_name
+        """, (group_id,))
+        store_rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        user = session.get('user', {})
+        allowed_ids = get_user_allowed_restaurant_ids(user.get('id'), user.get('role'))
+
+        restaurants_map = {r.get('id'): r for r in get_current_org_restaurants()}
+        comparison_rows = []
+        group_orders = []
+
+        for store_id, store_name in store_rows:
+            if allowed_ids is not None and store_id not in allowed_ids:
+                continue
+
+            r = restaurants_map.get(store_id)
+            if not r:
+                comparison_rows.append({
+                    'store_id': store_id,
+                    'store_name': store_name,
+                    'manager': None,
+                    'available': False,
+                    'metrics': _calculate_period_metrics([])
+                })
+                continue
+
+            orders = r.get('_orders_cache', [])
+            filtered_orders = _filter_orders_by_date(orders, start_dt, end_dt)
+            metrics = _calculate_period_metrics(filtered_orders)
+            group_orders.extend(filtered_orders)
+
+            comparison_rows.append({
+                'store_id': store_id,
+                'store_name': r.get('name', store_name),
+                'manager': r.get('manager'),
+                'available': True,
+                'metrics': metrics
+            })
+
+        if not comparison_rows:
+            return jsonify({
+                'success': True,
+                'group': {
+                    'id': group_row[0],
+                    'name': group_row[1],
+                    'slug': group_row[2],
+                    'active': group_row[3]
+                },
+                'period': {
+                    'start_date': start_dt.strftime('%Y-%m-%d'),
+                    'end_date': end_dt.strftime('%Y-%m-%d')
+                },
+                'summary': _calculate_period_metrics([]),
+                'stores': []
+            })
+
+        key_map = {
+            'revenue': lambda x: x['metrics'].get('revenue', 0),
+            'orders': lambda x: x['metrics'].get('orders', 0),
+            'ticket': lambda x: x['metrics'].get('ticket', 0),
+            'cancel_rate': lambda x: x['metrics'].get('cancel_rate', 0),
+            'avg_rating': lambda x: x['metrics'].get('avg_rating', 0)
+        }
+        sort_fn = key_map.get(sort_by, key_map['revenue'])
+        reverse = sort_dir != 'asc'
+        comparison_rows.sort(key=sort_fn, reverse=reverse)
+
+        total_revenue = sum(s['metrics'].get('revenue', 0) for s in comparison_rows)
+        for i, row in enumerate(comparison_rows, start=1):
+            row['rank'] = i
+            rev = row['metrics'].get('revenue', 0)
+            row['metrics']['revenue_share'] = round((rev / total_revenue * 100) if total_revenue > 0 else 0, 2)
+
+        summary = _calculate_period_metrics(group_orders)
+        best_revenue = max(comparison_rows, key=lambda x: x['metrics'].get('revenue', 0))
+        best_orders = max(comparison_rows, key=lambda x: x['metrics'].get('orders', 0))
+        lowest_cancel = min(comparison_rows, key=lambda x: x['metrics'].get('cancel_rate', 100))
+
+        return jsonify({
+            'success': True,
+            'group': {
+                'id': group_row[0],
+                'name': group_row[1],
+                'slug': group_row[2],
+                'active': group_row[3]
+            },
+            'period': {
+                'start_date': start_dt.strftime('%Y-%m-%d'),
+                'end_date': end_dt.strftime('%Y-%m-%d')
+            },
+            'sort': {'by': sort_by, 'dir': sort_dir},
+            'summary': summary,
+            'benchmarks': {
+                'best_revenue_store': {'id': best_revenue['store_id'], 'name': best_revenue['store_name']},
+                'best_orders_store': {'id': best_orders['store_id'], 'name': best_orders['store_name']},
+                'lowest_cancel_store': {'id': lowest_cancel['store_id'], 'name': lowest_cancel['store_name']}
+            },
+            'stores': comparison_rows
+        })
+
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+    except Exception as e:
+        print(f"Error group comparison: {e}")
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
