@@ -22,6 +22,9 @@ import threading
 import time
 import queue
 import copy
+import csv
+import io
+import sys
 
 # Try to enable gzip compression
 try:
@@ -29,6 +32,15 @@ try:
     _HAS_COMPRESS = True
 except ImportError:
     _HAS_COMPRESS = False
+
+# Prevent UnicodeEncodeError crashes on terminals with limited encodings.
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="replace")
+except Exception:
+    pass
 
 
 # Configure paths FIRST - before Flask app creation
@@ -55,9 +67,14 @@ IS_BEHIND_PROXY = any(var in os.environ for var in [
 
 if IS_BEHIND_PROXY:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
-    print("🔧 ProxyFix enabled (detected reverse proxy)")
+    print("ProxyFix enabled (detected reverse proxy)")
 
-app.secret_key = os.environ.get('SECRET_KEY', '1a2bfcf2e328076efb65896cfd29b249698f0fe5a355a10a1e80efadc0a8d4bf')
+secret_key = os.environ.get('SECRET_KEY')
+if secret_key:
+    app.secret_key = secret_key
+else:
+    app.secret_key = os.urandom(32).hex()
+    print("WARNING: SECRET_KEY not set; using ephemeral secret key for this process.")
 app.permanent_session_lifetime = timedelta(days=7)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -66,7 +83,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_BEHIND_PROXY
 # Enable gzip compression if available
 if _HAS_COMPRESS:
     Compress(app)
-    print("🗜️  Response compression enabled")
+    print("Response compression enabled")
 else:
     # Fallback: manual gzip via after_request
     import gzip as _gzip
@@ -99,12 +116,12 @@ else:
             response.headers['Content-Length'] = len(response.get_data())
             response.headers['Vary'] = 'Accept-Encoding'
         return response
-    print("🗜️  Manual gzip compression enabled")
+    print("Manual gzip compression enabled")
 
-print(f"📁 Base directory: {BASE_DIR}")
-print(f"📁 Static folder: {STATIC_DIR}")
-print(f"📁 Dashboard output: {DASHBOARD_OUTPUT}")
-print(f"📁 Config file: {CONFIG_FILE}")
+print(f"Base directory: {BASE_DIR}")
+print(f"Static folder: {STATIC_DIR}")
+print(f"Dashboard output: {DASHBOARD_OUTPUT}")
+print(f"Config file: {CONFIG_FILE}")
 
 @app.after_request
 def add_cache_headers(response):
@@ -149,6 +166,7 @@ RESTAURANTS_DATA = []
 IFOOD_API = None
 IFOOD_CONFIG = {}
 LAST_DATA_REFRESH = None
+APP_STARTED_AT = datetime.utcnow()
 
 
 def get_org_data(org_id):
@@ -175,6 +193,96 @@ def get_current_org_restaurants():
     if org_id and org_id in ORG_DATA:
         return ORG_DATA[org_id]['restaurants']
     return RESTAURANTS_DATA  # fallback for legacy single-tenant
+
+
+def get_current_org_api():
+    """Get iFood API client for current org (fallback to legacy global)."""
+    org_id = get_current_org_id()
+    if org_id and org_id in ORG_DATA:
+        return ORG_DATA[org_id].get('api')
+    return IFOOD_API
+
+
+def get_current_org_last_refresh():
+    """Get last refresh timestamp for current org."""
+    org_id = get_current_org_id()
+    if org_id and org_id in ORG_DATA:
+        return ORG_DATA[org_id].get('last_refresh')
+    return LAST_DATA_REFRESH
+
+
+def parse_month_filter(raw_month):
+    """Validate month query parameter."""
+    if raw_month in (None, '', 'all'):
+        return 'all'
+    if isinstance(raw_month, int):
+        month_value = raw_month
+    else:
+        raw_str = str(raw_month).strip()
+        if not raw_str.isdigit():
+            return None
+        month_value = int(raw_str)
+    if 1 <= month_value <= 12:
+        return f"{month_value:02d}"
+    return None
+
+
+def get_json_payload():
+    """Safely parse JSON payloads and always return a dict."""
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def sanitize_restaurant_payload(restaurant):
+    return {k: v for k, v in restaurant.items() if not k.startswith('_')}
+
+
+def filter_orders_by_month(orders, month_filter):
+    if month_filter == 'all':
+        return orders
+    target_month = int(month_filter)
+    filtered = []
+    for order in orders:
+        try:
+            created_at = order.get('createdAt')
+            if not created_at:
+                continue
+            order_date = datetime.fromisoformat(str(created_at).replace('Z', '+00:00'))
+            if order_date.month == target_month:
+                filtered.append(order)
+        except Exception:
+            continue
+    return filtered
+
+
+def aggregate_dashboard_summary(restaurants):
+    total_orders = 0
+    gross_revenue = 0.0
+    net_revenue = 0.0
+    positive_trend_count = 0
+    negative_trend_count = 0
+
+    for restaurant in restaurants:
+        metrics = restaurant.get('metrics', {})
+        trends = metrics.get('trends') or {}
+        total_orders += int(metrics.get('vendas') or 0)
+        gross_revenue += float(metrics.get('valor_bruto') or 0)
+        net_revenue += float(metrics.get('liquido') or 0)
+        trend_vendas = float(trends.get('vendas') or 0)
+        if trend_vendas > 0:
+            positive_trend_count += 1
+        elif trend_vendas < 0:
+            negative_trend_count += 1
+
+    return {
+        'store_count': len(restaurants),
+        'total_orders': total_orders,
+        'gross_revenue': gross_revenue,
+        'net_revenue': net_revenue,
+        'avg_ticket': (net_revenue / total_orders) if total_orders else 0,
+        'positive_trend_count': positive_trend_count,
+        'negative_trend_count': negative_trend_count
+    }
 
 # ============================================================================
 # REAL-TIME SSE (Server-Sent Events) INFRASTRUCTURE
@@ -242,7 +350,7 @@ class BackgroundRefresher:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True, name="bg-refresh")
         self._thread.start()
-        print(f"🔄 Background refresh started (every {self.interval // 60} min)")
+        print(f"ðŸ”„ Background refresh started (every {self.interval // 60} min)")
     
     def stop(self):
         self._stop_event.set()
@@ -270,7 +378,7 @@ class BackgroundRefresher:
             sse_manager.broadcast('data_updated', {'restaurant_count': len(RESTAURANTS_DATA), 'timestamp': datetime.now().isoformat()})
             return True
         except Exception as e:
-            print(f"❌ Background refresh error: {e}")
+            print(f"âŒ Background refresh error: {e}")
             sse_manager.broadcast('refresh_status', {'status': 'error', 'error': str(e)})
             return False
         finally:
@@ -294,7 +402,7 @@ def _do_data_refresh():
             try:
                 _load_org_restaurants(org_id)
             except Exception as e:
-                print(f"⚠️ Org {org_id} refresh error: {e}")
+                print(f"âš ï¸ Org {org_id} refresh error: {e}")
     
     # Also refresh legacy global data if configured
     if not IFOOD_API:
@@ -342,7 +450,7 @@ def _do_data_refresh():
             _detect_and_broadcast_new_orders(merchant_id, name, orders)
             
         except Exception as e:
-            print(f"   ❌ Failed to refresh {name}: {e}")
+            print(f"   âŒ Failed to refresh {name}: {e}")
     
     # Atomic swap
     RESTAURANTS_DATA = new_data
@@ -354,7 +462,7 @@ def _do_data_refresh():
     # Save snapshot to DB for fast cold starts
     _save_data_snapshot()
     
-    print(f"🔄 Refreshed {len(RESTAURANTS_DATA)} restaurant(s) at {LAST_DATA_REFRESH.strftime('%H:%M:%S')}")
+    print(f"ðŸ”„ Refreshed {len(RESTAURANTS_DATA)} restaurant(s) at {LAST_DATA_REFRESH.strftime('%H:%M:%S')}")
 
 
 # Track last seen order IDs per restaurant for new order detection
@@ -423,7 +531,7 @@ def _save_data_snapshot():
         cursor.close()
         conn.close()
     except Exception as e:
-        print(f"⚠️ Failed to save snapshot: {e}")
+        print(f"âš ï¸ Failed to save snapshot: {e}")
 
 
 def _load_data_snapshot():
@@ -454,14 +562,14 @@ def _load_data_snapshot():
             if age < timedelta(hours=2):
                 RESTAURANTS_DATA = data
                 LAST_DATA_REFRESH = created_at
-                print(f"⚡ Loaded {len(data)} restaurants from DB snapshot ({age.seconds // 60} min old)")
+                print(f"âš¡ Loaded {len(data)} restaurants from DB snapshot ({age.seconds // 60} min old)")
                 return True
             else:
-                print(f"⏳ DB snapshot too old ({age.seconds // 3600}h), will refresh from API")
+                print(f"â³ DB snapshot too old ({age.seconds // 3600}h), will refresh from API")
                 return False
         return False
     except Exception as e:
-        print(f"⚠️ Failed to load snapshot: {e}")
+        print(f"âš ï¸ Failed to load snapshot: {e}")
         return False
 
 
@@ -485,12 +593,12 @@ def _init_org_ifood(org_id):
         api = IFoodAPI(config['client_id'], config['client_secret'])
         if api.authenticate():
             org['api'] = api
-            print(f"✅ Org {org_id}: iFood API authenticated")
+            print(f"âœ… Org {org_id}: iFood API authenticated")
             return api
         else:
-            print(f"⚠️ Org {org_id}: iFood auth failed")
+            print(f"âš ï¸ Org {org_id}: iFood auth failed")
     except Exception as e:
-        print(f"❌ Org {org_id}: iFood init error: {e}")
+        print(f"âŒ Org {org_id}: iFood init error: {e}")
     return None
 
 
@@ -529,18 +637,18 @@ def _load_org_restaurants(org_id):
             restaurant_data['_orders_cache'] = orders or []
             new_data.append(restaurant_data)
         except Exception as e:
-            print(f"  ⚠️ Org {org_id}, merchant {merchant_id}: {e}")
+            print(f"  âš ï¸ Org {org_id}, merchant {merchant_id}: {e}")
     org['restaurants'] = new_data
     org['last_refresh'] = datetime.now()
     db.save_org_data_cache(org_id, 'restaurants', [{k:v for k,v in r.items() if not k.startswith('_')} for r in new_data])
-    print(f"✅ Org {org_id}: loaded {len(new_data)} restaurants")
+    print(f"âœ… Org {org_id}: loaded {len(new_data)} restaurants")
 
 
 def initialize_all_orgs():
     """Initialize iFood API and load data for all active orgs with credentials"""
     global RESTAURANTS_DATA, IFOOD_API, IFOOD_CONFIG, LAST_DATA_REFRESH
     orgs = db.get_all_active_orgs()
-    print(f"\n🏢 Initializing {len(orgs)} organization(s)...")
+    print(f"\nðŸ¢ Initializing {len(orgs)} organization(s)...")
     for org_info in orgs:
         org_id = org_info['id']
         # Try cache first
@@ -549,7 +657,7 @@ def initialize_all_orgs():
             od = get_org_data(org_id)
             od['restaurants'] = cached
             od['last_refresh'] = datetime.now()
-            print(f"  ⚡ Org {org_id} ({org_info['name']}): {len(cached)} restaurants from cache")
+            print(f"  âš¡ Org {org_id} ({org_info['name']}): {len(cached)} restaurants from cache")
             # Init API in background
             threading.Thread(target=_init_and_refresh_org, args=(org_id,), daemon=True).start()
         else:
@@ -580,7 +688,7 @@ def initialize_ifood_api():
     IFOOD_CONFIG = IFoodConfig.load_config(str(CONFIG_FILE))
     
     if not IFOOD_CONFIG:
-        print("⚠️  No iFood configuration found")
+        print("âš ï¸  No iFood configuration found")
         print(f"   Creating sample config at {CONFIG_FILE}")
         IFoodConfig.create_sample_config(str(CONFIG_FILE))
         return False
@@ -589,7 +697,7 @@ def initialize_ifood_api():
     client_secret = IFOOD_CONFIG.get('client_secret')
     
     if not client_id or client_id == 'your_ifood_client_id_here':
-        print("⚠️  iFood API credentials not configured")
+        print("âš ï¸  iFood API credentials not configured")
         print(f"   Please update {CONFIG_FILE} with your credentials")
         return False
     
@@ -598,10 +706,10 @@ def initialize_ifood_api():
     
     # Authenticate
     if IFOOD_API.authenticate():
-        print("✅ iFood API initialized successfully")
+        print("âœ… iFood API initialized successfully")
         return True
     else:
-        print("❌ iFood API authentication failed")
+        print("âŒ iFood API authentication failed")
         return False
 
 
@@ -612,16 +720,16 @@ def load_restaurants_from_ifood():
     RESTAURANTS_DATA = []
     
     if not IFOOD_API:
-        print("❌ iFood API not initialized")
+        print("âŒ iFood API not initialized")
         return
     
-    print(f"\n📊 Fetching restaurant data from iFood API...")
+    print(f"\nðŸ“Š Fetching restaurant data from iFood API...")
     
     # Get merchants from config
     merchants_config = IFOOD_CONFIG.get('merchants', [])
     
     if not merchants_config:
-        print("⚠️  No merchants configured in config file")
+        print("âš ï¸  No merchants configured in config file")
         # Try to fetch all merchants from API
         try:
             merchants = IFOOD_API.get_merchants()
@@ -635,7 +743,7 @@ def load_restaurants_from_ifood():
                 IFOOD_CONFIG['merchants'] = merchants_config
                 IFoodConfig.save_config(IFOOD_CONFIG, str(CONFIG_FILE))
         except Exception as e:
-            print(f"❌ Error fetching merchants: {e}")
+            print(f"âŒ Error fetching merchants: {e}")
             return
     
     # Get data fetch period
@@ -650,7 +758,7 @@ def load_restaurants_from_ifood():
         merchant_id = merchant_config.get('merchant_id')
         name = merchant_config.get('name', 'Unknown Restaurant')
         
-        print(f"   📄 Processing: {name}")
+        print(f"   ðŸ“„ Processing: {name}")
         
         try:
             # Get merchant details
@@ -691,14 +799,14 @@ def load_restaurants_from_ifood():
             restaurant_data['_orders_cache'] = orders
             
             RESTAURANTS_DATA.append(restaurant_data)
-            print(f"      ✅ {restaurant_data['name']}")
+            print(f"      âœ… {restaurant_data['name']}")
             
         except Exception as e:
-            print(f"      ❌ Failed to process {name}: {e}")
+            print(f"      âŒ Failed to process {name}: {e}")
             traceback.print_exc()
     
     LAST_DATA_REFRESH = datetime.now()
-    print(f"\n✅ Loaded {len(RESTAURANTS_DATA)} restaurant(s) from iFood")
+    print(f"\nâœ… Loaded {len(RESTAURANTS_DATA)} restaurant(s) from iFood")
 
 
 # ============================================================================
@@ -889,7 +997,9 @@ def restaurant_page(restaurant_id):
 def api_login():
     """Handle login requests"""
     try:
-        data = request.get_json()
+        data = get_json_payload()
+        if not data:
+            return jsonify({'success': False, 'error': 'Invalid JSON payload'}), 400
         email = data.get('email', '').strip()
         password = data.get('password', '')
         
@@ -967,18 +1077,20 @@ def api_me():
 def api_register():
     """Self-service signup: create account + organization"""
     try:
-        data = request.get_json()
+        data = get_json_payload()
+        if not data:
+            return jsonify({'success': False, 'error': 'Payload inválido'}), 400
         email = (data.get('email') or '').strip().lower()
         password = data.get('password', '')
         full_name = (data.get('full_name') or '').strip()
         org_name = (data.get('org_name') or '').strip()
         if not all([email, password, full_name, org_name]):
-            return jsonify({'success': False, 'error': 'Todos os campos são obrigatórios'}), 400
+            return jsonify({'success': False, 'error': 'Todos os campos sÃ£o obrigatÃ³rios'}), 400
         if len(password) < 8:
-            return jsonify({'success': False, 'error': 'Senha deve ter no mínimo 8 caracteres'}), 400
+            return jsonify({'success': False, 'error': 'Senha deve ter no mÃ­nimo 8 caracteres'}), 400
         result = db.register_user_and_org(email, password, full_name, org_name)
         if not result:
-            return jsonify({'success': False, 'error': 'Email já cadastrado'}), 409
+            return jsonify({'success': False, 'error': 'Email jÃ¡ cadastrado'}), 409
         session['user'] = {'id': result['user_id'], 'username': result['username'], 'name': full_name, 'email': email, 'role': 'admin', 'primary_org_id': result['org_id']}
         session['org_id'] = result['org_id']
         session.permanent = True
@@ -1000,7 +1112,9 @@ def api_user_orgs():
 @login_required
 def api_switch_org():
     """Switch active organization"""
-    data = request.get_json()
+    data = get_json_payload()
+    if not data:
+        return jsonify({'success': False, 'error': 'Payload inválido'}), 400
     org_id = data.get('org_id')
     # Normalize org_id to int if it's a numeric string
     if isinstance(org_id, str):
@@ -1046,7 +1160,9 @@ def api_org_ifood_config():
             masked = s[:4] + '****' + s[-4:] if len(s) > 8 else '****'
         return jsonify({'success': True, 'config': {'client_id': config.get('client_id'), 'client_secret_masked': masked, 'merchants': config.get('merchants', []), 'has_credentials': bool(config.get('client_id'))}})
     # POST
-    data = request.get_json()
+    data = get_json_payload()
+    if not data:
+        return jsonify({'success': False, 'error': 'Payload inválido'}), 400
     db.update_org_ifood_config(org_id, data.get('client_id'), data.get('client_secret') if data.get('client_secret') != '****' else None, data.get('merchants'))
     db.log_action('org.ifood_config_updated', org_id=org_id, user_id=session['user']['id'], ip_address=request.remote_addr)
     # Reinitialize this org's API connection
@@ -1060,10 +1176,12 @@ def api_create_invite():
     """Create a team invite"""
     org_id = get_current_org_id()
     if not org_id: return jsonify({'success': False}), 403
-    data = request.get_json()
+    data = get_json_payload()
+    if not data:
+        return jsonify({'success': False, 'error': 'Payload inválido'}), 400
     email = (data.get('email') or '').strip().lower()
     role = data.get('role', 'viewer')
-    if not email: return jsonify({'success': False, 'error': 'Email obrigatório'}), 400
+    if not email: return jsonify({'success': False, 'error': 'Email obrigatÃ³rio'}), 400
     token = db.create_invite(org_id, email, role, session['user']['id'])
     if not token: return jsonify({'success': False, 'error': 'Limite de membros atingido'}), 400
     invite_url = f"{request.host_url}invite/{token}"
@@ -1076,7 +1194,7 @@ def api_create_invite():
 def api_accept_invite(token):
     """Accept a team invite"""
     result = db.accept_invite(token, session['user']['id'])
-    if not result: return jsonify({'success': False, 'error': 'Convite inválido ou expirado'}), 400
+    if not result: return jsonify({'success': False, 'error': 'Convite invÃ¡lido ou expirado'}), 400
     session['org_id'] = result['org_id']
     return jsonify({'success': True, 'org_id': result['org_id'], 'redirect': '/dashboard'})
 
@@ -1205,7 +1323,7 @@ def api_saved_views_create():
     if not org_id or not user:
         return jsonify({'success': False}), 403
 
-    data = request.get_json() or {}
+    data = get_json_payload() or {}
     view_type = (data.get('view_type') or '').strip()
     name = (data.get('name') or '').strip()
     payload = data.get('payload') or {}
@@ -1271,7 +1389,9 @@ def api_restaurants():
     """Get list of all restaurants with optional month filtering and squad-based access control"""
     try:
         # Get month filter from query parameters
-        month_filter = request.args.get('month', 'all')
+        month_filter = parse_month_filter(request.args.get('month', 'all'))
+        if month_filter is None:
+            return jsonify({'success': False, 'error': 'Invalid month filter'}), 400
         
         # Check in-memory cache first (avoids re-processing orders every request)
         org_id = get_current_org_id()
@@ -1296,16 +1416,7 @@ def api_restaurants():
                 orders = r.get('_orders_cache', [])
                 
                 # Filter orders by month
-                filtered_orders = []
-                for order in orders:
-                    try:
-                        created_at = order.get('createdAt', '')
-                        if created_at:
-                            order_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                            if order_date.month == int(month_filter):
-                                filtered_orders.append(order)
-                    except:
-                        pass
+                filtered_orders = filter_orders_by_month(orders, month_filter)
                 
                 # Reprocess restaurant data with filtered orders
                 if filtered_orders or month_filter != 'all':
@@ -1453,10 +1564,11 @@ def api_restaurant_detail(restaurant_id):
         chart_data = {}
         interruptions = []
         
-        if IFOOD_API:
+        api = get_current_org_api()
+        if api:
             # Get interruptions
             try:
-                interruptions = IFOOD_API.get_interruptions(restaurant_id) or []
+                interruptions = api.get_interruptions(restaurant_id) or []
             except:
                 pass
         
@@ -1540,8 +1652,14 @@ def api_restaurant_orders(restaurant_id):
             return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
         
         # Get parameters
-        per_page = int(request.args.get('per_page', 100))
-        page = int(request.args.get('page', 1))
+        try:
+            per_page = int(request.args.get('per_page', 100))
+            page = int(request.args.get('page', 1))
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid pagination parameters'}), 400
+
+        per_page = max(1, min(per_page, 500))
+        page = max(1, page)
         status = request.args.get('status')
         
         # Get orders from cache
@@ -1642,11 +1760,12 @@ def api_restaurant_menu_performance(restaurant_id):
 def api_restaurant_interruptions(restaurant_id):
     """Get interruptions for a specific restaurant"""
     try:
-        if not IFOOD_API:
+        api = get_current_org_api()
+        if not api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
         
         # Get interruptions
-        interruptions = IFOOD_API.get_interruptions(restaurant_id)
+        interruptions = api.get_interruptions(restaurant_id)
         
         return jsonify({
             'success': True,
@@ -1664,11 +1783,12 @@ def api_restaurant_interruptions(restaurant_id):
 def api_restaurant_status(restaurant_id):
     """Get operational status for a specific restaurant"""
     try:
-        if not IFOOD_API:
+        api = get_current_org_api()
+        if not api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
         
         # Get status
-        status = IFOOD_API.get_merchant_status(restaurant_id)
+        status = api.get_merchant_status(restaurant_id)
         
         return jsonify({
             'success': True,
@@ -1686,10 +1806,11 @@ def api_restaurant_status(restaurant_id):
 def api_create_interruption(restaurant_id):
     """Create a new interruption (close store temporarily)"""
     try:
-        if not IFOOD_API:
+        api = get_current_org_api()
+        if not api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
         
-        data = request.get_json()
+        data = get_json_payload()
         start = data.get('start')
         end = data.get('end')
         description = data.get('description', '')
@@ -1698,7 +1819,7 @@ def api_create_interruption(restaurant_id):
             return jsonify({'success': False, 'error': 'Start and end times required'}), 400
         
         # Create interruption
-        result = IFOOD_API.create_interruption(restaurant_id, start, end, description)
+        result = api.create_interruption(restaurant_id, start, end, description)
         
         if result:
             return jsonify({
@@ -1720,11 +1841,12 @@ def api_create_interruption(restaurant_id):
 def api_delete_interruption(restaurant_id, interruption_id):
     """Delete an interruption (reopen store)"""
     try:
-        if not IFOOD_API:
+        api = get_current_org_api()
+        if not api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
         
         # Delete interruption
-        success = IFOOD_API.delete_interruption(restaurant_id, interruption_id)
+        success = api.delete_interruption(restaurant_id, interruption_id)
         
         if success:
             return jsonify({
@@ -1744,11 +1866,12 @@ def api_delete_interruption(restaurant_id, interruption_id):
 
 
 @app.route('/api/refresh-data', methods=['POST'])
-@login_required
+@admin_required
 def api_refresh_data():
     """Refresh restaurant data from iFood API (now uses background thread)"""
     try:
-        if not IFOOD_API:
+        has_org_api = any(od.get('api') for od in ORG_DATA.values())
+        if not IFOOD_API and not has_org_api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
         
         if bg_refresher.is_refreshing:
@@ -1820,11 +1943,87 @@ def api_refresh_status():
     return jsonify({
         'success': True,
         'is_refreshing': bg_refresher.is_refreshing,
-        'last_refresh': LAST_DATA_REFRESH.isoformat() if LAST_DATA_REFRESH else None,
-        'restaurant_count': len(RESTAURANTS_DATA),
+        'last_refresh': get_current_org_last_refresh().isoformat() if get_current_org_last_refresh() else None,
+        'restaurant_count': len(get_current_org_restaurants()),
         'connected_clients': sse_manager.client_count,
         'refresh_interval_minutes': IFOOD_CONFIG.get('refresh_interval_minutes', 30)
     })
+
+
+@app.route('/api/dashboard/summary')
+@login_required
+def api_dashboard_summary():
+    """Return aggregate KPI summary for current org and month filter."""
+    month_filter = parse_month_filter(request.args.get('month', 'all'))
+    if month_filter is None:
+        return jsonify({'success': False, 'error': 'Invalid month filter'}), 400
+    restaurants = []
+    for r in get_current_org_restaurants():
+        orders = r.get('_orders_cache', [])
+        if month_filter != 'all':
+            orders = filter_orders_by_month(orders, month_filter)
+        if not orders:
+            continue
+        restaurant_data = IFoodDataProcessor.process_restaurant_data(
+            {'id': r.get('id'), 'name': r.get('name', 'Restaurante'), 'merchantManager': {'name': r.get('manager', 'Gerente')}},
+            orders,
+            None
+        )
+        restaurant_data['name'] = r.get('name', 'Restaurante')
+        restaurant_data['manager'] = r.get('manager', 'Gerente')
+        restaurants.append(restaurant_data)
+    summary = aggregate_dashboard_summary(restaurants)
+    summary['last_refresh'] = get_current_org_last_refresh().isoformat() if get_current_org_last_refresh() else None
+    return jsonify({'success': True, 'summary': summary, 'month_filter': month_filter})
+
+
+@app.route('/api/restaurants/export.csv')
+@login_required
+@require_feature('export')
+def api_restaurants_export_csv():
+    """Export visible restaurants as CSV."""
+    month_filter = parse_month_filter(request.args.get('month', 'all'))
+    if month_filter is None:
+        return jsonify({'success': False, 'error': 'Invalid month filter'}), 400
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['restaurant_id', 'restaurant_name', 'manager', 'orders', 'ticket_medio', 'valor_bruto', 'liquido'])
+
+    for r in get_current_org_restaurants():
+        metrics = r.get('metrics', {})
+        writer.writerow([
+            r.get('id', ''),
+            r.get('name', ''),
+            r.get('manager', ''),
+            metrics.get('vendas', 0),
+            metrics.get('ticket_medio', 0),
+            metrics.get('valor_bruto', 0),
+            metrics.get('liquido', 0)
+        ])
+
+    filename = f"restaurants-{month_filter}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
+
+
+@app.route('/api/health')
+def api_health():
+    """Health probe."""
+    conn = db.get_connection()
+    ok = bool(conn)
+    if conn:
+        conn.close()
+    return jsonify({
+        'success': ok,
+        'status': 'ok' if ok else 'degraded',
+        'uptime_seconds': int((datetime.utcnow() - APP_STARTED_AT).total_seconds()),
+        'restaurants_loaded': len(get_current_org_restaurants()),
+        'last_refresh': get_current_org_last_refresh().isoformat() if get_current_org_last_refresh() else None
+    }), (200 if ok else 503)
 
 
 # ============================================================================
@@ -1885,7 +2084,7 @@ def api_compare_periods():
         
         # Collect restaurants to compare
         if restaurant_id == 'all':
-            targets = RESTAURANTS_DATA
+            targets = get_current_org_restaurants()
         else:
             targets = [r for r in get_current_org_restaurants() if r['id'] == restaurant_id]
             if not targets:
@@ -2134,7 +2333,7 @@ def api_ifood_config():
 def api_add_merchant():
     """Add a merchant to the configuration"""
     try:
-        data = request.get_json()
+        data = get_json_payload()
         
         merchant_id = data.get('merchant_id')
         name = data.get('name')
@@ -2395,7 +2594,7 @@ def api_cancel_restaurant():
     """Mark a restaurant as cancelled"""
     global RESTAURANTS_DATA
     try:
-        data = request.get_json()
+        data = get_json_payload()
         restaurant_id = data.get('restaurant_id')
         reason = data.get('reason', '')
         
@@ -2500,7 +2699,7 @@ def api_users():
 def api_create_user():
     """Create new user (admin only)"""
     try:
-        data = request.get_json()
+        data = get_json_payload()
         
         username = data.get('username')
         password = data.get('password')
@@ -2623,7 +2822,7 @@ def get_hidden_stores():
 def hide_store(store_id):
     """Hide a store from the main dashboard"""
     try:
-        data = request.get_json() or {}
+        data = get_json_payload() or {}
         store_name = data.get('name', 'Unknown Store')
         hidden_by = session.get('user', {}).get('username', 'Unknown')
         
@@ -2832,12 +3031,12 @@ def api_get_squads():
 def api_create_squad():
     """Create a new squad"""
     try:
-        data = request.get_json()
+        data = get_json_payload()
         name = data.get('name', '').strip()
         description = data.get('description', '').strip()
         
         if not name:
-            return jsonify({'success': False, 'error': 'Nome é obrigatório'}), 400
+            return jsonify({'success': False, 'error': 'Nome Ã© obrigatÃ³rio'}), 400
         
         created_by = session.get('user', {}).get('username', 'Unknown')
         
@@ -2849,7 +3048,7 @@ def api_create_squad():
         if cursor.fetchone():
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Já existe um squad com este nome'}), 400
+            return jsonify({'success': False, 'error': 'JÃ¡ existe um squad com este nome'}), 400
         
         # Create squad - check which schema we have
         cursor.execute("""
@@ -2896,12 +3095,12 @@ def api_create_squad():
 def api_update_squad(squad_id):
     """Update a squad"""
     try:
-        data = request.get_json()
+        data = get_json_payload()
         name = data.get('name', '').strip()
         description = data.get('description', '').strip()
         
         if not name:
-            return jsonify({'success': False, 'error': 'Nome é obrigatório'}), 400
+            return jsonify({'success': False, 'error': 'Nome Ã© obrigatÃ³rio'}), 400
         
         conn = db.get_connection()
         cursor = conn.cursor()
@@ -2911,14 +3110,14 @@ def api_update_squad(squad_id):
         if not cursor.fetchone():
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Squad não encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Squad nÃ£o encontrado'}), 404
         
         # Check for duplicate name (excluding current squad)
         cursor.execute("SELECT id FROM squads WHERE name = %s AND id != %s", (name, squad_id))
         if cursor.fetchone():
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Já existe outro squad com este nome'}), 400
+            return jsonify({'success': False, 'error': 'JÃ¡ existe outro squad com este nome'}), 400
         
         # Update squad - only update name since description doesn't exist in current schema
         cursor.execute("""
@@ -2954,7 +3153,7 @@ def api_delete_squad(squad_id):
         if not result:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Squad não encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Squad nÃ£o encontrado'}), 404
         
         squad_name = result[0]
         
@@ -2967,7 +3166,7 @@ def api_delete_squad(squad_id):
         
         return jsonify({
             'success': True,
-            'message': f'Squad "{squad_name}" excluído com sucesso'
+            'message': f'Squad "{squad_name}" excluÃ­do com sucesso'
         })
         
     except Exception as e:
@@ -2981,11 +3180,11 @@ def api_delete_squad(squad_id):
 def api_add_squad_members(squad_id):
     """Add members to a squad"""
     try:
-        data = request.get_json()
+        data = get_json_payload()
         user_ids = data.get('user_ids', [])
         
         if not user_ids:
-            return jsonify({'success': False, 'error': 'Nenhum usuário selecionado'}), 400
+            return jsonify({'success': False, 'error': 'Nenhum usuÃ¡rio selecionado'}), 400
         
         conn = db.get_connection()
         cursor = conn.cursor()
@@ -2995,7 +3194,7 @@ def api_add_squad_members(squad_id):
         if not cursor.fetchone():
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Squad não encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Squad nÃ£o encontrado'}), 404
         
         added_count = 0
         for user_id in user_ids:
@@ -3042,7 +3241,7 @@ def api_remove_squad_member(squad_id, user_id):
         if cursor.rowcount == 0:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Membro não encontrado no squad'}), 404
+            return jsonify({'success': False, 'error': 'Membro nÃ£o encontrado no squad'}), 404
         
         conn.commit()
         cursor.close()
@@ -3064,7 +3263,7 @@ def api_remove_squad_member(squad_id, user_id):
 def api_add_squad_restaurants(squad_id):
     """Add restaurants to a squad"""
     try:
-        data = request.get_json()
+        data = get_json_payload()
         restaurant_ids = data.get('restaurant_ids', [])
         
         if not restaurant_ids:
@@ -3078,7 +3277,7 @@ def api_add_squad_restaurants(squad_id):
         if not cursor.fetchone():
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Squad não encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Squad nÃ£o encontrado'}), 404
         
         added_count = 0
         for restaurant_id in restaurant_ids:
@@ -3132,7 +3331,7 @@ def api_remove_squad_restaurant(squad_id, restaurant_id):
         if cursor.rowcount == 0:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Restaurante não encontrado no squad'}), 404
+            return jsonify({'success': False, 'error': 'Restaurante nÃ£o encontrado no squad'}), 404
         
         conn.commit()
         cursor.close()
@@ -3344,7 +3543,7 @@ def api_group_comparison(group_id):
         if not group_row:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Grupo não encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Grupo nÃ£o encontrado'}), 404
 
         cursor.execute("""
             SELECT store_id, store_name
@@ -3466,13 +3665,13 @@ def api_group_comparison(group_id):
 def api_create_group():
     """Create a new client group"""
     try:
-        data = request.get_json()
+        data = get_json_payload()
         name = data.get('name', '').strip()
         slug = data.get('slug', '').strip()
         store_ids = data.get('store_ids', [])
         
         if not name:
-            return jsonify({'success': False, 'error': 'Nome é obrigatório'}), 400
+            return jsonify({'success': False, 'error': 'Nome Ã© obrigatÃ³rio'}), 400
         
         # Generate slug if not provided
         if not slug:
@@ -3542,14 +3741,14 @@ def api_create_group():
 def api_update_group(group_id):
     """Update a client group"""
     try:
-        data = request.get_json()
+        data = get_json_payload()
         name = data.get('name', '').strip()
         slug = data.get('slug', '').strip()
         store_ids = data.get('store_ids', [])
         active = data.get('active', True)
         
         if not name:
-            return jsonify({'success': False, 'error': 'Nome é obrigatório'}), 400
+            return jsonify({'success': False, 'error': 'Nome Ã© obrigatÃ³rio'}), 400
         
         conn = db.get_connection()
         cursor = conn.cursor()
@@ -3560,7 +3759,7 @@ def api_update_group(group_id):
         if not existing:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Grupo não encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Grupo nÃ£o encontrado'}), 404
         
         # If slug changed, validate it
         if slug and slug != existing[1]:
@@ -3571,7 +3770,7 @@ def api_update_group(group_id):
             if cursor.fetchone():
                 cursor.close()
                 conn.close()
-                return jsonify({'success': False, 'error': 'Slug já existe'}), 400
+                return jsonify({'success': False, 'error': 'Slug jÃ¡ existe'}), 400
         else:
             slug = existing[1]
         
@@ -3627,7 +3826,7 @@ def api_delete_group(group_id):
         if not result:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Grupo não encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Grupo nÃ£o encontrado'}), 404
         
         group_name = result[0]
         
@@ -3640,7 +3839,7 @@ def api_delete_group(group_id):
         
         return jsonify({
             'success': True,
-            'message': f'Grupo "{group_name}" excluído com sucesso'
+            'message': f'Grupo "{group_name}" excluÃ­do com sucesso'
         })
         
     except Exception as e:
@@ -3715,7 +3914,7 @@ def cdn_cgi_fallback(path):
 @app.errorhandler(404)
 def page_not_found(e):
     """Custom 404 error handler"""
-    print(f"❌ 404 Error: {request.url}")
+    print(f"âŒ 404 Error: {request.url}")
     
     if request.is_json or request.path.startswith('/api/'):
         return jsonify({'error': 'Not found'}), 404
@@ -3739,14 +3938,14 @@ def page_not_found(e):
             <p><strong>Requested URL:</strong> {request.url}</p>
         </div>
         <div class="debug">
-            <h3>🔍 Debug Information:</h3>
+            <h3>ðŸ” Debug Information:</h3>
             <p><strong>Dashboard output directory:</strong> {DASHBOARD_OUTPUT}</p>
             <p><strong>Config file:</strong> {CONFIG_FILE}</p>
             <p><strong>Loaded restaurants:</strong> {len(RESTAURANTS_DATA)}</p>
-            <p><strong>iFood API status:</strong> {'✅ Connected' if IFOOD_API else '❌ Not configured'}</p>
+            <p><strong>iFood API status:</strong> {'âœ… Connected' if IFOOD_API else 'âŒ Not configured'}</p>
             <p><strong>Last data refresh:</strong> {LAST_DATA_REFRESH.strftime('%Y-%m-%d %H:%M:%S') if LAST_DATA_REFRESH else 'Never'}</p>
         </div>
-        <p><a href="/login">← Back to Login</a></p>
+        <p><a href="/login">â† Back to Login</a></p>
     </body>
     </html>
     """, 404
@@ -3755,7 +3954,7 @@ def page_not_found(e):
 @app.errorhandler(500)
 def internal_error(e):
     """Custom 500 error handler"""
-    print(f"❌ 500 Error: {str(e)}")
+    print(f"âŒ 500 Error: {str(e)}")
     traceback.print_exc()
     
     if request.is_json or request.path.startswith('/api/'):
@@ -3771,7 +3970,7 @@ def internal_error(e):
             <p>An error occurred while processing your request.</p>
             <pre>{str(e)}</pre>
         </div>
-        <p><a href="/login" style="color: #ef4444;">← Back to Login</a></p>
+        <p><a href="/login" style="color: #ef4444;">â† Back to Login</a></p>
     </body>
     </html>
     """, 500
@@ -3784,14 +3983,14 @@ def internal_error(e):
 def check_setup():
     """Check if setup is correct"""
     print("\n" + "="*60)
-    print("🔍 Checking Setup...")
+    print("ðŸ” Checking Setup...")
     print("="*60)
     
     issues = []
     
     # Check dashboard_output directory
     if not DASHBOARD_OUTPUT.exists():
-        issues.append(f"❌ dashboard_output/ directory not found at {DASHBOARD_OUTPUT}")
+        issues.append(f"âŒ dashboard_output/ directory not found at {DASHBOARD_OUTPUT}")
         # Try to create it
         try:
             DASHBOARD_OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -3799,7 +3998,7 @@ def check_setup():
         except:
             pass
     else:
-        print(f"✅ dashboard_output/ directory exists")
+        print(f"âœ… dashboard_output/ directory exists")
         
         # Check for HTML files
         required_files = ['login.html', 'index.html']
@@ -3808,37 +4007,37 @@ def check_setup():
         for filename in required_files:
             file_path = DASHBOARD_OUTPUT / filename
             if file_path.exists():
-                print(f"   ✅ {filename}")
+                print(f"   âœ… {filename}")
             else:
-                issues.append(f"❌ Missing required: dashboard_output/{filename}")
+                issues.append(f"âŒ Missing required: dashboard_output/{filename}")
         
         for filename in optional_files:
             file_path = DASHBOARD_OUTPUT / filename
             if file_path.exists():
-                print(f"   ✅ {filename}")
+                print(f"   âœ… {filename}")
             else:
-                print(f"   ⚠️ Optional: {filename} not found")
+                print(f"   âš ï¸ Optional: {filename} not found")
     
     # Check iFood config
     if not CONFIG_FILE.exists():
-        print(f"⚠️  iFood config not found (will be created)")
+        print(f"âš ï¸  iFood config not found (will be created)")
     else:
-        print(f"✅ iFood config file exists")
+        print(f"âœ… iFood config file exists")
     
     if issues:
-        print("\n⚠️  Issues found:")
+        print("\nâš ï¸  Issues found:")
         for issue in issues:
             print(f"   {issue}")
         print()
     else:
-        print("\n✅ All checks passed!")
+        print("\nâœ… All checks passed!")
     
-    return len([i for i in issues if i.startswith('❌')]) == 0
+    return len([i for i in issues if i.startswith('âŒ')]) == 0
 
 
 def initialize_database():
     """Initialize database tables and create default users if needed"""
-    print("\n🔧 Initializing database...")
+    print("\nInitializing database...")
     try:
         db.setup_tables()
         
@@ -3901,14 +4100,14 @@ def initialize_database():
         
         users = db.get_all_users()
         if not users:
-            print("👤 Creating default users...")
+            print("ðŸ‘¤ Creating default users...")
             db.create_default_users()
         else:
             print(f"   Found {len(users)} existing users")
-        print("✅ Database ready")
+        print("Database ready")
     except Exception as e:
-        print(f"❌ Database initialization failed: {e}")
-        print("⚠️  Server will run but authentication may not work")
+        print(f"Database initialization failed: {e}")
+        print("âš ï¸  Server will run but authentication may not work")
 
 
 def initialize_app():
@@ -3930,15 +4129,15 @@ def initialize_app():
     
     # Fallback: if no orgs have data, try legacy config file
     if not any(od['restaurants'] for od in ORG_DATA.values()):
-        print("\n📁 No org data found, trying legacy config file...")
+        print("\nNo org data found, trying legacy config file...")
         ifood_ok = initialize_ifood_api()
         if ifood_ok:
             snapshot_loaded = _load_data_snapshot()
             if snapshot_loaded:
-                print("⚡ Fast start: serving cached data while refreshing in background")
+                print("Fast start: serving cached data while refreshing in background")
                 threading.Thread(target=bg_refresher.refresh_now, daemon=True).start()
             else:
-                print("📊 First start: loading data from iFood API...")
+                print("First start: loading data from iFood API...")
                 load_restaurants_from_ifood()
                 _save_data_snapshot()
             refresh_minutes = IFOOD_CONFIG.get('refresh_interval_minutes', 30)
@@ -3953,13 +4152,13 @@ def initialize_app():
     total_orgs = len([o for o in ORG_DATA.values() if o['restaurants']])
     
     print("\n" + "="*60)
-    print("🚀 TIMO Server Ready!")
+    print("TIMO Server Ready")
     print("="*60)
-    print(f"\n🏢 Organizations: {total_orgs}")
-    print(f"📊 Total Restaurants: {total_restaurants}")
-    print(f"🔄 Background refresh: every 30 min")
-    print(f"📡 SSE: ready on /api/events")
-    print(f"\n🌐 Access: http://localhost:{os.environ.get('PORT', 5000)}")
+    print(f"\nOrganizations: {total_orgs}")
+    print(f"Total Restaurants: {total_restaurants}")
+    print("Background refresh: every 30 min")
+    print("SSE: ready on /api/events")
+    print(f"\nAccess: http://localhost:{os.environ.get('PORT', 5000)}")
     print("="*60)
     print()
 
@@ -3972,13 +4171,14 @@ if __name__ == '__main__':
     
     # Check if running in production mode
     if '--production' in sys.argv or os.environ.get('FLASK_ENV') == 'production':
-        print("\n⚠️  WARNING: For production, use a WSGI server instead:")
+        print("\nWARNING: For production, use a WSGI server instead:")
         print("   Option 1 (Linux/Mac): gunicorn -c gunicorn_config.py dashboardserver:app")
         print("   Option 2 (Windows):   python run_production.py")
         print("   Option 3 (Any OS):    waitress-serve --port=5000 dashboardserver:app")
         sys.exit(1)
     
     # Development mode
-    print("\n⚠️  Running in DEVELOPMENT mode")
-    print("   For production, use: python dashboardserver.py --production")
+    print("\nRunning in DEVELOPMENT mode")
+    print("For production, use: python dashboardserver.py --production")
     print()
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
