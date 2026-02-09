@@ -168,6 +168,42 @@ IFOOD_CONFIG = {}
 LAST_DATA_REFRESH = None
 APP_STARTED_AT = datetime.utcnow()
 
+# Marketing metadata for plan cards in admin UI.
+PLAN_CATALOG_UI = {
+    'starter': {
+        'subtitle': 'Centralizacao e relatorios',
+        'badge': None,
+        'highlight': False,
+        'note': 'Em breve',
+        'features_ui': [
+            'Centralizacao e relatorios'
+        ]
+    },
+    'pro': {
+        'subtitle': 'O plano completo para agencias',
+        'badge': 'Agencias',
+        'highlight': True,
+        'note': 'Em breve',
+        'features_ui': [
+            'Multiusuario',
+            'Squads',
+            'Links publicos',
+            'Relatorios em PDF'
+        ]
+    },
+    'enterprise': {
+        'subtitle': 'Para operacoes avancadas',
+        'badge': None,
+        'highlight': False,
+        'note': 'Em breve',
+        'features_ui': [
+            'Customizacoes avancadas',
+            'Integracoes sob demanda',
+            'White Label'
+        ]
+    }
+}
+
 
 def get_org_data(org_id):
     """Get or initialize org data container"""
@@ -209,6 +245,19 @@ def get_current_org_last_refresh():
     if org_id and org_id in ORG_DATA:
         return ORG_DATA[org_id].get('last_refresh')
     return LAST_DATA_REFRESH
+
+
+def enrich_plan_payload(plan_row):
+    """Attach plan marketing metadata used by admin UI."""
+    name = (plan_row.get('name') or '').lower()
+    marketing = PLAN_CATALOG_UI.get(name, {})
+    payload = dict(plan_row)
+    payload['subtitle'] = marketing.get('subtitle', '')
+    payload['badge'] = marketing.get('badge')
+    payload['highlight'] = bool(marketing.get('highlight'))
+    payload['note'] = marketing.get('note', '')
+    payload['features_ui'] = marketing.get('features_ui', [])
+    return payload
 
 
 def parse_month_filter(raw_month):
@@ -848,6 +897,28 @@ def admin_required(f):
     return decorated_function
 
 
+def org_owner_required(f):
+    """Decorator to require owner/admin role in current organization."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user' not in session:
+            return jsonify({'error': 'Authentication required', 'redirect': '/login'}), 401
+
+        user = session.get('user', {})
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'Organization context required'}), 403
+
+        if user.get('role') == 'admin':
+            return f(*args, **kwargs)
+
+        org_role = db.get_org_member_role(org_id, user.get('id'))
+        if org_role not in ('owner', 'admin'):
+            return jsonify({'success': False, 'error': 'Organization owner/admin required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 def require_feature(feature_name):
     """Decorator to enforce plan-based feature access in SaaS mode."""
     def decorator(f):
@@ -1202,21 +1273,95 @@ def api_accept_invite(token):
 @app.route('/api/plans')
 def api_get_plans():
     """Get available subscription plans"""
-    conn = db.get_connection()
-    if not conn: return jsonify({'success': False}), 500
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT name, display_name, price_monthly, max_restaurants, max_users, features FROM plans WHERE is_active=true ORDER BY price_monthly")
-        plans = []
-        for r in cursor.fetchall():
-            features = r[5] if r[5] else []
-            if isinstance(features, str): features = json.loads(features)
-            plans.append({'name':r[0],'display_name':r[1],'price_monthly':float(r[2]),'max_restaurants':r[3],'max_users':r[4],'features':features})
-        return jsonify({'success': True, 'plans': plans})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-    finally:
-        cursor.close(); conn.close()
+    include_free = str(request.args.get('include_free', '')).lower() in ('1', 'true', 'yes')
+    plans = db.list_active_plans(include_free=include_free)
+    if not plans:
+        return jsonify({'success': True, 'plans': []})
+    return jsonify({'success': True, 'plans': [enrich_plan_payload(p) for p in plans]})
+
+
+@app.route('/api/org/subscription')
+@login_required
+def api_get_org_subscription():
+    """Return current org subscription details, usage and available plans."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    current_subscription = db.get_org_subscription(org_id)
+    plan_options = []
+
+    user_limit = db.check_user_limit(org_id)
+    restaurant_limit = db.check_restaurant_limit(org_id)
+
+    for plan in db.list_active_plans(include_free=False):
+        plan_payload = enrich_plan_payload(plan)
+        users_ok = int(user_limit.get('current') or 0) <= int(plan_payload.get('max_users') or 0)
+        restaurants_ok = int(restaurant_limit.get('current') or 0) <= int(plan_payload.get('max_restaurants') or 0)
+        plan_payload['eligible'] = bool(users_ok and restaurants_ok)
+        plan_payload['eligibility'] = {
+            'users_ok': users_ok,
+            'restaurants_ok': restaurants_ok
+        }
+        plan_options.append(plan_payload)
+
+    history = db.list_org_subscription_history(org_id, limit=12)
+
+    return jsonify({
+        'success': True,
+        'subscription': current_subscription,
+        'plans': plan_options,
+        'usage': {
+            'users': user_limit,
+            'restaurants': restaurant_limit
+        },
+        'history': history
+    })
+
+
+@app.route('/api/org/subscription', methods=['POST'])
+@login_required
+@org_owner_required
+def api_change_org_subscription():
+    """Change current organization plan and persist a subscription record."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    data = get_json_payload()
+    target_plan = (data.get('plan') or '').strip().lower()
+    if not target_plan:
+        return jsonify({'success': False, 'error': 'plan is required'}), 400
+
+    if target_plan not in PLAN_CATALOG_UI:
+        return jsonify({'success': False, 'error': 'Unsupported plan'}), 400
+
+    reason = (data.get('reason') or 'admin_portal').strip()[:120]
+    change = db.change_org_plan(org_id, target_plan, changed_by=session['user']['id'], reason=reason)
+    if not change.get('success'):
+        status = 409 if str(change.get('error', '')).endswith('_limit_exceeded') else 400
+        return jsonify(change), status
+
+    session['org_plan'] = target_plan
+    db.log_action(
+        'org.plan_changed',
+        org_id=org_id,
+        user_id=session['user']['id'],
+        details={
+            'target_plan': target_plan,
+            'previous_plan': change.get('previous_plan'),
+            'reason': reason,
+            'usage': change.get('usage', {})
+        },
+        ip_address=request.remote_addr
+    )
+
+    return jsonify({
+        'success': True,
+        'change': change,
+        'subscription': db.get_org_subscription(org_id),
+        'organization': db.get_org_details(org_id)
+    })
 
 
 @app.route('/api/org/limits')
@@ -1271,6 +1416,7 @@ def api_org_capabilities():
         'success': True,
         'plan': details.get('plan', 'free'),
         'plan_display': details.get('plan_display', 'Gratuito'),
+        'subscription': db.get_org_subscription(org_id),
         'features': features,
         'limits': {
             'users': {

@@ -200,16 +200,62 @@ class DashboardDatabase:
                     is_active BOOLEAN DEFAULT true
                 )
             """)
-            
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS org_subscriptions (
+                    id SERIAL PRIMARY KEY,
+                    org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                    plan_name VARCHAR(50) NOT NULL REFERENCES plans(name),
+                    status VARCHAR(30) NOT NULL DEFAULT 'active',
+                    billing_cycle VARCHAR(20) NOT NULL DEFAULT 'monthly',
+                    current_period_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    current_period_end TIMESTAMP,
+                    canceled_at TIMESTAMP,
+                    ended_at TIMESTAMP,
+                    changed_by INTEGER REFERENCES dashboard_users(id) ON DELETE SET NULL,
+                    change_reason VARCHAR(120),
+                    metadata JSONB DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_org_subscriptions_org_status ON org_subscriptions(org_id, status)")
+             
             # Seed default plans
             cursor.execute("""
                 INSERT INTO plans (name, display_name, price_monthly, max_restaurants, max_users, features)
                 VALUES
-                    ('free', 'Gratuito', 0, 3, 2, '["dashboard","basic_analytics"]'::jsonb),
-                    ('starter', 'Starter', 97, 10, 5, '["dashboard","analytics","comparativo","export","email_reports"]'::jsonb),
-                    ('pro', 'Profissional', 197, 50, 15, '["dashboard","analytics","comparativo","export","email_reports","api_access","realtime","squads"]'::jsonb),
-                    ('enterprise', 'Enterprise', 497, 999, 99, '["dashboard","analytics","comparativo","export","email_reports","api_access","realtime","squads","white_label","priority_support"]'::jsonb)
-                ON CONFLICT (name) DO NOTHING
+                    ('free', 'Free', 0, 2, 1, '["dashboard"]'::jsonb),
+                    ('starter', 'Starter', 97, 8, 3, '["dashboard","analytics","comparativo","export"]'::jsonb),
+                    ('pro', 'Pro', 197, 35, 20, '["dashboard","analytics","comparativo","export","squads","public_links","pdf_reports","multiuser"]'::jsonb),
+                    ('enterprise', 'Enterprise', 497, 250, 120, '["dashboard","analytics","comparativo","export","squads","public_links","pdf_reports","multiuser","advanced_customizations","on_demand_integrations","white_label"]'::jsonb)
+                ON CONFLICT (name) DO UPDATE SET
+                    display_name = EXCLUDED.display_name,
+                    price_monthly = EXCLUDED.price_monthly,
+                    max_restaurants = EXCLUDED.max_restaurants,
+                    max_users = EXCLUDED.max_users,
+                    features = EXCLUDED.features,
+                    is_active = true
+            """)
+
+            cursor.execute("""
+                INSERT INTO org_subscriptions (
+                    org_id, plan_name, status, billing_cycle, current_period_start, current_period_end, change_reason, metadata
+                )
+                SELECT
+                    o.id,
+                    o.plan,
+                    'active',
+                    'monthly',
+                    COALESCE(o.plan_started_at, CURRENT_TIMESTAMP),
+                    o.plan_expires_at,
+                    'bootstrap',
+                    jsonb_build_object('source', 'setup_tables')
+                FROM organizations o
+                WHERE o.is_active = true
+                  AND NOT EXISTS (
+                      SELECT 1 FROM org_subscriptions s
+                      WHERE s.org_id = o.id AND s.status = 'active'
+                  )
             """)
             
             # ── SaaS: Audit log ──
@@ -724,6 +770,376 @@ class DashboardDatabase:
     # ================================================================
     # SaaS: PLAN / FEATURE GATING
     # ================================================================
+
+    def list_active_plans(self, include_free=False):
+        conn = self.get_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor()
+        try:
+            if include_free:
+                cursor.execute("""
+                    SELECT name, display_name, price_monthly, max_restaurants, max_users, features
+                    FROM plans
+                    WHERE is_active=true
+                    ORDER BY price_monthly, id
+                """)
+            else:
+                cursor.execute("""
+                    SELECT name, display_name, price_monthly, max_restaurants, max_users, features
+                    FROM plans
+                    WHERE is_active=true AND name <> 'free'
+                    ORDER BY price_monthly, id
+                """)
+
+            plans = []
+            for row in cursor.fetchall():
+                features = row[5] if row[5] else []
+                if isinstance(features, str):
+                    features = json.loads(features)
+                plans.append({
+                    'name': row[0],
+                    'display_name': row[1],
+                    'price_monthly': float(row[2] or 0),
+                    'max_restaurants': int(row[3] or 0),
+                    'max_users': int(row[4] or 0),
+                    'features': features
+                })
+            return plans
+        except Exception:
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_plan(self, plan_name):
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT name, display_name, price_monthly, max_restaurants, max_users, features
+                FROM plans
+                WHERE name=%s AND is_active=true
+                LIMIT 1
+            """, (plan_name,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            features = row[5] if row[5] else []
+            if isinstance(features, str):
+                features = json.loads(features)
+            return {
+                'name': row[0],
+                'display_name': row[1],
+                'price_monthly': float(row[2] or 0),
+                'max_restaurants': int(row[3] or 0),
+                'max_users': int(row[4] or 0),
+                'features': features
+            }
+        except Exception:
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+
+    def check_user_limit(self, org_id):
+        conn = self.get_connection()
+        if not conn:
+            return {'allowed': False, 'current': 0, 'max': 0}
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT max_users FROM organizations WHERE id=%s", (org_id,))
+            row = cursor.fetchone()
+            if not row:
+                return {'allowed': False, 'current': 0, 'max': 0}
+            max_users = int(row[0] or 0)
+            cursor.execute("SELECT COUNT(*) FROM org_members WHERE org_id=%s", (org_id,))
+            current_users = int(cursor.fetchone()[0] or 0)
+            return {'allowed': current_users < max_users, 'current': current_users, 'max': max_users}
+        except Exception:
+            return {'allowed': False, 'current': 0, 'max': 0}
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_org_subscription(self, org_id):
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT
+                    s.id, s.org_id, s.plan_name, s.status, s.billing_cycle,
+                    s.current_period_start, s.current_period_end, s.canceled_at,
+                    s.ended_at, s.change_reason, s.metadata, s.created_at,
+                    p.display_name, p.price_monthly
+                FROM org_subscriptions s
+                LEFT JOIN plans p ON p.name = s.plan_name
+                WHERE s.org_id=%s AND s.status='active'
+                ORDER BY s.created_at DESC
+                LIMIT 1
+            """, (org_id,))
+            row = cursor.fetchone()
+            if not row:
+                cursor.execute("""
+                    SELECT o.plan, o.plan_started_at, o.plan_expires_at, p.display_name, p.price_monthly
+                    FROM organizations o
+                    LEFT JOIN plans p ON p.name = o.plan
+                    WHERE o.id=%s
+                    LIMIT 1
+                """, (org_id,))
+                fallback = cursor.fetchone()
+                if not fallback:
+                    return None
+                return {
+                    'id': None,
+                    'org_id': org_id,
+                    'plan_name': fallback[0],
+                    'status': 'active',
+                    'billing_cycle': 'monthly',
+                    'current_period_start': fallback[1].isoformat() if fallback[1] else None,
+                    'current_period_end': fallback[2].isoformat() if fallback[2] else None,
+                    'canceled_at': None,
+                    'ended_at': None,
+                    'change_reason': 'legacy',
+                    'metadata': {},
+                    'created_at': fallback[1].isoformat() if fallback[1] else None,
+                    'plan_display': fallback[3] or fallback[0],
+                    'price_monthly': float(fallback[4] or 0)
+                }
+
+            metadata = row[10] if row[10] else {}
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+
+            return {
+                'id': row[0],
+                'org_id': row[1],
+                'plan_name': row[2],
+                'status': row[3],
+                'billing_cycle': row[4],
+                'current_period_start': row[5].isoformat() if row[5] else None,
+                'current_period_end': row[6].isoformat() if row[6] else None,
+                'canceled_at': row[7].isoformat() if row[7] else None,
+                'ended_at': row[8].isoformat() if row[8] else None,
+                'change_reason': row[9],
+                'metadata': metadata,
+                'created_at': row[11].isoformat() if row[11] else None,
+                'plan_display': row[12] or row[2],
+                'price_monthly': float(row[13] or 0)
+            }
+        except Exception:
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+
+    def list_org_subscription_history(self, org_id, limit=12):
+        conn = self.get_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT
+                    s.id, s.plan_name, s.status, s.billing_cycle, s.current_period_start,
+                    s.current_period_end, s.canceled_at, s.ended_at, s.change_reason, s.created_at,
+                    p.display_name, p.price_monthly
+                FROM org_subscriptions s
+                LEFT JOIN plans p ON p.name = s.plan_name
+                WHERE s.org_id=%s
+                ORDER BY s.created_at DESC
+                LIMIT %s
+            """, (org_id, int(limit)))
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                result.append({
+                    'id': row[0],
+                    'plan_name': row[1],
+                    'status': row[2],
+                    'billing_cycle': row[3],
+                    'current_period_start': row[4].isoformat() if row[4] else None,
+                    'current_period_end': row[5].isoformat() if row[5] else None,
+                    'canceled_at': row[6].isoformat() if row[6] else None,
+                    'ended_at': row[7].isoformat() if row[7] else None,
+                    'change_reason': row[8],
+                    'created_at': row[9].isoformat() if row[9] else None,
+                    'plan_display': row[10] or row[1],
+                    'price_monthly': float(row[11] or 0)
+                })
+            return result
+        except Exception:
+            return []
+        finally:
+            cursor.close()
+            conn.close()
+
+    def change_org_plan(self, org_id, new_plan, changed_by=None, reason='manual_change'):
+        conn = self.get_connection()
+        if not conn:
+            return {'success': False, 'error': 'db_unavailable'}
+        cursor = conn.cursor()
+        try:
+            plan_name = (new_plan or '').strip().lower()
+            if not plan_name:
+                return {'success': False, 'error': 'invalid_plan'}
+
+            cursor.execute("""
+                SELECT id, plan, max_restaurants, max_users, ifood_merchants
+                FROM organizations
+                WHERE id=%s
+                FOR UPDATE
+            """, (org_id,))
+            org_row = cursor.fetchone()
+            if not org_row:
+                return {'success': False, 'error': 'organization_not_found'}
+
+            current_plan = org_row[1]
+            merchants = org_row[4] if org_row[4] else []
+            if isinstance(merchants, str):
+                merchants = json.loads(merchants)
+            merchants_count = len(merchants)
+
+            cursor.execute("""
+                SELECT name, display_name, price_monthly, max_restaurants, max_users, features
+                FROM plans
+                WHERE name=%s AND is_active=true
+                LIMIT 1
+            """, (plan_name,))
+            plan_row = cursor.fetchone()
+            if not plan_row:
+                return {'success': False, 'error': 'plan_not_found'}
+
+            plan_features = plan_row[5] if plan_row[5] else []
+            if isinstance(plan_features, str):
+                plan_features = json.loads(plan_features)
+
+            target_max_restaurants = int(plan_row[3] or 0)
+            target_max_users = int(plan_row[4] or 0)
+
+            cursor.execute("SELECT COUNT(*) FROM org_members WHERE org_id=%s", (org_id,))
+            users_count = int(cursor.fetchone()[0] or 0)
+
+            if merchants_count > target_max_restaurants:
+                return {
+                    'success': False,
+                    'error': 'restaurant_limit_exceeded',
+                    'current_restaurants': merchants_count,
+                    'plan_max_restaurants': target_max_restaurants
+                }
+
+            if users_count > target_max_users:
+                return {
+                    'success': False,
+                    'error': 'user_limit_exceeded',
+                    'current_users': users_count,
+                    'plan_max_users': target_max_users
+                }
+
+            if current_plan == plan_name:
+                cursor.execute("""
+                    SELECT id FROM org_subscriptions
+                    WHERE org_id=%s AND status='active'
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (org_id,))
+                active_row = cursor.fetchone()
+                if not active_row:
+                    cursor.execute("""
+                        INSERT INTO org_subscriptions (
+                            org_id, plan_name, status, billing_cycle, current_period_start,
+                            current_period_end, changed_by, change_reason, metadata
+                        )
+                        VALUES (%s, %s, 'active', 'monthly', CURRENT_TIMESTAMP, %s, %s, %s, %s::jsonb)
+                    """, (
+                        org_id, plan_name, datetime.now() + timedelta(days=30), changed_by,
+                        (reason or 'manual_change')[:120],
+                        json.dumps({'source': 'backfill_on_change'}, ensure_ascii=False)
+                    ))
+                    conn.commit()
+
+                return {
+                    'success': True,
+                    'changed': False,
+                    'previous_plan': current_plan,
+                    'plan': {
+                        'name': plan_row[0],
+                        'display_name': plan_row[1],
+                        'price_monthly': float(plan_row[2] or 0),
+                        'max_restaurants': target_max_restaurants,
+                        'max_users': target_max_users,
+                        'features': plan_features
+                    },
+                    'usage': {
+                        'users': users_count,
+                        'restaurants': merchants_count
+                    }
+                }
+
+            period_end = datetime.now() + timedelta(days=30)
+            metadata = {
+                'price_monthly': float(plan_row[2] or 0),
+                'features': plan_features
+            }
+
+            cursor.execute("""
+                UPDATE org_subscriptions
+                SET status='replaced', ended_at=CURRENT_TIMESTAMP
+                WHERE org_id=%s AND status='active'
+            """, (org_id,))
+
+            cursor.execute("""
+                INSERT INTO org_subscriptions (
+                    org_id, plan_name, status, billing_cycle, current_period_start,
+                    current_period_end, changed_by, change_reason, metadata
+                )
+                VALUES (%s, %s, 'active', 'monthly', CURRENT_TIMESTAMP, %s, %s, %s, %s::jsonb)
+            """, (
+                org_id, plan_name, period_end, changed_by,
+                (reason or 'manual_change')[:120],
+                json.dumps(metadata, ensure_ascii=False)
+            ))
+
+            cursor.execute("""
+                UPDATE organizations
+                SET
+                    plan=%s,
+                    max_restaurants=%s,
+                    max_users=%s,
+                    plan_started_at=CURRENT_TIMESTAMP,
+                    plan_expires_at=%s,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s
+            """, (plan_name, target_max_restaurants, target_max_users, period_end, org_id))
+
+            conn.commit()
+            return {
+                'success': True,
+                'changed': current_plan != plan_name,
+                'previous_plan': current_plan,
+                'plan': {
+                    'name': plan_row[0],
+                    'display_name': plan_row[1],
+                    'price_monthly': float(plan_row[2] or 0),
+                    'max_restaurants': target_max_restaurants,
+                    'max_users': target_max_users,
+                    'features': plan_features
+                },
+                'usage': {
+                    'users': users_count,
+                    'restaurants': merchants_count
+                }
+            }
+        except Exception as e:
+            conn.rollback()
+            return {'success': False, 'error': str(e)}
+        finally:
+            cursor.close()
+            conn.close()
 
     def check_feature(self, org_id, feature):
         conn = self.get_connection()

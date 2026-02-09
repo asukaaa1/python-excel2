@@ -172,6 +172,26 @@
         .config-label { font-size: 0.875rem; color: var(--text-secondary); }
         .config-value { font-family: var(--font-mono); font-size: 0.875rem; color: var(--text-primary); }
 
+        /* Plans */
+        .plans-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+        .plan-card { position: relative; background: var(--bg-secondary); border: 1px solid var(--border-light); border-radius: var(--radius-2xl); padding: 1.25rem; display: flex; flex-direction: column; min-height: 320px; }
+        [data-theme="dark"] .plan-card { background: #050505; border-color: #1e1e1e; }
+        .plan-card.highlight { border-color: var(--primary-500); box-shadow: 0 0 0 1px rgba(249,112,21,0.35), 0 18px 30px -24px rgba(249,112,21,0.4); }
+        .plan-pill { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); padding: 0.125rem 0.75rem; border-radius: 999px; background: var(--primary-500); color: white; font-size: 0.75rem; font-weight: 700; }
+        .plan-title { font-size: 2rem; font-weight: 800; letter-spacing: -0.02em; margin: 0.5rem 0 0.25rem; }
+        .plan-subtitle { color: var(--text-secondary); margin-bottom: 0.5rem; min-height: 42px; }
+        .plan-note { color: var(--primary-500); font-weight: 700; margin-bottom: 0.75rem; }
+        .plan-price { font-family: var(--font-mono); font-size: 1.125rem; color: var(--text-primary); margin-bottom: 0.75rem; }
+        .plan-features { list-style: none; display: grid; gap: 0.5rem; margin: 0 0 1rem; padding: 0; color: var(--text-secondary); }
+        .plan-features li { display: flex; gap: 0.5rem; align-items: flex-start; }
+        .plan-features li::before { content: '✓'; color: var(--primary-500); font-weight: 700; line-height: 1; margin-top: 2px; }
+        .plan-actions { margin-top: auto; }
+        .plan-current { border-color: var(--success-500); box-shadow: 0 0 0 1px rgba(16,185,129,0.35); }
+        .usage-list { display: grid; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-secondary); }
+        .usage-list strong { color: var(--text-primary); }
+        .status-active { background: var(--success-50); color: var(--success-600); }
+        .status-other { background: var(--error-50); color: var(--error-500); }
+
         /* Toast */
         .toast { position: fixed; bottom: 2rem; right: 2rem; padding: 1rem 1.5rem; background: var(--bg-elevated); border: 1px solid var(--border-light); border-radius: var(--radius-xl); box-shadow: var(--shadow-xl); display: flex; align-items: center; gap: 0.75rem; z-index: 2000; animation: fadeInUp 0.3s ease; }
         .toast.success { border-left: 4px solid var(--success-500); }
@@ -183,6 +203,7 @@
             .container { padding: 1rem; }
             .table th, .table td { padding: 0.75rem 1rem; }
             .stats-grid { grid-template-columns: 1fr; }
+            .plans-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -288,6 +309,31 @@
             <div class="stat-card animate-in">
                 <div class="stat-icon api"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>
                 <div class="stat-info"><h3 id="apiStatus">-</h3><p>Status da API</p></div>
+            </div>
+        </div>
+
+        <div class="section animate-in">
+            <div class="section-header">
+                <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-2.2 0-4 1.8-4 4v6h8v-6c0-2.2-1.8-4-4-4zm0 0V6m-6 14h12M7 6h10"/></svg>Planos e Assinatura</h2>
+                <span class="badge status-active" id="subscriptionStatusBadge">Carregando...</span>
+            </div>
+            <div class="section-body" style="padding: 1.5rem;">
+                <div class="config-card" id="subscriptionSummary">
+                    <div class="config-row">
+                        <span class="config-label">Plano atual</span>
+                        <span class="config-value" id="currentPlanName">-</span>
+                    </div>
+                    <div class="config-row">
+                        <span class="config-label">Ciclo</span>
+                        <span class="config-value" id="currentBillingCycle">-</span>
+                    </div>
+                    <div class="usage-list" id="subscriptionUsageText">
+                        <span>Carregando uso atual...</span>
+                    </div>
+                </div>
+                <div class="plans-grid" id="plansGrid">
+                    <div class="plan-card"><span class="plan-subtitle">Carregando planos...</span></div>
+                </div>
             </div>
         </div>
 
@@ -419,7 +465,7 @@
             }
             return response;
         };
-        async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig()]); }
+        async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig(), loadSubscription()]); }
 
         async function loadUsers() {
             try {
@@ -456,6 +502,8 @@
                     // Also populate merchants table from the same response
                     const merchants = data.config.merchants || [];
                     document.getElementById('merchantCount').textContent = merchants.length;
+                    const orgStoreCount = document.getElementById('orgStoreCount');
+                    if (orgStoreCount) orgStoreCount.textContent = `${merchants.length} lojas`;
                     const tbody = document.getElementById('merchantsTable');
                     if (merchants.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum merchant configurado</td></tr>'; return; }
                     tbody.innerHTML = merchants.map(merchant => `
@@ -469,6 +517,133 @@
                     `).join('');
                 }
             } catch (error) { console.error('Error loading config:', error); document.getElementById('apiStatus').textContent = 'Erro'; }
+        }
+
+        async function loadSubscription() {
+            try {
+                const response = await fetch('/api/org/subscription');
+                const data = await response.json();
+                if (!data.success) {
+                    showToast(data.error || 'Nao foi possivel carregar assinatura', 'error');
+                    return;
+                }
+
+                const subscription = data.subscription || {};
+                const usage = data.usage || {};
+                const plans = data.plans || [];
+
+                const currentPlanDisplay = subscription.plan_display || subscription.plan_name || '-';
+                document.getElementById('currentPlanName').textContent = currentPlanDisplay;
+                document.getElementById('currentBillingCycle').textContent = subscription.billing_cycle || 'monthly';
+
+                const statusBadge = document.getElementById('subscriptionStatusBadge');
+                const status = (subscription.status || 'active').toLowerCase();
+                statusBadge.textContent = status;
+                statusBadge.className = `badge ${status === 'active' ? 'status-active' : 'status-other'}`;
+
+                const users = usage.users || { current: 0, max: 0 };
+                const restaurants = usage.restaurants || { current: 0, max: 0 };
+                document.getElementById('subscriptionUsageText').innerHTML = `
+                    <span>Usuarios: <strong>${users.current}/${users.max}</strong></span>
+                    <span>Lojas: <strong>${restaurants.current}/${restaurants.max}</strong></span>
+                `;
+
+                const planBadge = document.getElementById('planBadge');
+                if (planBadge) planBadge.textContent = String(currentPlanDisplay).toUpperCase();
+
+                renderPlanCards(plans, subscription, usage);
+            } catch (error) {
+                showToast('Falha ao carregar assinatura', 'error');
+            }
+        }
+
+        function renderPlanCards(plans, subscription, usage) {
+            const grid = document.getElementById('plansGrid');
+            if (!grid) return;
+            const currentPlan = (subscription.plan_name || '').toLowerCase();
+
+            if (!plans.length) {
+                grid.innerHTML = '<div class="plan-card"><span class="plan-subtitle">Nenhum plano disponivel.</span></div>';
+                return;
+            }
+
+            grid.innerHTML = plans.map(plan => {
+                const isCurrent = (plan.name || '').toLowerCase() === currentPlan;
+                const isEligible = !!plan.eligible;
+                const highlight = plan.highlight ? 'highlight' : '';
+                const currentClass = isCurrent ? 'plan-current' : '';
+                const badge = plan.badge ? `<span class="plan-pill">${escapeHtml(plan.badge)}</span>` : '';
+                const subtitle = escapeHtml(plan.subtitle || '');
+                const note = plan.note ? `<div class="plan-note">${escapeHtml(plan.note)}</div>` : '';
+                const planName = escapeHtml(plan.display_name || plan.name || '');
+                const monthly = Number(plan.price_monthly || 0);
+                const features = Array.isArray(plan.features_ui) && plan.features_ui.length
+                    ? plan.features_ui
+                    : (Array.isArray(plan.features) ? plan.features : []);
+                const featureHtml = features.map(f => `<li>${escapeHtml(String(f))}</li>`).join('');
+                let buttonHtml = '';
+                if (isCurrent) {
+                    buttonHtml = '<button class="btn btn-secondary" disabled>Plano atual</button>';
+                } else if (!isEligible) {
+                    buttonHtml = '<button class="btn btn-secondary" disabled>Limite excedido</button>';
+                } else {
+                    buttonHtml = `<button class="btn btn-primary" onclick="changePlan('${escapeJs(plan.name)}', '${escapeJs(plan.display_name || plan.name)}')">Selecionar plano</button>`;
+                }
+
+                return `
+                    <div class="plan-card ${highlight} ${currentClass}">
+                        ${badge}
+                        <div class="plan-title">${planName}</div>
+                        <div class="plan-subtitle">${subtitle}</div>
+                        ${note}
+                        <div class="plan-price">R$ ${monthly.toFixed(2)}/mes</div>
+                        <ul class="plan-features">${featureHtml}</ul>
+                        <div class="plan-actions">${buttonHtml}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function changePlan(planName, planDisplayName) {
+            const accepted = confirm(`Trocar para o plano "${planDisplayName}"?`);
+            if (!accepted) return;
+
+            try {
+                const response = await fetch('/api/org/subscription', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ plan: planName, reason: 'admin_portal_change' })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    if (data.error === 'restaurant_limit_exceeded') {
+                        showToast(`Nao foi possivel trocar: lojas atuais excedem o limite do plano.`, 'error');
+                    } else if (data.error === 'user_limit_exceeded') {
+                        showToast(`Nao foi possivel trocar: usuarios atuais excedem o limite do plano.`, 'error');
+                    } else {
+                        showToast(data.error || 'Falha ao trocar plano', 'error');
+                    }
+                    return;
+                }
+
+                showToast(`Plano alterado para ${planDisplayName}`, 'success');
+                await loadSubscription();
+            } catch (error) {
+                showToast('Erro de conexao ao alterar plano', 'error');
+            }
+        }
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function escapeJs(value) {
+            return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         }
 
         function openModal(id) { document.getElementById(id).classList.add('show'); }
@@ -557,6 +732,21 @@
                     document.getElementById('userAvatar').textContent = initials;
                     document.getElementById('userRoleText').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
                     if (u.role !== 'admin') { window.location.href = '/dashboard'; }
+
+                    const org = data.org || {};
+                    if (org.name) {
+                        const orgName = document.getElementById('orgName');
+                        if (orgName) orgName.textContent = org.name;
+                        const orgAvatar = document.getElementById('orgAvatar');
+                        if (orgAvatar) {
+                            const orgInitials = String(org.name).split(' ').map(v => v[0]).join('').slice(0, 3).toUpperCase();
+                            orgAvatar.textContent = orgInitials || 'ORG';
+                        }
+                    }
+                    if (org.plan_display || org.plan) {
+                        const planBadge = document.getElementById('planBadge');
+                        if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
+                    }
                 } else { window.location.href = '/login'; }
             }).catch(() => { window.location.href = '/login'; });
         }
