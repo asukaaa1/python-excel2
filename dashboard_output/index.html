@@ -2121,6 +2121,21 @@ let orgCapabilities = null;
                     document.getElementById('sidebarUserRole').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
                     isAdmin = (u.role === 'admin');
                     if (isAdmin) { const adminEl = document.getElementById('adminSection'); if (adminEl) adminEl.style.display = 'block'; }
+
+                    const org = data.org || {};
+                    if (org.name) {
+                        const orgName = document.getElementById('orgName');
+                        if (orgName) orgName.textContent = org.name;
+                        const orgAvatar = document.getElementById('orgAvatar');
+                        if (orgAvatar) {
+                            const orgInitials = String(org.name).split(' ').map(v => v[0]).join('').slice(0, 3).toUpperCase();
+                            orgAvatar.textContent = orgInitials || 'ORG';
+                        }
+                    }
+                    if (org.plan_display || org.plan) {
+                        const planBadge = document.getElementById('planBadge');
+                        if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
+                    }
                 }
             }).catch(() => {});
         }

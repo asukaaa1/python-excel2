@@ -1399,6 +1399,9 @@
             localStorage.setItem('theme', theme);
             document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
             document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+            if (compChart && lastComparisonTheme !== theme) {
+                renderComparisonChart(lastComparisonDailyA, lastComparisonDailyB);
+            }
         }
         
         // Sidebar toggle
@@ -1502,8 +1505,15 @@
         let compChart = null;
         let comparisonRequestId = 0;
         let comparisonAbortController = null;
+        let comparisonInFlightPreset = null;
+        let lastComparisonDailyA = [];
+        let lastComparisonDailyB = [];
+        let lastComparisonTheme = null;
+        let lastComparisonSignature = '';
         
         async function loadComparison(preset) {
+            if (comparisonInFlightPreset === preset) return;
+            comparisonInFlightPreset = preset;
             // Update active button
             document.querySelectorAll('.compare-preset').forEach(b => b.classList.toggle('active', b.dataset.preset === preset));
             const requestId = ++comparisonRequestId;
@@ -1557,6 +1567,8 @@
                     if (chartData.success) {
                         const dailyA = Array.isArray(chartData?.period_a?.daily) ? chartData.period_a.daily : [];
                         const dailyB = Array.isArray(chartData?.period_b?.daily) ? chartData.period_b.daily : [];
+                        lastComparisonDailyA = dailyA;
+                        lastComparisonDailyB = dailyB;
                         renderComparisonChart(dailyA, dailyB);
                     }
                 }
@@ -1567,6 +1579,9 @@
             } finally {
                 if (requestId === comparisonRequestId) {
                     comparisonAbortController = null;
+                }
+                if (comparisonInFlightPreset === preset) {
+                    comparisonInFlightPreset = null;
                 }
             }
         }
@@ -1585,11 +1600,18 @@
             if (!ctx) return;
             const safeDailyA = Array.isArray(dailyA) ? dailyA : [];
             const safeDailyB = Array.isArray(dailyB) ? dailyB : [];
-            if (compChart) compChart.destroy();
+            const revenueA = safeDailyA.map(d => Number(d?.revenue) || 0);
+            const revenueB = safeDailyB.map(d => Number(d?.revenue) || 0);
             
             const maxLen = Math.max(safeDailyA.length, safeDailyB.length);
             const labels = Array.from({length: maxLen}, (_, i) => `Dia ${i + 1}`);
             const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            const theme = isDark ? 'dark' : 'light';
+            const signature = `${theme}|${JSON.stringify(revenueA)}|${JSON.stringify(revenueB)}`;
+            if (signature === lastComparisonSignature) return;
+            lastComparisonSignature = signature;
+            lastComparisonTheme = theme;
+            if (compChart) compChart.destroy();
             
             compChart = new Chart(ctx.getContext('2d'), {
                 type: 'line',
@@ -1598,7 +1620,7 @@
                     datasets: [
                         {
                             label: 'Período anterior',
-                            data: safeDailyA.map(d => d.revenue),
+                            data: revenueA,
                             borderColor: isDark ? '#737373' : '#a3a3a3',
                             backgroundColor: 'transparent',
                             borderWidth: 2, borderDash: [6, 4], tension: 0.3, pointRadius: 3,
@@ -1606,7 +1628,7 @@
                         },
                         {
                             label: 'Período atual',
-                            data: safeDailyB.map(d => d.revenue),
+                            data: revenueB,
                             borderColor: '#f97015',
                             backgroundColor: 'rgba(249,112,21,0.08)',
                             borderWidth: 2.5, fill: true, tension: 0.3, pointRadius: 4,
