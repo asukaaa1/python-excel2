@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -55,18 +55,18 @@
     <div class="app">
         <nav class="nav-bar"><a href="/dashboard" class="nav-back"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>Voltar para Clientes</a><div class="nav-actions"><button class="nav-btn" onclick="refreshData()" title="Atualizar"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></button><button class="nav-btn" id="themeToggle" onclick="toggleTheme()" title="Tema"><svg id="sunIcon" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg><svg id="moonIcon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg></button></div></nav>
         <header class="header-card"><div class="header-top"><div class="header-main"><div class="header-title-row"><h1 class="restaurant-name" id="restaurantName">{{restaurant_name}}</h1><span class="super-badge" id="restaurantSuper" style="display:none" title="iFood Super"><img src="/static/selo_ifood_super.png" alt="Super"></span><span class="rating-pill" id="restaurantRating" style="display:none"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg><span id="ratingValue">0.0</span></span></div><div class="header-meta"><span class="meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg><span id="restaurantManager">{{restaurant_manager}}</span></span><div class="platform-badges" id="platforms"><span class="platform-badge">iFood</span></div></div></div><div class="header-status"><div class="status-alert" id="interruptionBanner"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><span id="interruptionText">Loja Fechada</span></div><div class="api-status" id="apiStatus"><span class="api-dot"></span><span>Conectando...</span></div></div></div></header>
-        <div class="tabs-container"><div class="tabs"><button class="tab active" data-view="dashboard">Dashboard</button><button class="tab" data-view="orders">Pedidos</button><button class="tab" data-view="hourly">Por Hora</button><button class="tab" data-view="feedback">Feedback</button></div><div class="filter-bar"><div class="filter-info"><div class="filter-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div><div class="filter-text"><span class="filter-label">PerÃ­odo</span><span class="filter-value" id="filterPeriodLabel">Ãšltimos 7 dias</span></div></div><button class="filter-btn" onclick="openFilterModal()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>Filtrar</button></div></div>
-        <div class="modal-overlay" id="filterModal"><div class="modal"><div class="modal-header"><h2 class="modal-title">Filtrar por PerÃ­odo</h2><button class="modal-close" onclick="closeFilterModal()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button></div><div class="modal-body"><div class="filter-section"><div class="filter-section-title">Tipo de Filtro</div><div class="filter-type-grid"><div class="filter-type-option"><input type="radio" name="filterType" id="filterTypeCurrent" value="current" checked><label for="filterTypeCurrent"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Corrente</label></div><div class="filter-type-option"><input type="radio" name="filterType" id="filterTypeMonth" value="month"><label for="filterTypeMonth"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>MÃªs</label></div><div class="filter-type-option"><input type="radio" name="filterType" id="filterTypeCustom" value="custom"><label for="filterTypeCustom"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>Personalizado</label></div></div></div><div class="filter-content active" id="filterContentCurrent"><div class="filter-section"><div class="filter-section-title">Selecione o PerÃ­odo</div><div class="filter-quick-grid"><button class="filter-quick-btn active" data-period="7days">7 dias</button><button class="filter-quick-btn" data-period="15days">15 dias</button><button class="filter-quick-btn" data-period="30days">30 dias</button></div></div></div><div class="filter-content" id="filterContentMonth"><div class="filter-section"><div class="filter-section-title">Selecione o MÃªs</div><div class="filter-months-grid" id="filterMonthsGrid"></div></div></div><div class="filter-content" id="filterContentCustom"><div class="filter-section"><div class="filter-section-title">Intervalo Personalizado</div><div class="filter-date-row"><div class="filter-date-group"><label for="filterDateStart">Data Inicial</label><input type="date" class="filter-date-input" id="filterDateStart"></div><div class="filter-date-group"><label for="filterDateEnd">Data Final</label><input type="date" class="filter-date-input" id="filterDateEnd"></div></div></div></div></div><div class="modal-footer"><button class="btn-cancel" onclick="closeFilterModal()">Cancelar</button><button class="btn-apply" onclick="applyFilter()">Aplicar</button></div></div></div>
-        <div class="view-container active" id="dashboardView"><div class="kpi-grid"><div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Faturamento</span><div class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div></div><div class="kpi-value" id="kpiRevenue">R$ 0,00</div><span class="kpi-trend positive" id="kpiRevenueTrend"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>+0%</span></div><div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Pedidos</span><div class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></div></div><div class="kpi-value" id="kpiOrders">0</div><span class="kpi-trend positive" id="kpiOrdersTrend"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>+0%</span></div><div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Cancelamento</span><div class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg></div></div><div class="kpi-value" id="kpiCancellation">0%</div><span class="kpi-trend negative" id="kpiCancellationTrend"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>-0%</span></div></div><section class="metrics-section"><div class="metrics-header"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><h3>MÃ©tricas de Faturamento</h3></div><div class="metrics-grid"><div class="metric-cell"><div class="metric-label">Venda Bruta</div><div class="metric-value" id="metricGross">R$ 0</div><div class="metric-trend positive" id="metricGrossTrend">+0%</div></div><div class="metric-cell"><div class="metric-label">Descontos</div><div class="metric-value" id="metricDiscount">R$ 0</div><div class="metric-trend" id="metricDiscountTrend">0%</div></div><div class="metric-cell"><div class="metric-label">Taxa Entrega</div><div class="metric-value" id="metricDelivery">R$ 0</div><div class="metric-trend" id="metricDeliveryTrend">0%</div></div><div class="metric-cell"><div class="metric-label">ComissÃ£o</div><div class="metric-value" id="metricCommission">R$ 0</div><div class="metric-trend" id="metricCommissionTrend">0%</div></div><div class="metric-cell"><div class="metric-label">Repasse</div><div class="metric-value" id="metricNet">R$ 0</div><div class="metric-trend positive" id="metricNetTrend">+0%</div></div></div></section><section class="metrics-section"><div class="metrics-header"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><h3>MÃ©tricas de Pedidos</h3></div><div class="metrics-grid"><div class="metric-cell"><div class="metric-label">ConcluÃ­dos</div><div class="metric-value" id="metricCompleted">0</div><div class="metric-trend positive" id="metricCompletedTrend">+0%</div></div><div class="metric-cell"><div class="metric-label">Cancelados</div><div class="metric-value" id="metricCancelled">0</div><div class="metric-trend" id="metricCancelledTrend">0%</div></div><div class="metric-cell"><div class="metric-label">Itens</div><div class="metric-value" id="metricItems">0</div><div class="metric-trend" id="metricItemsTrend">0%</div></div><div class="metric-cell"><div class="metric-label">Dias Ativos</div><div class="metric-value" id="metricDays">0</div><div class="metric-trend" id="metricDaysTrend">-</div></div></div></section><section class="chart-section"><div class="chart-header"><h3 class="chart-title">EvoluÃ§Ã£o de Vendas</h3><div class="chart-controls"><div class="chart-tabs"><button class="chart-tab active" data-chart="revenue">Faturamento</button><button class="chart-tab" data-chart="orders">Pedidos</button></div><select class="chart-select" id="chartGroupBy"><option value="day">Por Dia</option><option value="week">Por Semana</option></select></div></div><div class="chart-container"><div class="chart-wrapper"><canvas id="mainChart"></canvas></div></div><div class="chart-stats"><div class="chart-stat">MÃ©dia: <strong id="chartAvg">R$ 0</strong></div><div class="chart-stat">Maior: <strong id="chartMax">R$ 0</strong></div><div class="chart-stat">Menor: <strong id="chartMin">R$ 0</strong></div></div></section></div>
+        <div class="tabs-container"><div class="tabs"><button class="tab active" data-view="dashboard">Dashboard</button><button class="tab" data-view="orders">Pedidos</button><button class="tab" data-view="hourly">Por Hora</button><button class="tab" data-view="feedback">Feedback</button></div><div class="filter-bar"><div class="filter-info"><div class="filter-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div><div class="filter-text"><span class="filter-label">Período</span><span class="filter-value" id="filterPeriodLabel">Últimos 7 dias</span></div></div><button class="filter-btn" onclick="openFilterModal()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>Filtrar</button></div></div>
+        <div class="modal-overlay" id="filterModal"><div class="modal"><div class="modal-header"><h2 class="modal-title">Filtrar por Período</h2><button class="modal-close" onclick="closeFilterModal()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button></div><div class="modal-body"><div class="filter-section"><div class="filter-section-title">Tipo de Filtro</div><div class="filter-type-grid"><div class="filter-type-option"><input type="radio" name="filterType" id="filterTypeCurrent" value="current" checked><label for="filterTypeCurrent"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Corrente</label></div><div class="filter-type-option"><input type="radio" name="filterType" id="filterTypeMonth" value="month"><label for="filterTypeMonth"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Mês</label></div><div class="filter-type-option"><input type="radio" name="filterType" id="filterTypeCustom" value="custom"><label for="filterTypeCustom"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>Personalizado</label></div></div></div><div class="filter-content active" id="filterContentCurrent"><div class="filter-section"><div class="filter-section-title">Selecione o Período</div><div class="filter-quick-grid"><button class="filter-quick-btn active" data-period="7days">7 dias</button><button class="filter-quick-btn" data-period="15days">15 dias</button><button class="filter-quick-btn" data-period="30days">30 dias</button></div></div></div><div class="filter-content" id="filterContentMonth"><div class="filter-section"><div class="filter-section-title">Selecione o Mês</div><div class="filter-months-grid" id="filterMonthsGrid"></div></div></div><div class="filter-content" id="filterContentCustom"><div class="filter-section"><div class="filter-section-title">Intervalo Personalizado</div><div class="filter-date-row"><div class="filter-date-group"><label for="filterDateStart">Data Inicial</label><input type="date" class="filter-date-input" id="filterDateStart"></div><div class="filter-date-group"><label for="filterDateEnd">Data Final</label><input type="date" class="filter-date-input" id="filterDateEnd"></div></div></div></div></div><div class="modal-footer"><button class="btn-cancel" onclick="closeFilterModal()">Cancelar</button><button class="btn-apply" onclick="applyFilter()">Aplicar</button></div></div></div>
+        <div class="view-container active" id="dashboardView"><div class="kpi-grid"><div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Faturamento</span><div class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div></div><div class="kpi-value" id="kpiRevenue">R$ 0,00</div><span class="kpi-trend positive" id="kpiRevenueTrend"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>+0%</span></div><div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Pedidos</span><div class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></div></div><div class="kpi-value" id="kpiOrders">0</div><span class="kpi-trend positive" id="kpiOrdersTrend"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>+0%</span></div><div class="kpi-card"><div class="kpi-header"><span class="kpi-label">Cancelamento</span><div class="kpi-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg></div></div><div class="kpi-value" id="kpiCancellation">0%</div><span class="kpi-trend negative" id="kpiCancellationTrend"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>-0%</span></div></div><section class="metrics-section"><div class="metrics-header"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><h3>Métricas de Faturamento</h3></div><div class="metrics-grid"><div class="metric-cell"><div class="metric-label">Venda Bruta</div><div class="metric-value" id="metricGross">R$ 0</div><div class="metric-trend positive" id="metricGrossTrend">+0%</div></div><div class="metric-cell"><div class="metric-label">Descontos</div><div class="metric-value" id="metricDiscount">R$ 0</div><div class="metric-trend" id="metricDiscountTrend">0%</div></div><div class="metric-cell"><div class="metric-label">Taxa Entrega</div><div class="metric-value" id="metricDelivery">R$ 0</div><div class="metric-trend" id="metricDeliveryTrend">0%</div></div><div class="metric-cell"><div class="metric-label">Comissão</div><div class="metric-value" id="metricCommission">R$ 0</div><div class="metric-trend" id="metricCommissionTrend">0%</div></div><div class="metric-cell"><div class="metric-label">Repasse</div><div class="metric-value" id="metricNet">R$ 0</div><div class="metric-trend positive" id="metricNetTrend">+0%</div></div></div></section><section class="metrics-section"><div class="metrics-header"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><h3>Métricas de Pedidos</h3></div><div class="metrics-grid"><div class="metric-cell"><div class="metric-label">Concluídos</div><div class="metric-value" id="metricCompleted">0</div><div class="metric-trend positive" id="metricCompletedTrend">+0%</div></div><div class="metric-cell"><div class="metric-label">Cancelados</div><div class="metric-value" id="metricCancelled">0</div><div class="metric-trend" id="metricCancelledTrend">0%</div></div><div class="metric-cell"><div class="metric-label">Itens</div><div class="metric-value" id="metricItems">0</div><div class="metric-trend" id="metricItemsTrend">0%</div></div><div class="metric-cell"><div class="metric-label">Dias Ativos</div><div class="metric-value" id="metricDays">0</div><div class="metric-trend" id="metricDaysTrend">-</div></div></div></section><section class="chart-section"><div class="chart-header"><h3 class="chart-title">Evolução de Vendas</h3><div class="chart-controls"><div class="chart-tabs"><button class="chart-tab active" data-chart="revenue">Faturamento</button><button class="chart-tab" data-chart="orders">Pedidos</button></div><select class="chart-select" id="chartGroupBy"><option value="day">Por Dia</option><option value="week">Por Semana</option></select></div></div><div class="chart-container"><div class="chart-wrapper"><canvas id="mainChart"></canvas></div></div><div class="chart-stats"><div class="chart-stat">Média: <strong id="chartAvg">R$ 0</strong></div><div class="chart-stat">Maior: <strong id="chartMax">R$ 0</strong></div><div class="chart-stat">Menor: <strong id="chartMin">R$ 0</strong></div></div></section></div>
         <div class="view-container" id="ordersView"><section class="data-section"><div class="data-header"><h3>Lista de Pedidos</h3></div><div class="table-wrapper"><table class="data-table"><thead><tr><th>ID</th><th>Data/Hora</th><th>Valor</th><th>Status</th><th>Pagamento</th></tr></thead><tbody id="ordersTableBody"><tr><td colspan="5" class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><p>Carregando...</p></td></tr></tbody></table></div></section></div>
-        <div class="view-container" id="hourlyView"><section class="chart-section"><div class="chart-header"><h3 class="chart-title">DistribuiÃ§Ã£o por Hora</h3><div class="chart-controls"><div class="chart-tabs"><button class="chart-tab active" data-hourly="revenue">Faturamento</button><button class="chart-tab" data-hourly="orders">Pedidos</button></div></div></div><div class="chart-container"><div class="chart-wrapper"><canvas id="hourlyChart"></canvas></div></div><div class="chart-stats"><div class="chart-stat">Pico: <strong id="hourlyPeak">--</strong></div><div class="chart-stat">Maior: <strong id="hourlyMax">R$ 0</strong></div></div></section></div>
+        <div class="view-container" id="hourlyView"><section class="chart-section"><div class="chart-header"><h3 class="chart-title">Distribuição por Hora</h3><div class="chart-controls"><div class="chart-tabs"><button class="chart-tab active" data-hourly="revenue">Faturamento</button><button class="chart-tab" data-hourly="orders">Pedidos</button></div></div></div><div class="chart-container"><div class="chart-wrapper"><canvas id="hourlyChart"></canvas></div></div><div class="chart-stats"><div class="chart-stat">Pico: <strong id="hourlyPeak">--</strong></div><div class="chart-stat">Maior: <strong id="hourlyMax">R$ 0</strong></div></div></section></div>
         <div class="view-container" id="feedbackView">
             <!-- Rating Overview -->
             <div class="reviews-overview" id="reviewsOverview">
                 <div class="reviews-score">
                     <div class="reviews-score-value" id="reviewsAvgRating">-</div>
                     <div class="reviews-score-stars" id="reviewsStars"></div>
-                    <div class="reviews-score-count" id="reviewsTotalCount">0 avaliações</div>
+                    <div class="reviews-score-count" id="reviewsTotalCount">0 avalia��es</div>
                 </div>
                 <div class="reviews-bars" id="reviewsBars"></div>
             </div>
@@ -75,7 +75,7 @@
             <div class="reviews-trend">
                 <div class="reviews-trend-header">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-                    <h3>Tendência de Avaliações</h3>
+                    <h3>Tend�ncia de Avalia��es</h3>
                 </div>
                 <div class="reviews-trend-chart">
                     <div class="reviews-trend-wrapper"><canvas id="ratingTrendChart"></canvas></div>
@@ -86,31 +86,31 @@
             <section class="feedback-section">
                 <div class="feedback-header">
                     <div class="feedback-header-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg></div>
-                    <h2>Avaliações dos Clientes</h2>
+                    <h2>Avalia��es dos Clientes</h2>
                 </div>
                 <div class="reviews-filters" id="reviewsFilters">
                     <button class="reviews-filter-btn active" data-filter="all">Todas</button>
-                    <button class="reviews-filter-btn" data-filter="5">5★</button>
-                    <button class="reviews-filter-btn" data-filter="4">4★</button>
-                    <button class="reviews-filter-btn" data-filter="3">3★</button>
-                    <button class="reviews-filter-btn" data-filter="2">2★</button>
-                    <button class="reviews-filter-btn" data-filter="1">1★</button>
+                    <button class="reviews-filter-btn" data-filter="5">5?</button>
+                    <button class="reviews-filter-btn" data-filter="4">4?</button>
+                    <button class="reviews-filter-btn" data-filter="3">3?</button>
+                    <button class="reviews-filter-btn" data-filter="2">2?</button>
+                    <button class="reviews-filter-btn" data-filter="1">1?</button>
                 </div>
                 <div class="reviews-list" id="reviewsList">
-                    <div class="empty-state"><p>Carregando avaliações...</p></div>
+                    <div class="empty-state"><p>Carregando avalia��es...</p></div>
                 </div>
-                <button class="reviews-load-more" id="reviewsLoadMore" style="display:none" onclick="loadMoreReviews()">Carregar mais avaliações</button>
+                <button class="reviews-load-more" id="reviewsLoadMore" style="display:none" onclick="loadMoreReviews()">Carregar mais avalia��es</button>
             </section>
 
             <!-- Existing Feedback Charts -->
             <section class="feedback-section" style="margin-top:24px">
                 <div class="feedback-header">
                     <div class="feedback-header-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg></div>
-                    <h2>Análise de Feedback</h2>
+                    <h2>An�lise de Feedback</h2>
                 </div>
                 <div class="feedback-grid">
                     <div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon compliments"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"/></svg></div><h3>Elogios</h3></div><div class="feedback-chart-wrapper"><canvas id="complimentsChart"></canvas></div></div>
-                    <div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon complaints"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2"/></svg></div><h3>Reclamações</h3></div><div class="feedback-chart-wrapper"><canvas id="complaintsChart"></canvas></div></div>
+                    <div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon complaints"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2"/></svg></div><h3>Reclama��es</h3></div><div class="feedback-chart-wrapper"><canvas id="complaintsChart"></canvas></div></div>
                     <div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon cancellations"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><h3>Motivos Cancelamento</h3></div><div class="feedback-chart-wrapper"><canvas id="cancellationReasonsChart"></canvas></div></div>
                     <div class="feedback-card"><div class="feedback-card-header"><div class="feedback-card-icon origins"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><h3>Origem Cancelamentos</h3></div><div class="feedback-chart-wrapper"><canvas id="cancellationOriginsChart"></canvas></div></div>
                 </div>
@@ -228,7 +228,7 @@ async function fetchRestaurantData() {
         console.error('Error loading data:', error);
         apiStatus.classList.remove('loading');
         apiStatus.classList.add('error');
-        apiStatus.querySelector('span:last-child').textContent = 'Erro de conexÃ£o';
+        apiStatus.querySelector('span:last-child').textContent = 'Erro de conexão';
     }
 }
 
@@ -337,8 +337,8 @@ function applyFilter() {
 function updateFilterLabel() {
     const l = document.getElementById('filterPeriodLabel');
     if (currentFilter.type === 'current') {
-        const m = { '7days': 'Ãšltimos 7 dias', '15days': 'Ãšltimos 15 dias', '30days': 'Ãšltimos 30 dias' };
-        l.textContent = m[currentFilter.period] || 'Ãšltimos 7 dias';
+        const m = { '7days': 'Últimos 7 dias', '15days': 'Últimos 15 dias', '30days': 'Últimos 30 dias' };
+        l.textContent = m[currentFilter.period] || 'Últimos 7 dias';
     } else if (currentFilter.type === 'month' && currentFilter.month) {
         const [y, m] = currentFilter.month.split('-');
         const d = new Date(y, parseInt(m) - 1);
@@ -437,7 +437,7 @@ function updateUI() {
     document.getElementById('metricDays').textContent = m.tempo_aberto_hours || 0;
 }
 
-function ensureMenuPerformanceSection( {
+function ensureMenuPerformanceSection() {
     if (document.getElementById('menuPerformanceSection')) return;
     const dashboardView = document.getElementById('dashboardView');
     if (!dashboardView) return;
@@ -456,7 +456,7 @@ function ensureMenuPerformanceSection( {
             </div>
             <div class="table-wrapper" style="border-left: 1px solid var(--border-subtle);">
                 <table class="data-table">
-                    <thead><tr><th colspan="4">Itens de AtenÃ§Ã£o</th></tr><tr><th>Item</th><th>Qtd</th><th>Receita</th><th>Cancel.</th></tr></thead>
+                    <thead><tr><th colspan="4">Itens de Atenção</th></tr><tr><th>Item</th><th>Qtd</th><th>Receita</th><th>Cancel.</th></tr></thead>
                     <tbody id="menuBottomItemsBody"></tbody>
                 </table>
             </div>
@@ -474,7 +474,7 @@ function renderMenuPerformance() {
     if (!summaryEl || !topBody || !bottomBody) return;
 
     if (!menuPerformanceData || !menuPerformanceData.summary) {
-        summaryEl.innerHTML = '<span style="color: var(--text-muted); font-size: 0.9rem;">Sem dados de itens para o perÃ­odo selecionado.</span>';
+        summaryEl.innerHTML = '<span style="color: var(--text-muted); font-size: 0.9rem;">Sem dados de itens para o período selecionado.</span>';
         topBody.innerHTML = '<tr><td colspan="4" class="empty-state"><p>Sem dados</p></td></tr>';
         bottomBody.innerHTML = '<tr><td colspan="4" class="empty-state"><p>Sem dados</p></td></tr>';
         return;
@@ -482,10 +482,10 @@ function renderMenuPerformance() {
 
     const s = menuPerformanceData.summary;
     summaryEl.innerHTML = `
-        <span class="platform-badge">Itens Ãºnicos: ${s.total_unique_items || 0}</span>
+        <span class="platform-badge">Itens únicos: ${s.total_unique_items || 0}</span>
         <span class="platform-badge">Qtd vendida: ${s.total_quantity_sold || 0}</span>
         <span class="platform-badge">Receita itens: ${formatCurrency(s.total_item_revenue || 0)}</span>
-        <span class="platform-badge">AvaliaÃ§Ã£o mÃ©dia: ${(s.average_item_rating || 0).toFixed(2)}</span>
+        <span class="platform-badge">Avaliação média: ${(s.average_item_rating || 0).toFixed(2)}</span>
     `;
 
     const topItems = menuPerformanceData.top_items || [];
@@ -677,12 +677,19 @@ function renderOrdersTable() {
     tb.innerHTML = ordersData.slice(0, 100).map(o => {
         const d = new Date(o.createdAt);
         const sc = o.orderStatus === 'CONCLUDED' ? 'concluded' : o.orderStatus === 'CONFIRMED' ? 'confirmed' : 'cancelled';
-        const st = o.orderStatus === 'CONCLUDED' ? 'ConcluÃ­do' : o.orderStatus === 'CONFIRMED' ? 'Confirmado' : 'Cancelado';
+        const st = o.orderStatus === 'CONCLUDED' ? 'Concluído' : o.orderStatus === 'CONFIRMED' ? 'Confirmado' : 'Cancelado';
         return `<tr><td><span class="order-id">${o.displayId || o.id?.substring(0, 8) || '-'}</span></td><td>${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</td><td>${formatCurrency(o.total?.orderAmount || o.totalPrice || 0)}</td><td><span class="status-badge ${sc}">${st}</span></td><td>${o.payments?.[0]?.name || o.payment?.method || '-'}</td></tr>`;
     }).join('');
 }
 
 // Reviews
+function escapeHTML(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 function renderReviews() {
     if (!reviewsData) return;
     renderReviewsOverview();
@@ -704,17 +711,16 @@ function renderReviewsOverview() {
     const rd = reviewsData;
     document.getElementById('reviewsAvgRating').textContent = rd.average_rating > 0 ? rd.average_rating.toFixed(1) : '-';
     document.getElementById('reviewsStars').innerHTML = renderStarsHTML(Math.round(rd.average_rating), 20);
-    document.getElementById('reviewsTotalCount').textContent = `${rd.total_reviews} avaliação${rd.total_reviews !== 1 ? 'es' : ''}`;
+    document.getElementById('reviewsTotalCount').textContent = `${rd.total_reviews} avalia��o${rd.total_reviews !== 1 ? 'es' : ''}`;
 
     const barsEl = document.getElementById('reviewsBars');
     const dist = rd.rating_distribution || {};
-    const maxCount = Math.max(...Object.values(dist), 1);
     let barsHTML = '';
     for (let i = 5; i >= 1; i--) {
-        const count = dist[i] || 0;
+        const count = dist[i] || dist[String(i)] || 0;
         const pct = rd.total_reviews > 0 ? (count / rd.total_reviews * 100) : 0;
         barsHTML += `<div class="reviews-bar-row">
-            <span class="reviews-bar-label">${i}★</span>
+            <span class="reviews-bar-label">${i}?</span>
             <div class="reviews-bar-track"><div class="reviews-bar-fill" style="width:${pct}%"></div></div>
             <span class="reviews-bar-count">${count}</span>
         </div>`;
@@ -752,7 +758,7 @@ function renderRatingTrend() {
         data: {
             labels: sortedDates,
             datasets: [{
-                label: 'Avaliação Média',
+                label: 'Avalia��o M�dia',
                 data: avgData,
                 borderColor: '#f59e0b',
                 backgroundColor: 'rgba(245,158,11,0.1)',
@@ -798,7 +804,7 @@ function renderReviewsList() {
     reviewsPage = 0;
 
     if (filtered.length === 0) {
-        listEl.innerHTML = '<div class="empty-state"><p>Nenhuma avaliação encontrada</p></div>';
+        listEl.innerHTML = '<div class="empty-state"><p>Nenhuma avalia��o encontrada</p></div>';
         loadMoreBtn.style.display = 'none';
         return;
     }
@@ -827,16 +833,16 @@ function loadMoreReviews() {
 }
 
 function renderReviewCard(review) {
-    const name = review.customer_name || 'Cliente';
-    const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    const name = escapeHTML(review.customer_name || 'Cliente');
+    const initials = (review.customer_name || 'C').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
     const date = review.date ? new Date(review.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
     let tagsHTML = '';
     if (review.compliments && review.compliments.length > 0) {
-        tagsHTML += review.compliments.map(c => `<span class="review-tag positive">${c}</span>`).join('');
+        tagsHTML += review.compliments.map(c => `<span class="review-tag positive">${escapeHTML(c)}</span>`).join('');
     }
     if (review.complaints && review.complaints.length > 0) {
-        tagsHTML += review.complaints.map(c => `<span class="review-tag negative">${c}</span>`).join('');
+        tagsHTML += review.complaints.map(c => `<span class="review-tag negative">${escapeHTML(c)}</span>`).join('');
     }
 
     return `<div class="review-card">
@@ -850,9 +856,9 @@ function renderReviewCard(review) {
             </div>
             <div class="review-stars">${renderStarsHTML(review.rating)}</div>
         </div>
-        ${review.comment ? `<p class="review-comment">${review.comment}</p>` : ''}
+        ${review.comment ? `<p class="review-comment">${escapeHTML(review.comment)}</p>` : ''}
         ${tagsHTML ? `<div class="review-tags">${tagsHTML}</div>` : ''}
-        <div class="review-order-id">Pedido ${review.order_id}</div>
+        <div class="review-order-id">Pedido ${escapeHTML(review.order_id)}</div>
     </div>`;
 }
 
