@@ -7,6 +7,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+    <link rel="manifest" href="/static/site.webmanifest">
     <link rel="preload" as="image" href="/static/selo_ifood_super.png">
     <style>
         * {
@@ -2161,72 +2165,13 @@ let orgCapabilities = null;
             }
         });
 
-        // ============================================================
-        // REAL-TIME ORDER FEED (SSE)
-        // ============================================================
         
-        const liveFeedOrders = [];
-        let eventSource = null;
         
-        function initSSE() {
-            if (eventSource) eventSource.close();
-            eventSource = new EventSource('/api/events');
-            
-            eventSource.addEventListener('connected', (e) => {
-                console.log('SSE connected:', JSON.parse(e.data));
-                updateLiveIndicator(true);
-            });
-            
-            eventSource.addEventListener('new_order', (e) => {
-                const order = JSON.parse(e.data);
-                liveFeedOrders.unshift(order);
-                if (liveFeedOrders.length > 50) liveFeedOrders.pop();
-                renderLiveFeed();
-                showOrderToast(order);
-            });
-            
-            eventSource.addEventListener('data_updated', (e) => {
-                // Auto-refresh dashboard when background refresh completes
-                const info = JSON.parse(e.data);
-                console.log('Data updated:', info);
-                loadRestaurants(currentMonthFilter);
-                showToast('Dados atualizados automaticamente', 'success');
-            });
-            
-            eventSource.addEventListener('refresh_status', (e) => {
-                const status = JSON.parse(e.data);
-                const refreshBtn = document.querySelector('.icon-btn[onclick="refreshData()"]');
-                if (refreshBtn) {
-                    if (status.status === 'refreshing') {
-                        refreshBtn.style.animation = 'spin 1s linear infinite';
-                    } else {
-                        refreshBtn.style.animation = '';
-                    }
-                }
-            });
-            
-            eventSource.onerror = () => {
-                updateLiveIndicator(false);
-                // Reconnect after 5s
-                setTimeout(() => {
-                    if (eventSource.readyState === EventSource.CLOSED) initSSE();
-                }, 5000);
-            };
-        }
         
-        function updateLiveIndicator(connected) {
-            let indicator = document.getElementById('liveIndicator');
-            if (!indicator) {
-                indicator = document.createElement('div');
-                indicator.id = 'liveIndicator';
-                indicator.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:999;display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:12px;font-size:12px;font-weight:600;color:var(--text-secondary);box-shadow:var(--shadow-md);cursor:pointer;transition:all .2s';
-                indicator.onclick = toggleLiveFeed;
-                document.body.appendChild(indicator);
-            }
-            const dotColor = connected ? '#10b981' : '#f43f5e';
-            indicator.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:${dotColor};box-shadow:0 0 6px ${dotColor};${connected ? 'animation:blink 2s ease-in-out infinite' : ''}"></span>${connected ? 'Ao Vivo' : 'Desconectado'}<span style="margin-left:4px;opacity:0.5">${liveFeedOrders.length}</span>`;
-        }
         
+        
+        
+        /* Real-time feed disabled
         function toggleLiveFeed() {
             let panel = document.getElementById('liveFeedPanel');
             if (!panel) {
@@ -2281,6 +2226,7 @@ let orgCapabilities = null;
         
         // Start SSE connection after initial data is loaded (non-blocking)
         setTimeout(initSSE, 2000);
+        */
     </script>
     <style>@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}</style>
 </body>
