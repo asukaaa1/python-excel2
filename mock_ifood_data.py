@@ -35,6 +35,32 @@ class MockIFoodDataGenerator:
         "Tacos al Pastor", "Coq au Vin", "Lasagna", "Hot Dog Gourmet",
         "Temaki Salmão", "Marmitex", "Sanduíche Natural"
     ]
+
+    REVIEW_COMMENTS_POSITIVE = [
+        "Comida deliciosa, chegou quentinha!",
+        "Melhor pizza da região, sempre peço aqui!",
+        "Superou minhas expectativas, tudo perfeito!",
+        "Entrega super rápida e comida fresquinha.",
+        "Adorei a apresentação e o sabor, nota 10!",
+        "Sempre caprichado, nunca decepciona!",
+        "Comida caseira de verdade, muito saborosa.",
+        "Porção generosa e preço justo.",
+        "Embalagem impecável, nada vazou.",
+        "O atendimento pelo app foi ótimo, recomendo!",
+        "Pedi pela primeira vez e já virei cliente fiel.",
+        "Tudo fresquinho e bem temperado!",
+    ]
+
+    REVIEW_COMMENTS_NEGATIVE = [
+        "Pedido veio errado, faltou um item.",
+        "Comida chegou fria, muito demorado.",
+        "A embalagem veio aberta, comida espalhada.",
+        "Achei o preço alto pelo tamanho da porção.",
+        "Pedido atrasou mais de 40 minutos.",
+        "Qualidade abaixo do esperado dessa vez.",
+        "Faltou tempero na comida, muito sem gosto.",
+        "Item do pedido estava diferente da foto.",
+    ]
     
     @staticmethod
     def generate_merchant_data(merchant_id: str = None, num_orders: int = 100, days: int = 30) -> Dict:
@@ -150,10 +176,24 @@ class MockIFoodDataGenerator:
                 num_complaints = random.randint(1, 2)
                 complaints = random.sample(possible_complaints, num_complaints)
             
+            rating = random.randint(3, 5) if not complaints else random.randint(1, 3)
+            comment = None
+            if random.random() < 0.5:
+                if rating >= 4:
+                    comment = random.choice(MockIFoodDataGenerator.REVIEW_COMMENTS_POSITIVE)
+                elif rating <= 2:
+                    comment = random.choice(MockIFoodDataGenerator.REVIEW_COMMENTS_NEGATIVE)
+                else:
+                    comment = random.choice(
+                        MockIFoodDataGenerator.REVIEW_COMMENTS_POSITIVE +
+                        MockIFoodDataGenerator.REVIEW_COMMENTS_NEGATIVE
+                    )
+
             feedback_data = {
-                "rating": random.randint(3, 5) if not complaints else random.randint(1, 3),
+                "rating": rating,
                 "compliments": compliments,
-                "complaints": complaints
+                "complaints": complaints,
+                "comment": comment
             }
         
         # Generate items

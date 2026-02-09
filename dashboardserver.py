@@ -1463,19 +1463,49 @@ def api_restaurant_detail(restaurant_id):
                 chart_data = IFoodDataProcessor.generate_charts_data(orders_for_charts)
                 chart_data['interruptions'] = []
         
+        # Extract reviews from orders
+        reviews_list = []
+        rating_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for order in orders_for_charts:
+            fb = order.get('feedback')
+            if fb and fb.get('rating'):
+                r = fb['rating']
+                if r in rating_counts:
+                    rating_counts[r] += 1
+                reviews_list.append({
+                    'rating': r,
+                    'comment': fb.get('comment'),
+                    'compliments': fb.get('compliments', []),
+                    'complaints': fb.get('complaints', []),
+                    'customer_name': order.get('customer', {}).get('name', 'Cliente'),
+                    'date': order.get('createdAt'),
+                    'order_id': order.get('displayId', order.get('id', ''))
+                })
+
+        total_reviews = sum(rating_counts.values())
+        avg_review_rating = round(
+            sum(k * v for k, v in rating_counts.items()) / total_reviews, 1
+        ) if total_reviews else 0
+
         return jsonify({
             'success': True,
             'restaurant': response_data,
             'charts': chart_data,
             'menu_performance': menu_performance,
             'interruptions': interruptions,
+            'reviews': {
+                'average_rating': avg_review_rating,
+                'total_reviews': total_reviews,
+                'rating_distribution': rating_counts,
+                'items': sorted(reviews_list, key=lambda x: x['date'] or '', reverse=True)
+            },
             'filter': {
                 'start_date': start_date,
                 'end_date': end_date,
                 'total_orders_filtered': len(filtered_orders) if (start_date or end_date) else len(all_orders)
             }
         })
-        
+
     except Exception as e:
         print(f"Error getting restaurant detail: {e}")
         traceback.print_exc()
