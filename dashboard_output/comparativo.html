@@ -77,6 +77,22 @@
             padding: 1.5rem;
             border-bottom: 1px solid var(--border);
         }
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1.25rem;
+        }
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+        }
+        .sidebar-logo img {
+            height: 26px;
+            width: auto;
+            display: block;
+            object-fit: contain;
+        }
         .sidebar-user {
             display: flex;
             align-items: center;
@@ -630,6 +646,11 @@
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
+            <div class="sidebar-brand">
+                <div class="sidebar-logo">
+                    <img src="/static/LOGO.png" alt="Logo">
+                </div>
+            </div>
             <div class="sidebar-user">
                 <div class="sidebar-avatar" id="sidebarAvatar">A</div>
                 <div class="sidebar-user-info">

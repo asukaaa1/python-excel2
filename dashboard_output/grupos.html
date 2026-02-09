@@ -50,7 +50,8 @@
         .sidebar-overlay.show { opacity: 1; visibility: visible; }
         .sidebar-header { padding: 1.5rem; border-bottom: 1px solid var(--border-light); }
         .sidebar-brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; }
-        .sidebar-logo { width: 40px; height: 40px; border-radius: var(--radius-lg); background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; font-weight: 800; color: white; box-shadow: var(--shadow-md), var(--shadow-glow); }
+        .sidebar-logo { display: flex; align-items: center; }
+        .sidebar-logo img { height: 26px; width: auto; display: block; object-fit: contain; }
         .sidebar-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em; }
         .sidebar-user { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--radius-lg); }
         .sidebar-avatar { width: 44px; height: 44px; border-radius: var(--radius-lg); background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; }
@@ -196,7 +197,7 @@
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <div class="sidebar-brand"><div class="sidebar-logo">T</div><span class="sidebar-brand-text">TIMO</span></div>
+            <div class="sidebar-brand"><div class="sidebar-logo"><img src="/static/LOGO.png" alt="Logo"></div></div>
             <div class="sidebar-user"><div class="sidebar-avatar" id="userAvatar">A</div><div class="sidebar-user-info"><h3 id="userName">Admin</h3><p><span class="role-dot"></span><span id="userRoleText">Administrador</span></p></div></div>
             <div class="org-switcher" id="orgSwitcher" style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border-light);border-radius:var(--radius-lg);cursor:pointer">
                 <div style="display:flex;align-items:center;gap:10px">
