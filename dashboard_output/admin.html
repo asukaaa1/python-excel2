@@ -807,7 +807,6 @@
             grid.innerHTML = plans.map(plan => {
                 const isCurrent = (plan.name || '').toLowerCase() === currentPlan;
                 const isEligible = !!plan.eligible;
-                const highlight = plan.highlight ? 'highlight' : '';
                 const currentClass = isCurrent ? 'plan-current' : '';
                 const badge = plan.badge ? `<span class="plan-pill">${escapeHtml(plan.badge)}</span>` : '';
                 const subtitle = escapeHtml(plan.subtitle || '');
@@ -828,7 +827,7 @@
                 }
 
                 return `
-                    <div class="plan-card ${highlight} ${currentClass}">
+                    <div class="plan-card ${currentClass}">
                         ${badge}
                         <div class="plan-title">${planName}</div>
                         <div class="plan-subtitle">${subtitle}</div>
