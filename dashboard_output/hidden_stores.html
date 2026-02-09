@@ -166,8 +166,51 @@
         <div class="stores-grid" id="hiddenStoresList"><div class="loading-state"><div class="loading-spinner"></div><p style="color:var(--text-tertiary)">Carregando...</p></div></div>
     </div>
 
+    <div id="orgSwitcherModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:2500;align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)closeOrgModal('orgSwitcherModal')">
+        <div style="width:100%;max-width:520px;background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:16px;box-shadow:var(--shadow-xl);overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border-light)">
+                <h3 style="font-size:1rem;font-weight:700">Organizacoes</h3>
+                <button class="sidebar-footer-btn" style="width:auto;padding:6px 10px" onclick="closeOrgModal('orgSwitcherModal')">Fechar</button>
+            </div>
+            <div style="padding:16px">
+                <div id="orgListContainer" style="display:grid;gap:8px">
+                    <div class="empty-state" style="padding:1rem;border:1px dashed var(--border-light);border-radius:12px">Carregando organizacoes...</div>
+                </div>
+            </div>
+            <div style="padding:12px 16px;border-top:1px solid var(--border-light);display:flex;justify-content:flex-end">
+                <button class="sidebar-footer-btn" style="width:auto;padding:8px 12px;border-color:#f97015;color:#f97015" onclick="openCreateOrgModal()">Criar Organizacao</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="createOrgModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:2501;align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)closeOrgModal('createOrgModal')">
+        <div style="width:100%;max-width:520px;background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:16px;box-shadow:var(--shadow-xl);overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border-light)">
+                <h3 style="font-size:1rem;font-weight:700">Criar Organizacao</h3>
+                <button class="sidebar-footer-btn" style="width:auto;padding:6px 10px" onclick="closeOrgModal('createOrgModal')">Fechar</button>
+            </div>
+            <div style="padding:16px">
+                <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Nome da Organizacao *</label>
+                <input id="newOrgName" type="text" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border-light);background:var(--bg-secondary);color:var(--text-primary);font-family:inherit" placeholder="Ex.: Operacao Sul">
+                <label style="display:flex;align-items:flex-start;gap:8px;font-size:.8125rem;color:var(--text-secondary);cursor:pointer;margin-top:10px">
+                    <input type="checkbox" id="newOrgCopyUsers" checked style="margin-top:2px">
+                    <span>Manter usuarios existentes na nova organizacao.</span>
+                </label>
+            </div>
+            <div style="padding:12px 16px;border-top:1px solid var(--border-light);display:flex;justify-content:flex-end;gap:8px">
+                <button class="sidebar-footer-btn" style="width:auto;padding:8px 12px" onclick="closeOrgModal('createOrgModal')">Cancelar</button>
+                <button class="sidebar-footer-btn" style="width:auto;padding:8px 12px;border-color:#f97015;color:#f97015" onclick="createOrganization()">Criar</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let hiddenStores = [];
+        let currentOrgId = null;
+        let organizationsCache = [];
+        function openOrgModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'flex'; }
+        function closeOrgModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+        function escapeOrgText(v) { return String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
         async function loadHiddenStores() { try { const r = await fetch('/api/hidden-stores'); const d = await r.json(); if(d.success) { hiddenStores = d.hidden_stores || []; renderHiddenStores(); } else { showError('Erro ao carregar'); } } catch(e) { showError('Erro de conexão'); } }
         function renderHiddenStores() { const c = document.getElementById('hiddenStoresList'); document.getElementById('hiddenCount').textContent = hiddenStores.length; if(!hiddenStores.length) { c.innerHTML = '<div class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg><h3>Nenhuma loja oculta</h3><p>Todas as lojas estão visíveis</p></div>'; return; }
             c.innerHTML = hiddenStores.map(s => `<div class="store-card animate-in"><div class="store-avatar">${s.name.charAt(0).toUpperCase()}</div><div class="store-info"><div class="store-name">${s.name}</div><div class="store-meta"><span>🗓️ ${s.hidden_at ? new Date(s.hidden_at).toLocaleDateString('pt-BR') : '-'}</span>${s.hidden_by?`<span>👤 ${s.hidden_by}</span>`:''}</div></div><button class="btn-unhide" onclick="unhideStore('${s.id}','${s.name.replace(/'/g,"\\'")}')"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>Mostrar</button></div>`).join(''); }
@@ -184,10 +227,140 @@
             return response;
         };
         function checkAuth() { fetch('/api/me').then(r => r.json()).then(d => { if(d.success && d.user && d.user.role === 'admin') { const u = d.user; document.getElementById('userName').textContent = u.name || u.username || 'Usuário'; document.getElementById('userAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase(); loadHiddenStores(); } else { window.location.href = '/dashboard'; } }).catch(() => { window.location.href = '/login'; }); }
+        async function loadOrganizations(renderToModal = false) {
+            try {
+                const response = await fetch('/api/orgs');
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    if (renderToModal) {
+                        const container = document.getElementById('orgListContainer');
+                        if (container) container.innerHTML = '<div class="empty-state" style="padding:1rem;border:1px dashed var(--border-light);border-radius:12px">Nao foi possivel carregar organizacoes</div>';
+                    }
+                    return;
+                }
+                organizationsCache = Array.isArray(data.organizations) ? data.organizations : [];
+                if (renderToModal) renderOrganizationOptions();
+            } catch (error) {
+                if (renderToModal) {
+                    const container = document.getElementById('orgListContainer');
+                    if (container) container.innerHTML = '<div class="empty-state" style="padding:1rem;border:1px dashed var(--border-light);border-radius:12px">Erro ao carregar organizacoes</div>';
+                }
+            }
+        }
+
+        function renderOrganizationOptions() {
+            const container = document.getElementById('orgListContainer');
+            if (!container) return;
+            if (!organizationsCache.length) {
+                container.innerHTML = '<div class="empty-state" style="padding:1rem;border:1px dashed var(--border-light);border-radius:12px">Nenhuma organizacao encontrada</div>';
+                return;
+            }
+            container.innerHTML = organizationsCache.map(org => {
+                const orgId = Number(org.id);
+                const isCurrent = Number(currentOrgId) === orgId;
+                const plan = String(org.plan || '-').toUpperCase();
+                const role = String(org.org_role || 'viewer').toUpperCase();
+                return `<button class="sidebar-footer-btn" style="justify-content:space-between;padding:10px 12px" onclick="switchOrganization(${orgId})" ${isCurrent ? 'disabled' : ''}><span style="display:flex;flex-direction:column;align-items:flex-start;gap:2px"><span style="font-weight:700">${escapeOrgText(org.name || 'Organizacao')}</span><span style="font-size:11px;color:var(--text-tertiary)">${escapeOrgText(plan)} / ${escapeOrgText(role)}</span></span>${isCurrent ? '<span style="color:#10b981;font-size:12px;font-weight:700">Atual</span>' : ''}</button>`;
+            }).join('');
+        }
+
+        async function refreshOrgStoreCount() {
+            try {
+                const response = await fetch('/api/org/ifood-config');
+                const data = await response.json();
+                const merchants = Array.isArray(data?.config?.merchants) ? data.config.merchants : [];
+                const orgStoreCount = document.getElementById('orgStoreCount');
+                if (orgStoreCount) orgStoreCount.textContent = `${merchants.length} lojas`;
+            } catch (error) {
+                const orgStoreCount = document.getElementById('orgStoreCount');
+                if (orgStoreCount) orgStoreCount.textContent = '0 lojas';
+            }
+        }
+
+        async function openOrgSwitcherModal() { await loadOrganizations(true); openOrgModal('orgSwitcherModal'); }
+
+        async function switchOrganization(orgId) {
+            try {
+                const response = await fetch('/api/orgs/switch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ org_id: orgId })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) { showToast(data.error || 'Falha ao trocar organizacao', 'error'); return; }
+                currentOrgId = Number(orgId);
+                closeOrgModal('orgSwitcherModal');
+                await checkAuth();
+                showToast('Organizacao atualizada', 'success');
+            } catch (e) { showToast('Erro de conexao ao trocar organizacao', 'error'); }
+        }
+
+        function openCreateOrgModal() {
+            closeOrgModal('orgSwitcherModal');
+            const orgInput = document.getElementById('newOrgName');
+            if (orgInput) orgInput.value = '';
+            const copyInput = document.getElementById('newOrgCopyUsers');
+            if (copyInput) copyInput.checked = true;
+            openOrgModal('createOrgModal');
+            if (orgInput) orgInput.focus();
+        }
+
+        async function createOrganization() {
+            const orgName = (document.getElementById('newOrgName')?.value || '').trim();
+            const copyUsers = !!document.getElementById('newOrgCopyUsers')?.checked;
+            if (!orgName) { showToast('Informe o nome da organizacao', 'error'); return; }
+            try {
+                const response = await fetch('/api/orgs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ org_name: orgName, copy_users: copyUsers })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) { showToast(data.error || 'Falha ao criar organizacao', 'error'); return; }
+                currentOrgId = Number(data.org_id || (data.organization && data.organization.id) || currentOrgId);
+                closeOrgModal('createOrgModal');
+                await checkAuth();
+                const copyErrors = Array.isArray(data.copy_errors) ? data.copy_errors.length : 0;
+                if (copyErrors > 0) showToast(`Organizacao criada com ${copyErrors} falha(s) ao vincular usuarios`, 'error');
+                else showToast('Organizacao criada com sucesso', 'success');
+            } catch (e) { showToast('Erro de conexao ao criar organizacao', 'error'); }
+        }
+
+        async function checkAuth() {
+            try {
+                const r = await fetch('/api/me');
+                const d = await r.json();
+                if (!(d.success && d.user && d.user.role === 'admin')) { window.location.href = '/dashboard'; return; }
+                const u = d.user;
+                document.getElementById('userName').textContent = u.name || u.username || 'Usuario';
+                document.getElementById('userAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase();
+                document.getElementById('userRoleText').textContent = u.role === 'admin' ? 'Administrador' : 'Usuario';
+                currentOrgId = Number(d.org_id || currentOrgId || 0);
+                const org = d.org || {};
+                if (org.name) {
+                    const orgName = document.getElementById('orgName');
+                    if (orgName) orgName.textContent = org.name;
+                    const orgAvatar = document.getElementById('orgAvatar');
+                    if (orgAvatar) {
+                        const orgInitials = String(org.name).split(' ').map(v => v[0]).join('').slice(0, 3).toUpperCase();
+                        orgAvatar.textContent = orgInitials || 'ORG';
+                    }
+                }
+                if (org.plan_display || org.plan) {
+                    const planBadge = document.getElementById('planBadge');
+                    if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
+                }
+                await refreshOrgStoreCount();
+                await loadOrganizations(false);
+                await loadHiddenStores();
+            } catch (e) { window.location.href = '/login'; }
+        }
+
         function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebarOverlay').classList.toggle('show'); }
         function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('show'); }
         function logout() { if(confirm('Deseja sair?')) { fetch('/api/logout', { method: 'POST' }).then(() => { localStorage.removeItem('currentUser'); window.location.href = '/login'; }).catch(() => { window.location.href = '/login'; }); } }
-        (function() { const t = localStorage.getItem('theme') || 'dark'; document.documentElement.setAttribute('data-theme', t); checkAuth(); })();
+        (function() { const t = localStorage.getItem('theme') || 'dark'; document.documentElement.setAttribute('data-theme', t); const orgSwitcher = document.getElementById('orgSwitcher'); if (orgSwitcher) orgSwitcher.addEventListener('click', openOrgSwitcherModal); checkAuth(); })();
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeOrgModal('orgSwitcherModal'); closeOrgModal('createOrgModal'); closeSidebar(); } });
     </script>
 </body>
 </html>
