@@ -224,6 +224,23 @@ class DashboardDatabase:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # ── Saved views (filters/date ranges) ──
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS saved_views (
+                    id SERIAL PRIMARY KEY,
+                    org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                    user_id INTEGER NOT NULL REFERENCES dashboard_users(id) ON DELETE CASCADE,
+                    view_type VARCHAR(50) NOT NULL,
+                    name VARCHAR(120) NOT NULL,
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    scope_id VARCHAR(100),
+                    is_default BOOLEAN DEFAULT false,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(org_id, user_id, view_type, name, scope_id)
+                )
+            """)
             
             # ── SaaS: Per-org data snapshots ──
             cursor.execute("""
@@ -788,6 +805,118 @@ class DashboardDatabase:
                 (org_id, user_id, action, json.dumps(details or {}, ensure_ascii=False, default=str), ip_address))
             conn.commit()
         except: conn.rollback()
+        finally:
+            cursor.close(); conn.close()
+
+    # ================================================================
+    # Saved Views
+    # ================================================================
+
+    def list_saved_views(self, org_id, user_id, view_type, scope_id=None):
+        conn = self.get_connection()
+        if not conn: return []
+        cursor = conn.cursor()
+        try:
+            if scope_id is None:
+                cursor.execute("""
+                    SELECT id, name, payload, scope_id, is_default, created_at, updated_at
+                    FROM saved_views
+                    WHERE org_id=%s AND user_id=%s AND view_type=%s
+                    ORDER BY is_default DESC, created_at DESC
+                """, (org_id, user_id, view_type))
+            else:
+                cursor.execute("""
+                    SELECT id, name, payload, scope_id, is_default, created_at, updated_at
+                    FROM saved_views
+                    WHERE org_id=%s AND user_id=%s AND view_type=%s AND scope_id=%s
+                    ORDER BY is_default DESC, created_at DESC
+                """, (org_id, user_id, view_type, scope_id))
+            rows = cursor.fetchall()
+            result = []
+            for r in rows:
+                payload = r[2] if r[2] else {}
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                result.append({
+                    'id': r[0],
+                    'name': r[1],
+                    'payload': payload,
+                    'scope_id': r[3],
+                    'is_default': r[4],
+                    'created_at': r[5].isoformat() if isinstance(r[5], datetime) else str(r[5]),
+                    'updated_at': r[6].isoformat() if isinstance(r[6], datetime) else str(r[6])
+                })
+            return result
+        except Exception as e:
+            print(f"❌ list_saved_views: {e}")
+            return []
+        finally:
+            cursor.close(); conn.close()
+
+    def create_saved_view(self, org_id, user_id, view_type, name, payload, scope_id=None, is_default=False):
+        conn = self.get_connection()
+        if not conn: return None
+        cursor = conn.cursor()
+        try:
+            if is_default:
+                cursor.execute("""
+                    UPDATE saved_views SET is_default=false
+                    WHERE org_id=%s AND user_id=%s AND view_type=%s AND scope_id IS NOT DISTINCT FROM %s
+                """, (org_id, user_id, view_type, scope_id))
+            cursor.execute("""
+                INSERT INTO saved_views (org_id, user_id, view_type, name, payload, scope_id, is_default)
+                VALUES (%s,%s,%s,%s,%s::jsonb,%s,%s)
+                RETURNING id
+            """, (org_id, user_id, view_type, name, json.dumps(payload or {}), scope_id, is_default))
+            new_id = cursor.fetchone()[0]
+            conn.commit()
+            return new_id
+        except Exception as e:
+            conn.rollback(); print(f"❌ create_saved_view: {e}"); return None
+        finally:
+            cursor.close(); conn.close()
+
+    def delete_saved_view(self, org_id, user_id, view_id):
+        conn = self.get_connection()
+        if not conn: return False
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                DELETE FROM saved_views
+                WHERE id=%s AND org_id=%s AND user_id=%s
+            """, (view_id, org_id, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            conn.rollback(); print(f"❌ delete_saved_view: {e}"); return False
+        finally:
+            cursor.close(); conn.close()
+
+    def set_default_saved_view(self, org_id, user_id, view_id):
+        conn = self.get_connection()
+        if not conn: return False
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT view_type, scope_id FROM saved_views
+                WHERE id=%s AND org_id=%s AND user_id=%s
+            """, (view_id, org_id, user_id))
+            row = cursor.fetchone()
+            if not row:
+                return False
+            view_type, scope_id = row[0], row[1]
+            cursor.execute("""
+                UPDATE saved_views SET is_default=false
+                WHERE org_id=%s AND user_id=%s AND view_type=%s AND scope_id IS NOT DISTINCT FROM %s
+            """, (org_id, user_id, view_type, scope_id))
+            cursor.execute("""
+                UPDATE saved_views SET is_default=true, updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s AND org_id=%s AND user_id=%s
+            """, (view_id, org_id, user_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback(); print(f"❌ set_default_saved_view: {e}"); return False
         finally:
             cursor.close(); conn.close()
 

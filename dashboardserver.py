@@ -1076,6 +1076,93 @@ def api_org_users():
 
 
 # ============================================================================
+# API ROUTES - SAVED VIEWS
+# ============================================================================
+
+@app.route('/api/saved-views', methods=['GET'])
+@login_required
+def api_saved_views_list():
+    """List saved views for the current user/org"""
+    org_id = get_current_org_id()
+    user = session.get('user', {})
+    if not org_id or not user:
+        return jsonify({'success': False}), 403
+
+    view_type = request.args.get('view_type')
+    scope_id = request.args.get('scope_id')
+    if not view_type:
+        return jsonify({'success': False, 'error': 'view_type is required'}), 400
+
+    views = db.list_saved_views(org_id, user.get('id'), view_type, scope_id)
+    return jsonify({'success': True, 'views': views})
+
+
+@app.route('/api/saved-views', methods=['POST'])
+@login_required
+def api_saved_views_create():
+    """Create a saved view for the current user/org"""
+    org_id = get_current_org_id()
+    user = session.get('user', {})
+    if not org_id or not user:
+        return jsonify({'success': False}), 403
+
+    data = request.get_json() or {}
+    view_type = (data.get('view_type') or '').strip()
+    name = (data.get('name') or '').strip()
+    payload = data.get('payload') or {}
+    scope_id = data.get('scope_id')
+    is_default = bool(data.get('is_default'))
+
+    if not view_type or not name:
+        return jsonify({'success': False, 'error': 'view_type and name are required'}), 400
+
+    new_id = db.create_saved_view(org_id, user.get('id'), view_type, name, payload, scope_id, is_default)
+    if not new_id:
+        return jsonify({'success': False, 'error': 'Unable to create view'}), 500
+
+    db.log_action('saved_view.created', org_id=org_id, user_id=user.get('id'),
+                  details={'view_type': view_type, 'name': name, 'scope_id': scope_id},
+                  ip_address=request.remote_addr)
+    return jsonify({'success': True, 'id': new_id})
+
+
+@app.route('/api/saved-views/<int:view_id>', methods=['DELETE'])
+@login_required
+def api_saved_views_delete(view_id):
+    """Delete a saved view"""
+    org_id = get_current_org_id()
+    user = session.get('user', {})
+    if not org_id or not user:
+        return jsonify({'success': False}), 403
+
+    ok = db.delete_saved_view(org_id, user.get('id'), view_id)
+    if not ok:
+        return jsonify({'success': False, 'error': 'View not found'}), 404
+
+    db.log_action('saved_view.deleted', org_id=org_id, user_id=user.get('id'),
+                  details={'view_id': view_id}, ip_address=request.remote_addr)
+    return jsonify({'success': True})
+
+
+@app.route('/api/saved-views/<int:view_id>/default', methods=['POST'])
+@login_required
+def api_saved_views_set_default(view_id):
+    """Set a saved view as default"""
+    org_id = get_current_org_id()
+    user = session.get('user', {})
+    if not org_id or not user:
+        return jsonify({'success': False}), 403
+
+    ok = db.set_default_saved_view(org_id, user.get('id'), view_id)
+    if not ok:
+        return jsonify({'success': False, 'error': 'View not found'}), 404
+
+    db.log_action('saved_view.set_default', org_id=org_id, user_id=user.get('id'),
+                  details={'view_id': view_id}, ip_address=request.remote_addr)
+    return jsonify({'success': True})
+
+
+# ============================================================================
 # API ROUTES - RESTAURANT DATA
 # ============================================================================
 

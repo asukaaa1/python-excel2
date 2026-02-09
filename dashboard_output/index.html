@@ -1526,9 +1526,10 @@
         let restaurantsData = [];
         let hiddenStores = [];
         let currentSortOrder = 'name-asc';
-        let currentMonthFilter = 'all';
-        let searchQuery = '';
-        let isAdmin = false;
+let currentMonthFilter = 'all';
+let searchQuery = '';
+let isAdmin = false;
+let lastRefreshAt = null;
 
         // Initialize current month filter
         (function initMonth() {
@@ -1570,8 +1571,10 @@
                 
                 if (data.success) {
                     restaurantsData = data.restaurants || [];
+                    lastRefreshAt = data.last_refresh || null;
                     updateFilterCounts();
                     updateOverviewKPIs();
+                    updateLastRefresh();
                     renderRestaurants();
                 } else {
                     showToast('Erro ao carregar dados', 'error');
@@ -1608,6 +1611,26 @@
             const decline = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) < 0).length;
             document.getElementById('growthCount').textContent = Math.min(growth, 10);
             document.getElementById('declineCount').textContent = Math.min(decline, 10);
+        }
+
+        function updateLastRefresh() {
+            const lrEl = document.getElementById('overviewLastRefresh');
+            if (!lrEl) return;
+            lrEl.textContent = `Última atualização: ${formatLastRefresh(lastRefreshAt)}`;
+        }
+
+        function formatLastRefresh(iso) {
+            if (!iso) return '--';
+            const date = new Date(iso);
+            if (isNaN(date.getTime())) return '--';
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMin = Math.floor(diffMs / 60000);
+            if (diffMin < 1) return 'agora mesmo';
+            if (diffMin < 60) return `${diffMin} min atrás`;
+            const diffH = Math.floor(diffMin / 60);
+            if (diffH < 24) return `${diffH} h atrás`;
+            return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
         }
 
         function updateOverviewKPIs() {
