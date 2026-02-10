@@ -543,6 +543,103 @@ def _parse_order_datetime(order):
         return None
 
 
+def _parse_generic_datetime(raw_value):
+    """Parse ISO datetime payloads from interruption/status APIs."""
+    if not raw_value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw_value).replace('Z', '+00:00'))
+        if getattr(parsed, 'tzinfo', None) is not None:
+            parsed = parsed.replace(tzinfo=None)
+        return parsed
+    except Exception:
+        return None
+
+
+def detect_restaurant_closure(api_client, merchant_id):
+    """Infer if a store is currently closed using interruptions + merchant status."""
+    now = datetime.now()
+    active_reason = None
+    closed_until = None
+    active_interruptions = 0
+    status_payload = {}
+
+    if not api_client or not merchant_id:
+        return {'is_closed': False, 'closure_reason': None, 'closed_until': None, 'active_interruptions_count': 0}
+
+    interruptions = []
+    if hasattr(api_client, 'get_interruptions'):
+        try:
+            interruptions = api_client.get_interruptions(merchant_id) or []
+        except Exception:
+            interruptions = []
+
+    for interruption in interruptions:
+        if not isinstance(interruption, dict):
+            continue
+        start = _parse_generic_datetime(interruption.get('start'))
+        end = _parse_generic_datetime(interruption.get('end'))
+        is_active = False
+        if start and end:
+            is_active = start <= now <= end
+        elif start and not end:
+            is_active = start <= now
+        elif end and not start:
+            is_active = now <= end
+
+        if is_active:
+            active_interruptions += 1
+            if not active_reason:
+                active_reason = str(interruption.get('description') or 'Fechado temporariamente').strip()
+            if end and (closed_until is None or end > closed_until):
+                closed_until = end
+
+    if hasattr(api_client, 'get_merchant_status'):
+        try:
+            status_payload = api_client.get_merchant_status(merchant_id) or {}
+        except Exception:
+            status_payload = {}
+
+    state_raw = str(status_payload.get('state') or status_payload.get('status') or '').strip().upper()
+    message = str(status_payload.get('message') or '').strip()
+
+    closed_by_state = state_raw in {'CLOSED', 'CLOSE', 'OFFLINE', 'UNAVAILABLE', 'PAUSED', 'STOPPED'}
+
+    if not closed_by_state:
+        validations = status_payload.get('validations') or []
+        if isinstance(validations, list):
+            for validation in validations:
+                if not isinstance(validation, dict):
+                    continue
+                code = str(validation.get('code') or '').strip().lower()
+                validation_status = str(validation.get('status') or '').strip().upper()
+                if code in ('opening-hours', 'opening_hours', 'is-open', 'is_open'):
+                    if validation_status not in ('OK', 'OPEN', 'AVAILABLE', 'TRUE'):
+                        closed_by_state = True
+                        if not active_reason:
+                            active_reason = str(validation.get('message') or validation.get('description') or '').strip() or 'Fora do horario de funcionamento'
+                        break
+
+    if not closed_by_state and message:
+        msg_lower = message.lower()
+        if any(token in msg_lower for token in ('fechad', 'closed', 'indispon', 'offline')):
+            closed_by_state = True
+
+    is_closed = bool(active_interruptions > 0 or closed_by_state)
+    if not active_reason and is_closed:
+        if message:
+            active_reason = message
+        elif closed_by_state:
+            active_reason = f'Status: {state_raw}' if state_raw else 'Loja fechada no momento'
+
+    return {
+        'is_closed': is_closed,
+        'closure_reason': active_reason,
+        'closed_until': closed_until.isoformat() if closed_until else None,
+        'active_interruptions_count': active_interruptions
+    }
+
+
 def evaluate_restaurant_quality(restaurant, reference_last_refresh=None):
     """Build data-quality diagnostics for one restaurant payload."""
     issues = []
@@ -1017,6 +1114,7 @@ def _do_data_refresh():
                     pass
             
             restaurant_data = IFoodDataProcessor.process_restaurant_data(merchant_details, orders, financial_data)
+            closure = detect_restaurant_closure(IFOOD_API, merchant_id)
             
             if merchant_config.get('name'):
                 restaurant_data['name'] = merchant_config['name']
@@ -1024,6 +1122,10 @@ def _do_data_refresh():
                 restaurant_data['manager'] = merchant_config['manager']
             
             restaurant_data['_orders_cache'] = orders
+            restaurant_data['is_closed'] = bool(closure.get('is_closed'))
+            restaurant_data['closure_reason'] = closure.get('closure_reason')
+            restaurant_data['closed_until'] = closure.get('closed_until')
+            restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
             new_data.append(restaurant_data)
             
             # Broadcast new order events for real-time tracking
@@ -1214,7 +1316,12 @@ def _load_org_restaurants(org_id):
                 continue
             orders = api.get_orders(merchant_id, start_date, end_date)
             restaurant_data = IFoodDataProcessor.process_restaurant_data(details, orders or [], None)
+            closure = detect_restaurant_closure(api, merchant_id)
             restaurant_data['_orders_cache'] = orders or []
+            restaurant_data['is_closed'] = bool(closure.get('is_closed'))
+            restaurant_data['closure_reason'] = closure.get('closure_reason')
+            restaurant_data['closed_until'] = closure.get('closed_until')
+            restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
             new_data.append(restaurant_data)
         except Exception as e:
             print(f"  âš ï¸ Org {org_id}, merchant {merchant_id}: {e}")
@@ -1368,6 +1475,7 @@ def load_restaurants_from_ifood():
                 orders,
                 financial_data
             )
+            closure = detect_restaurant_closure(IFOOD_API, merchant_id)
             
             # Override name and manager from config if provided
             if merchant_config.get('name'):
@@ -1377,6 +1485,10 @@ def load_restaurants_from_ifood():
             
             # Store raw orders for charts
             restaurant_data['_orders_cache'] = orders
+            restaurant_data['is_closed'] = bool(closure.get('is_closed'))
+            restaurant_data['closure_reason'] = closure.get('closure_reason')
+            restaurant_data['closed_until'] = closure.get('closed_until')
+            restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
             
             RESTAURANTS_DATA.append(restaurant_data)
             print(f"      âœ… {restaurant_data['name']}")
@@ -2615,6 +2727,10 @@ def api_restaurants():
                     # Keep original name and manager
                     restaurant_data['name'] = restaurant_name
                     restaurant_data['manager'] = restaurant_manager
+                    restaurant_data['is_closed'] = bool(r.get('is_closed'))
+                    restaurant_data['closure_reason'] = r.get('closure_reason')
+                    restaurant_data['closed_until'] = r.get('closed_until')
+                    restaurant_data['active_interruptions_count'] = int(r.get('active_interruptions_count') or 0)
                     
                     # Remove internal caches before sending
                     restaurant = {k: v for k, v in restaurant_data.items() if not k.startswith('_')}

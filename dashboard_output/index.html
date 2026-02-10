@@ -924,6 +924,28 @@
             background: rgba(245, 158, 11, 0.15);
         }
 
+        .restaurant-closed-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 999px;
+            background: var(--warning-50);
+            color: var(--warning-500);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+        }
+
+        .restaurant-closed-icon svg {
+            width: 12px;
+            height: 12px;
+        }
+
+        [data-theme="dark"] .restaurant-closed-icon {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: rgba(245, 158, 11, 0.5);
+        }
+
         .restaurant-meta {
             display: flex;
             gap: var(--space-4);
@@ -1525,7 +1547,7 @@
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
                     <div>
                         <div style="font-size:11px;color:var(--text-tertiary)">Score médio</div>
-                        <div id="qualityScore" style="font-family:var(--font-mono);font-size:24px;font-weight:700;color:var(--text-primary)">100</div>
+                        <div id="qualityScore" style="font-family:var(--font-mono);font-size:24px;font-weight:700;color:var(--text-primary)">--</div>
                     </div>
                     <div>
                         <div style="font-size:11px;color:var(--text-tertiary)">Lojas com alerta</div>
@@ -1663,7 +1685,9 @@ let sharedViewToken = null;
         };
 
         function renderDataQualitySummary(summary) {
-            const score = Number(summary?.average_score ?? 100);
+            const storeCount = Number(summary?.store_count ?? 0);
+            const hasData = storeCount > 0;
+            const score = Number(summary?.average_score);
             const poor = Number(summary?.poor_count ?? 0);
             const warning = Number(summary?.warning_count ?? 0);
             const totalAlerts = poor + warning;
@@ -1672,20 +1696,23 @@ let sharedViewToken = null;
             const alertEl = document.getElementById('qualityAlerts');
             const statusEl = document.getElementById('qualityStatusPill');
             const hintsEl = document.getElementById('qualityHints');
-            if (scoreEl) scoreEl.textContent = Number.isFinite(score) ? String(Math.round(score)) : '100';
+            if (scoreEl) scoreEl.textContent = (hasData && Number.isFinite(score)) ? String(Math.round(score)) : '--';
             if (alertEl) alertEl.textContent = String(totalAlerts);
 
-            let status = 'OK';
+            let status = 'Sem dados';
             let bg = 'rgba(16,185,129,.12)';
             let color = '#10b981';
-            if (score < 55) {
-                status = 'Critico';
-                bg = 'rgba(239,68,68,.12)';
-                color = '#ef4444';
-            } else if (score < 80 || totalAlerts > 0) {
-                status = 'Atenção';
-                bg = 'rgba(245,158,11,.18)';
-                color = '#f59e0b';
+            if (hasData) {
+                status = 'OK';
+                if (score < 55) {
+                    status = 'Critico';
+                    bg = 'rgba(239,68,68,.12)';
+                    color = '#ef4444';
+                } else if (score < 80 || totalAlerts > 0) {
+                    status = 'Atenção';
+                    bg = 'rgba(245,158,11,.18)';
+                    color = '#f59e0b';
+                }
             }
             if (statusEl) {
                 statusEl.textContent = status;
@@ -1697,7 +1724,7 @@ let sharedViewToken = null;
                 const topIssue = Object.keys(buckets).sort((a, b) => buckets[b] - buckets[a])[0];
                 hintsEl.textContent = topIssue
                     ? `Principal alerta: ${topIssue} (${buckets[topIssue]} lojas)`
-                    : 'Sem alertas de qualidade.';
+                    : (hasData ? 'Sem alertas de qualidade.' : 'Sem dados suficientes para pontuar.');
             }
         }
 
@@ -2098,11 +2125,8 @@ let sharedViewToken = null;
                 const safeNeighborhood = escapeHtml(r.neighborhood || 'Sem bairro');
                 const safeRestaurantId = encodeURIComponent(String(r.id || ''));
                 const initial = (r.name || 'R').charAt(0).toUpperCase();
-                const q = r.quality || {};
-                const qScore = Number(q.score ?? 100);
-                const qLabel = q.status === 'poor' ? 'Critico' : (q.status === 'warning' ? 'Atencao' : 'OK');
-                const qBg = q.status === 'poor' ? 'rgba(239,68,68,.12)' : (q.status === 'warning' ? 'rgba(245,158,11,.18)' : 'rgba(16,185,129,.12)');
-                const qColor = q.status === 'poor' ? '#ef4444' : (q.status === 'warning' ? '#f59e0b' : '#10b981');
+                const isClosed = !!r.is_closed;
+                const closedReason = escapeHtml(r.closure_reason || 'Loja fechada no momento');
 
                 return `
                     <div class="restaurant-card" onclick="window.location.href='/restaurant/${safeRestaurantId}'">
@@ -2117,7 +2141,11 @@ let sharedViewToken = null;
                                     </svg>
                                     ${r.rating.toFixed(1)}
                                 </span>` : ''}
-                                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${qBg};color:${qColor}" title="Score qualidade ${qScore}">${qLabel} ${qScore}</span>
+                                ${isClosed ? `<span class="restaurant-closed-icon" title="${closedReason}">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"/>
+                                    </svg>
+                                </span>` : ''}
                             </div>
                             <div class="restaurant-meta">
                                 <span class="restaurant-meta-item">
