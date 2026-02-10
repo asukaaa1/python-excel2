@@ -227,11 +227,28 @@ def get_current_org_id():
     return org_id
 
 
+def is_shared_mock_mode():
+    """Return True when app is running in legacy global mock-data mode."""
+    config_client_id = None
+    if isinstance(IFOOD_CONFIG, dict):
+        config_client_id = IFOOD_CONFIG.get('client_id')
+    if str(config_client_id or '').strip().upper() == 'MOCK_DATA_MODE':
+        return True
+    return bool(IFOOD_API and getattr(IFOOD_API, 'use_mock_data', False))
+
+
 def get_current_org_restaurants():
     """Get restaurant data for the current session's org"""
     org_id = get_current_org_id()
     if org_id and org_id in ORG_DATA:
-        return ORG_DATA[org_id]['restaurants']
+        org_restaurants = ORG_DATA[org_id].get('restaurants') or []
+        if org_restaurants:
+            return org_restaurants
+        # In shared mock mode, expose legacy mock restaurants to all orgs.
+        if is_shared_mock_mode():
+            return RESTAURANTS_DATA
+    if is_shared_mock_mode():
+        return RESTAURANTS_DATA
     if ENABLE_LEGACY_FALLBACK:
         return RESTAURANTS_DATA
     return []
@@ -241,7 +258,13 @@ def get_current_org_api():
     """Get iFood API client for current org (fallback to legacy global)."""
     org_id = get_current_org_id()
     if org_id and org_id in ORG_DATA:
-        return ORG_DATA[org_id].get('api')
+        org_api = ORG_DATA[org_id].get('api')
+        if org_api:
+            return org_api
+        if is_shared_mock_mode():
+            return IFOOD_API
+    if is_shared_mock_mode():
+        return IFOOD_API
     if not ENABLE_LEGACY_FALLBACK:
         return None
     return IFOOD_API
@@ -251,7 +274,13 @@ def get_current_org_last_refresh():
     """Get last refresh timestamp for current org."""
     org_id = get_current_org_id()
     if org_id and org_id in ORG_DATA:
-        return ORG_DATA[org_id].get('last_refresh')
+        org_refresh = ORG_DATA[org_id].get('last_refresh')
+        if org_refresh:
+            return org_refresh
+        if is_shared_mock_mode():
+            return LAST_DATA_REFRESH
+    if is_shared_mock_mode():
+        return LAST_DATA_REFRESH
     if not ENABLE_LEGACY_FALLBACK:
         return None
     return LAST_DATA_REFRESH
