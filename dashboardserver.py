@@ -2673,6 +2673,22 @@ def api_saved_view_share_resolve(token):
 def api_restaurants():
     """Get list of all restaurants with optional month filtering and squad-based access control"""
     try:
+        def to_bool_flag(value):
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value != 0
+            if isinstance(value, str):
+                return value.strip().lower() in ('1', 'true', 'yes', 'y', 'sim')
+            return False
+
+        def get_super_flag(record):
+            return (
+                to_bool_flag(record.get('isSuperRestaurant'))
+                or to_bool_flag(record.get('isSuper'))
+                or to_bool_flag(record.get('super'))
+            )
+
         # Get month filter from query parameters
         month_filter = parse_month_filter(request.args.get('month', 'all'))
         if month_filter is None:
@@ -2695,6 +2711,7 @@ def api_restaurants():
             # Skip if user doesn't have access to this restaurant (squad filtering)
             if allowed_ids is not None and r['id'] not in allowed_ids:
                 continue
+            is_super = get_super_flag(r)
             
             # If month filter is specified, reprocess with filtered orders
             if month_filter != 'all':
@@ -2713,7 +2730,8 @@ def api_restaurants():
                         'id': r['id'],
                         'name': restaurant_name,
                         'merchantManager': {'name': restaurant_manager},
-                        'address': {'neighborhood': r.get('neighborhood', 'Centro')}
+                        'address': {'neighborhood': r.get('neighborhood', 'Centro')},
+                        'isSuperRestaurant': is_super,
                     }
                     
                     # Reprocess with filtered orders
@@ -2727,6 +2745,9 @@ def api_restaurants():
                     # Keep original name and manager
                     restaurant_data['name'] = restaurant_name
                     restaurant_data['manager'] = restaurant_manager
+                    restaurant_data['isSuperRestaurant'] = is_super
+                    restaurant_data['isSuper'] = is_super
+                    restaurant_data['super'] = is_super
                     restaurant_data['is_closed'] = bool(r.get('is_closed'))
                     restaurant_data['closure_reason'] = r.get('closure_reason')
                     restaurant_data['closed_until'] = r.get('closed_until')
@@ -2739,6 +2760,9 @@ def api_restaurants():
                 else:
                     # No orders for this month, return empty metrics
                     restaurant = {k: v for k, v in r.items() if not k.startswith('_')}
+                    restaurant['isSuperRestaurant'] = is_super
+                    restaurant['isSuper'] = is_super
+                    restaurant['super'] = is_super
                     # Reset metrics to zero
                     if 'metrics' in restaurant:
                         for key in restaurant['metrics']:
@@ -2756,6 +2780,9 @@ def api_restaurants():
             else:
                 # No filter, return all data
                 restaurant = {k: v for k, v in r.items() if not k.startswith('_')}
+                restaurant['isSuperRestaurant'] = is_super
+                restaurant['isSuper'] = is_super
+                restaurant['super'] = is_super
                 restaurant['quality'] = evaluate_restaurant_quality(r, reference_last_refresh=org_last_refresh)
                 restaurants.append(restaurant)
         

@@ -874,6 +874,17 @@
             font-size: 1rem;
             font-weight: 700;
             color: var(--text-primary);
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .restaurant-badges {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            flex-wrap: nowrap;
         }
 
         .super-badge {
@@ -1643,6 +1654,15 @@ let sharedViewToken = null;
                 "'": '&#39;'
             }[ch]));
         };
+        const toBoolFlag = (value) => {
+            if (typeof value === 'boolean') return value;
+            if (typeof value === 'number') return value !== 0;
+            if (typeof value === 'string') {
+                const normalized = value.trim().toLowerCase();
+                return ['1', 'true', 'yes', 'y', 'sim'].includes(normalized);
+            }
+            return false;
+        };
 
         function renderDataQualitySummary(summary) {
             const storeCount = Number(summary?.store_count ?? 0);
@@ -2090,7 +2110,10 @@ let sharedViewToken = null;
                 const safeNeighborhood = escapeHtml(r.neighborhood || 'Sem bairro');
                 const safeRestaurantId = encodeURIComponent(String(r.id || ''));
                 const initial = (r.name || 'R').charAt(0).toUpperCase();
-                const isClosed = !!r.is_closed;
+                const isClosed = toBoolFlag(r.is_closed);
+                const isSuper = toBoolFlag(r.isSuperRestaurant) || toBoolFlag(r.isSuper) || toBoolFlag(r.super);
+                const ratingValue = Number(r.rating);
+                const hasRating = Number.isFinite(ratingValue) && ratingValue > 0;
                 const closedReason = escapeHtml(r.closure_reason || 'Loja fechada no momento');
 
                 return `
@@ -2099,17 +2122,19 @@ let sharedViewToken = null;
                         <div class="restaurant-info">
                             <div class="restaurant-header">
                                 <span class="restaurant-name">${safeName}</span>
-                                ${(r.isSuperRestaurant || r.isSuper || r.super) ? `<span class="super-badge" title="iFood Super"><img src="/static/selo_ifood_super.png" alt="Super" loading="lazy" decoding="async" onerror="this.closest('.super-badge').classList.add('super-badge--text'); this.remove();"></span>` : ''}
-                                ${isClosed ? `<span class="restaurant-closed-icon" title="${closedReason}">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"/>
-                                    </svg>
-                                </span>` : ''}
-                                ${r.rating ? `<span class="restaurant-rating">
-                                    <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
-                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
-                                    </svg>
-                                    ${r.rating.toFixed(1)}
+                                ${(isSuper || isClosed || hasRating) ? `<span class="restaurant-badges">
+                                    ${isSuper ? `<span class="super-badge" title="iFood Super"><img src="/static/selo_ifood_super.png" alt="Super" loading="lazy" decoding="async" onerror="this.closest('.super-badge').classList.add('super-badge--text'); this.remove();"></span>` : ''}
+                                    ${isClosed ? `<span class="restaurant-closed-icon" title="${closedReason}">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"/>
+                                        </svg>
+                                    </span>` : ''}
+                                    ${hasRating ? `<span class="restaurant-rating">
+                                        <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                                        </svg>
+                                        ${ratingValue.toFixed(1)}
+                                    </span>` : ''}
                                 </span>` : ''}
                             </div>
                             <div class="restaurant-meta">
