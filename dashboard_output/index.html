@@ -1819,10 +1819,11 @@ let orgCapabilities = null;
                 const safeName = escapeHtml(r.name || 'Restaurante');
                 const safeManager = escapeHtml(r.manager || 'Sem gerente');
                 const safeNeighborhood = escapeHtml(r.neighborhood || 'Sem bairro');
+                const safeRestaurantId = encodeURIComponent(String(r.id || ''));
                 const initial = (r.name || 'R').charAt(0).toUpperCase();
 
                 return `
-                    <div class="restaurant-card" onclick="window.location.href='/restaurant/${r.id}'">
+                    <div class="restaurant-card" onclick="window.location.href='/restaurant/${safeRestaurantId}'">
                         <div class="restaurant-avatar">${initial}</div>
                         <div class="restaurant-info">
                             <div class="restaurant-header">

@@ -592,6 +592,36 @@ class DashboardDatabase:
             cursor.close()
             conn.close()
 
+    def is_platform_admin(self, user_id: int) -> bool:
+        """Return True when a user has global platform-admin privileges."""
+        conn = self.get_connection()
+        if not conn:
+            return False
+
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT role, email FROM dashboard_users WHERE id = %s", (user_id,))
+            row = cursor.fetchone()
+            if not row or row[0] != 'admin':
+                return False
+
+            allowed_admins_raw = (os.environ.get('PLATFORM_ADMIN_EMAILS') or '').strip()
+            if not allowed_admins_raw:
+                return True
+
+            allowed_admins = {
+                email.strip().lower()
+                for email in allowed_admins_raw.split(',')
+                if email.strip()
+            }
+            user_email = (row[1] or '').strip().lower()
+            return user_email in allowed_admins
+        except Exception:
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+
     # ================================================================
     # SaaS: ORGANIZATION CRUD
     # ================================================================
@@ -737,12 +767,15 @@ class DashboardDatabase:
         if not conn: return None
         cursor = conn.cursor()
         try:
+            role = (org_role or 'viewer').strip().lower()
+            if role not in ('viewer', 'admin'):
+                return None
             cursor.execute("SELECT o.max_users, COUNT(om.id) FROM organizations o LEFT JOIN org_members om ON o.id=om.org_id WHERE o.id=%s GROUP BY o.max_users", (org_id,))
             row = cursor.fetchone()
             if row and row[1] >= row[0]: return None
             token = secrets.token_urlsafe(32)
             expires = datetime.now() + timedelta(days=7)
-            cursor.execute("INSERT INTO org_invites (org_id,email,org_role,token,invited_by,expires_at) VALUES (%s,%s,%s,%s,%s,%s)", (org_id, email.lower(), org_role, token, invited_by, expires))
+            cursor.execute("INSERT INTO org_invites (org_id,email,org_role,token,invited_by,expires_at) VALUES (%s,%s,%s,%s,%s,%s)", (org_id, email.lower(), role, token, invited_by, expires))
             conn.commit(); return token
         except Exception as e:
             conn.rollback(); print(f"❌ create_invite: {e}"); return None
@@ -758,6 +791,8 @@ class DashboardDatabase:
             row = cursor.fetchone()
             if not row or row[4] or row[3] < datetime.now(): return None
             invite_id, org_id, org_role = row[0], row[1], row[2]
+            if org_role not in ('viewer', 'admin', 'owner'):
+                org_role = 'viewer'
             cursor.execute("INSERT INTO org_members (org_id,user_id,org_role) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", (org_id, user_id, org_role))
             cursor.execute("UPDATE org_invites SET accepted_at=CURRENT_TIMESTAMP WHERE id=%s", (invite_id,))
             cursor.execute("UPDATE dashboard_users SET primary_org_id=%s WHERE id=%s AND primary_org_id IS NULL", (org_id, user_id))
@@ -1189,7 +1224,7 @@ class DashboardDatabase:
                 cursor.execute("SELECT id FROM dashboard_users WHERE username=%s", (username,))
                 if not cursor.fetchone(): break
                 sfx += 1; username = f"{base}{sfx}"
-            cursor.execute("INSERT INTO dashboard_users (username,password_hash,full_name,email,role) VALUES (%s,%s,%s,%s,'admin') RETURNING id", (username, password_hash, full_name, email.lower()))
+            cursor.execute("INSERT INTO dashboard_users (username,password_hash,full_name,email,role) VALUES (%s,%s,%s,%s,'user') RETURNING id", (username, password_hash, full_name, email.lower()))
             user_id = cursor.fetchone()[0]
             slug = ''.join(c for c in org_name.lower().replace(' ','-') if c.isalnum() or c=='-')[:80]
             base_slug = slug; sfx = 0

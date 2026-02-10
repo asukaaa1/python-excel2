@@ -4,7 +4,7 @@ Integrated with iFood Merchant API instead of Excel files
 Features: Real-time SSE, Background Refresh, Comparative Analytics, Data Caching
 """
 
-from flask import Flask, request, jsonify, session, redirect, url_for, send_file, render_template_string, Response, stream_with_context
+from flask import Flask, request, jsonify, session, redirect, url_for, send_file, Response, stream_with_context
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dashboarddb import DashboardDatabase
 from ifood_api_with_mock import IFoodAPI, IFoodConfig
@@ -12,6 +12,7 @@ from ifood_data_processor import IFoodDataProcessor
 import os
 from pathlib import Path
 import json
+import html
 import hashlib
 from typing import Dict, List, Optional
 import traceback
@@ -69,7 +70,7 @@ if IS_BEHIND_PROXY:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
     print("ProxyFix enabled (detected reverse proxy)")
 
-secret_key = os.environ.get('FLASK_SECRET_KEY')
+secret_key = os.environ.get('FLASK_SECRET_KEY') or os.environ.get('SECRET_KEY')
 if secret_key:
     app.secret_key = secret_key
 else:
@@ -79,6 +80,9 @@ app.permanent_session_lifetime = timedelta(days=7)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = IS_BEHIND_PROXY
+ENABLE_LEGACY_FALLBACK = str(
+    os.environ.get('ENABLE_LEGACY_FALLBACK', '0' if IS_BEHIND_PROXY else '1')
+).strip().lower() in ('1', 'true', 'yes', 'on')
 
 # Enable gzip compression if available
 if _HAS_COMPRESS:
@@ -228,7 +232,9 @@ def get_current_org_restaurants():
     org_id = get_current_org_id()
     if org_id and org_id in ORG_DATA:
         return ORG_DATA[org_id]['restaurants']
-    return RESTAURANTS_DATA  # fallback for legacy single-tenant
+    if ENABLE_LEGACY_FALLBACK:
+        return RESTAURANTS_DATA
+    return []
 
 
 def get_current_org_api():
@@ -236,6 +242,8 @@ def get_current_org_api():
     org_id = get_current_org_id()
     if org_id and org_id in ORG_DATA:
         return ORG_DATA[org_id].get('api')
+    if not ENABLE_LEGACY_FALLBACK:
+        return None
     return IFOOD_API
 
 
@@ -244,6 +252,8 @@ def get_current_org_last_refresh():
     org_id = get_current_org_id()
     if org_id and org_id in ORG_DATA:
         return ORG_DATA[org_id].get('last_refresh')
+    if not ENABLE_LEGACY_FALLBACK:
+        return None
     return LAST_DATA_REFRESH
 
 
@@ -280,6 +290,16 @@ def get_json_payload():
     """Safely parse JSON payloads and always return a dict."""
     payload = request.get_json(silent=True)
     return payload if isinstance(payload, dict) else {}
+
+
+def escape_html_text(value):
+    """Escape untrusted text for HTML placeholder replacement."""
+    return html.escape(str(value if value is not None else ''), quote=True)
+
+
+def safe_json_for_script(value):
+    """Serialize JSON for inline <script> usage without closing script tags."""
+    return json.dumps(value, ensure_ascii=False).replace('</', '<\\/')
 
 
 def sanitize_restaurant_payload(restaurant):
@@ -879,8 +899,18 @@ def login_required(f):
     return decorated_function
 
 
+def is_platform_admin_user(user: dict) -> bool:
+    """Check whether current user is a global platform admin."""
+    if not isinstance(user, dict):
+        return False
+    user_id = user.get('id')
+    if not user_id:
+        return False
+    return bool(db.is_platform_admin(user_id))
+
+
 def admin_required(f):
-    """Decorator to require admin role"""
+    """Decorator to require admin privileges in current org or platform."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user' not in session:
@@ -891,8 +921,40 @@ def admin_required(f):
             if is_api:
                 return jsonify({'error': 'Authentication required', 'redirect': '/login'}), 401
             return redirect('/login')
-        if session['user'].get('role') != 'admin':
+
+        user = session.get('user', {})
+        if is_platform_admin_user(user):
+            return f(*args, **kwargs)
+
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'error': 'Organization context required'}), 403
+
+        org_role = db.get_org_member_role(org_id, user.get('id'))
+        if org_role not in ('owner', 'admin'):
             return jsonify({'error': 'Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def platform_admin_required(f):
+    """Decorator to require global platform-admin privileges."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user' not in session:
+            is_api = (
+                request.is_json
+                or request.path.startswith('/api/')
+                or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                or 'application/json' in (request.headers.get('Accept', ''))
+            )
+            if is_api:
+                return jsonify({'error': 'Authentication required', 'redirect': '/login'}), 401
+            return redirect('/login')
+
+        user = session.get('user', {})
+        if not is_platform_admin_user(user):
+            return jsonify({'error': 'Platform admin access required'}), 403
         return f(*args, **kwargs)
     return decorated_function
 
@@ -909,7 +971,7 @@ def org_owner_required(f):
         if not org_id:
             return jsonify({'success': False, 'error': 'Organization context required'}), 403
 
-        if user.get('role') == 'admin':
+        if is_platform_admin_user(user):
             return f(*args, **kwargs)
 
         org_role = db.get_org_member_role(org_id, user.get('id'))
@@ -1050,12 +1112,12 @@ def restaurant_page(restaurant_id):
             template = f.read()
         
         # Replace placeholders with actual data
-        rendered = template.replace('{{restaurant_name}}', restaurant.get('name', 'Restaurante'))
-        rendered = rendered.replace('{{restaurant_id}}', restaurant.get('id', restaurant_id))
-        rendered = rendered.replace('{{restaurant_manager}}', restaurant.get('manager', 'Gerente'))
-        rendered = rendered.replace('{{restaurant_data}}', json.dumps(restaurant, ensure_ascii=False))
+        rendered = template.replace('{{restaurant_name}}', escape_html_text(restaurant.get('name', 'Restaurante')))
+        rendered = rendered.replace('{{restaurant_id}}', escape_html_text(restaurant.get('id', restaurant_id)))
+        rendered = rendered.replace('{{restaurant_manager}}', escape_html_text(restaurant.get('manager', 'Gerente')))
+        rendered = rendered.replace('{{restaurant_data}}', safe_json_for_script(restaurant))
         
-        return render_template_string(rendered)
+        return Response(rendered, mimetype='text/html')
     
     return "Restaurant template not found", 404
 
@@ -1084,6 +1146,7 @@ def api_login():
         user = db.authenticate_user_by_email(email, password)
         
         if user:
+            user['is_platform_admin'] = bool(db.is_platform_admin(user.get('id')))
             session['user'] = user
             session.permanent = True
             
@@ -1127,14 +1190,23 @@ def api_logout():
 @login_required
 def api_me():
     """Get current user info with org context"""
-    user = session.get('user')
+    user = session.get('user') or {}
     org_id = get_current_org_id()
     org_info = None
+    org_role = None
     if org_id:
         org_info = db.get_org_details(org_id)
+        org_role = db.get_org_member_role(org_id, user.get('id'))
+
+    user_payload = dict(user)
+    user_payload['is_platform_admin'] = bool(is_platform_admin_user(user))
+    user_payload['org_role'] = org_role
+    if (not user_payload.get('is_platform_admin')) and org_role in ('owner', 'admin'):
+        user_payload['role'] = 'admin'
+
     return jsonify({
         'success': True,
-        'user': user,
+        'user': user_payload,
         'org_id': org_id,
         'org': org_info
     })
@@ -1162,13 +1234,22 @@ def api_register():
         result = db.register_user_and_org(email, password, full_name, org_name)
         if not result:
             return jsonify({'success': False, 'error': 'Email jÃ¡ cadastrado'}), 409
-        session['user'] = {'id': result['user_id'], 'username': result['username'], 'name': full_name, 'email': email, 'role': 'admin', 'primary_org_id': result['org_id']}
+        session['user'] = {
+            'id': result['user_id'],
+            'username': result['username'],
+            'name': full_name,
+            'email': email,
+            'role': 'user',
+            'is_platform_admin': False,
+            'primary_org_id': result['org_id']
+        }
         session['org_id'] = result['org_id']
         session.permanent = True
         db.log_action('user.registered', org_id=result['org_id'], user_id=result['user_id'], details={'email': email, 'org_name': org_name}, ip_address=request.remote_addr)
         return jsonify({'success': True, 'user_id': result['user_id'], 'org_id': result['org_id'], 'redirect': '/dashboard'})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        print(f"Registration error: {e}")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @app.route('/api/orgs', methods=['GET', 'POST'])
@@ -1312,6 +1393,7 @@ def api_org_details():
 
 @app.route('/api/org/ifood-config', methods=['GET', 'POST'])
 @login_required
+@org_owner_required
 def api_org_ifood_config():
     """Get or update iFood credentials for current org"""
     org_id = get_current_org_id()
@@ -1377,6 +1459,7 @@ def api_org_ifood_config():
 
 @app.route('/api/org/invite', methods=['POST'])
 @login_required
+@org_owner_required
 def api_create_invite():
     """Create a team invite"""
     org_id = get_current_org_id()
@@ -1385,7 +1468,9 @@ def api_create_invite():
     if not data:
         return jsonify({'success': False, 'error': 'Payload inválido'}), 400
     email = (data.get('email') or '').strip().lower()
-    role = data.get('role', 'viewer')
+    role = (data.get('role') or 'viewer').strip().lower()
+    if role not in ('viewer', 'admin'):
+        return jsonify({'success': False, 'error': 'Invalid role'}), 400
     if not email: return jsonify({'success': False, 'error': 'Email obrigatÃ³rio'}), 400
     token = db.create_invite(org_id, email, role, session['user']['id'])
     if not token: return jsonify({'success': False, 'error': 'Limite de membros atingido'}), 400
@@ -2416,6 +2501,7 @@ def api_health():
 
 
 @app.route('/api/debug/session')
+@platform_admin_required
 def api_debug_session():
     """Debug route for session cookie visibility and server cookie flags."""
     if not os.environ.get('ENABLE_SESSION_DEBUG'):
@@ -2732,7 +2818,7 @@ def _aggregate_daily(orders, start_dt, end_dt):
 # ============================================================================
 
 @app.route('/api/ifood/config')
-@admin_required
+@platform_admin_required
 def api_ifood_config():
     """Get iFood configuration (without secrets)"""
     try:
@@ -2752,13 +2838,13 @@ def api_ifood_config():
         
     except Exception as e:
         print(f"Error getting config: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @app.route('/api/ifood/merchants', methods=['POST'])
 @admin_required
 def api_add_merchant():
-    """Add a merchant to the configuration"""
+    """Add a merchant to org config (or legacy global config for platform admins)."""
     try:
         data = get_json_payload()
         
@@ -2768,76 +2854,111 @@ def api_add_merchant():
         
         if not merchant_id:
             return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
-        
-        # Add to config
-        if 'merchants' not in IFOOD_CONFIG:
-            IFOOD_CONFIG['merchants'] = []
-        
-        # Check for duplicates
-        for m in IFOOD_CONFIG['merchants']:
-            if m.get('merchant_id') == merchant_id:
-                return jsonify({'success': False, 'error': 'Merchant already exists'}), 400
-        
-        IFOOD_CONFIG['merchants'].append({
+
+        merchant_payload = {
             'merchant_id': merchant_id,
             'name': name or f'Restaurant {merchant_id[:8]}',
             'manager': manager
-        })
-        
-        # Save config
-        IFoodConfig.save_config(IFOOD_CONFIG, str(CONFIG_FILE))
-        
-        # Reload data
-        load_restaurants_from_ifood()
-        
+        }
+
+        if is_platform_admin_user(session.get('user', {})):
+            # Legacy global config path for platform operators.
+            if 'merchants' not in IFOOD_CONFIG:
+                IFOOD_CONFIG['merchants'] = []
+            for m in IFOOD_CONFIG['merchants']:
+                if m.get('merchant_id') == merchant_id:
+                    return jsonify({'success': False, 'error': 'Merchant already exists'}), 400
+            IFOOD_CONFIG['merchants'].append(merchant_payload)
+            IFoodConfig.save_config(IFOOD_CONFIG, str(CONFIG_FILE))
+            load_restaurants_from_ifood()
+            return jsonify({
+                'success': True,
+                'message': 'Merchant added successfully',
+                'restaurant_count': len(RESTAURANTS_DATA)
+            })
+
+        # Tenant-safe org path.
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'Organization context required'}), 403
+        org_cfg = db.get_org_ifood_config(org_id) or {}
+        merchants = org_cfg.get('merchants') or []
+        if isinstance(merchants, str):
+            try:
+                merchants = json.loads(merchants)
+            except Exception:
+                merchants = []
+        for m in merchants:
+            if m.get('merchant_id') == merchant_id:
+                return jsonify({'success': False, 'error': 'Merchant already exists'}), 400
+        merchants.append(merchant_payload)
+        db.update_org_ifood_config(org_id, merchants=merchants)
+        _init_org_ifood(org_id)
         return jsonify({
             'success': True,
             'message': 'Merchant added successfully',
-            'restaurant_count': len(RESTAURANTS_DATA)
+            'restaurant_count': len(get_current_org_restaurants())
         })
         
     except Exception as e:
         print(f"Error adding merchant: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @app.route('/api/ifood/merchants/<merchant_id>', methods=['DELETE'])
 @admin_required
 def api_remove_merchant(merchant_id):
-    """Remove a merchant from the configuration"""
+    """Remove a merchant from org config (or legacy global config for platform admins)."""
     try:
-        if 'merchants' not in IFOOD_CONFIG:
-            return jsonify({'success': False, 'error': 'No merchants configured'}), 404
-        
-        # Find and remove merchant
-        original_count = len(IFOOD_CONFIG['merchants'])
-        IFOOD_CONFIG['merchants'] = [
-            m for m in IFOOD_CONFIG['merchants'] 
-            if m.get('merchant_id') != merchant_id
-        ]
-        
-        if len(IFOOD_CONFIG['merchants']) == original_count:
+        if is_platform_admin_user(session.get('user', {})):
+            if 'merchants' not in IFOOD_CONFIG:
+                return jsonify({'success': False, 'error': 'No merchants configured'}), 404
+
+            original_count = len(IFOOD_CONFIG['merchants'])
+            IFOOD_CONFIG['merchants'] = [
+                m for m in IFOOD_CONFIG['merchants'] 
+                if m.get('merchant_id') != merchant_id
+            ]
+            if len(IFOOD_CONFIG['merchants']) == original_count:
+                return jsonify({'success': False, 'error': 'Merchant not found'}), 404
+
+            IFoodConfig.save_config(IFOOD_CONFIG, str(CONFIG_FILE))
+            load_restaurants_from_ifood()
+            return jsonify({
+                'success': True,
+                'message': 'Merchant removed successfully',
+                'restaurant_count': len(RESTAURANTS_DATA)
+            })
+
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'Organization context required'}), 403
+        org_cfg = db.get_org_ifood_config(org_id) or {}
+        merchants = org_cfg.get('merchants') or []
+        if isinstance(merchants, str):
+            try:
+                merchants = json.loads(merchants)
+            except Exception:
+                merchants = []
+        original_count = len(merchants)
+        merchants = [m for m in merchants if m.get('merchant_id') != merchant_id]
+        if len(merchants) == original_count:
             return jsonify({'success': False, 'error': 'Merchant not found'}), 404
-        
-        # Save config
-        IFoodConfig.save_config(IFOOD_CONFIG, str(CONFIG_FILE))
-        
-        # Reload data
-        load_restaurants_from_ifood()
-        
+        db.update_org_ifood_config(org_id, merchants=merchants)
+        _init_org_ifood(org_id)
         return jsonify({
             'success': True,
             'message': 'Merchant removed successfully',
-            'restaurant_count': len(RESTAURANTS_DATA)
+            'restaurant_count': len(get_current_org_restaurants())
         })
         
     except Exception as e:
         print(f"Error removing merchant: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @app.route('/api/ifood/test')
-@admin_required
+@platform_admin_required
 def api_test_ifood():
     """Test iFood API connection"""
     try:
@@ -2870,7 +2991,7 @@ def api_test_ifood():
         print(f"Error testing iFood API: {e}")
         return jsonify({
             'success': False,
-            'error': str(e),
+            'error': 'Internal server error',
             'configured': bool(IFOOD_API)
         })
 
@@ -3109,30 +3230,44 @@ def api_restore_restaurant(restaurant_id):
 @app.route('/api/users')
 @admin_required
 def api_users():
-    """Get all users (admin only)"""
+    """Get users visible to current admin context."""
     try:
-        users = db.get_all_users()
+        current_user = session.get('user', {})
+        if is_platform_admin_user(current_user):
+            users = db.get_all_users()
+            return jsonify({
+                'success': True,
+                'users': users
+            })
+
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'Organization context required'}), 403
+
+        users = db.get_org_users(org_id)
         return jsonify({
             'success': True,
             'users': users
         })
     except Exception as e:
         print(f"Error getting users: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @app.route('/api/users', methods=['POST'])
 @admin_required
 def api_create_user():
-    """Create new user (admin only) and assign to active org when available."""
+    """Create user; org admins create tenant users, platform admins may create global admins."""
     try:
         data = get_json_payload()
         
+        current_user = session.get('user', {})
+        platform_admin = is_platform_admin_user(current_user)
         username = data.get('username')
         password = data.get('password')
         full_name = data.get('full_name')
         email = data.get('email')
-        role = data.get('role', 'user')
+        role = (data.get('role') or 'user').strip().lower()
         org_role = (data.get('org_role') or ('admin' if role == 'admin' else 'viewer')).strip().lower()
         org_id = get_current_org_id()
         
@@ -3144,6 +3279,14 @@ def api_create_user():
 
         if org_role not in ('owner', 'admin', 'viewer'):
             return jsonify({'success': False, 'error': 'Invalid org role'}), 400
+
+        if not platform_admin:
+            if not org_id:
+                return jsonify({'success': False, 'error': 'Organization context required'}), 403
+            # Tenant admins cannot create global platform admins.
+            role = 'user'
+            if org_role == 'owner':
+                return jsonify({'success': False, 'error': 'Only platform admins can assign owner role at creation'}), 403
 
         if org_id:
             user_limit = db.check_user_limit(org_id)
@@ -3198,14 +3341,17 @@ def api_create_user():
             
     except Exception as e:
         print(f"Error creating user: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
 @admin_required
 def api_delete_user(user_id):
-    """Delete user (admin only)"""
+    """Delete a user account (platform admin only)."""
     try:
+        if not is_platform_admin_user(session.get('user', {})):
+            return jsonify({'success': False, 'error': 'Platform admin access required'}), 403
+
         # Prevent self-deletion
         if session['user'].get('id') == user_id:
             return jsonify({
@@ -3247,7 +3393,7 @@ def api_delete_user(user_id):
         
     except Exception as e:
         print(f"Error deleting user: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 # ============================================================================
@@ -4110,11 +4256,11 @@ def public_group_page(slug):
                 template = f.read()
             
             # Replace placeholders
-            rendered = template.replace('{{group_name}}', group_name)
-            rendered = rendered.replace('{{group_initial}}', group_name[0].upper() if group_name else 'G')
-            rendered = rendered.replace('{{group_data}}', json.dumps(group_data, ensure_ascii=False))
+            rendered = template.replace('{{group_name}}', escape_html_text(group_name))
+            rendered = rendered.replace('{{group_initial}}', escape_html_text(group_name[0].upper() if group_name else 'G'))
+            rendered = rendered.replace('{{group_data}}', safe_json_for_script(group_data))
             
-            return render_template_string(rendered)
+            return Response(rendered, mimetype='text/html')
         
         return "Template not found", 404
         
@@ -4647,7 +4793,6 @@ def page_not_found(e):
         <style>
             body {{ font-family: system-ui, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }}
             .error {{ background: #fee; border: 1px solid #fcc; padding: 20px; border-radius: 8px; }}
-            .debug {{ background: #f5f5f5; padding: 15px; margin-top: 20px; border-radius: 8px; font-family: monospace; }}
             a {{ color: #ef4444; }}
         </style>
     </head>
@@ -4655,15 +4800,6 @@ def page_not_found(e):
         <div class="error">
             <h1>404 - Page Not Found</h1>
             <p>The requested URL was not found on this server.</p>
-            <p><strong>Requested URL:</strong> {request.url}</p>
-        </div>
-        <div class="debug">
-            <h3>ðŸ” Debug Information:</h3>
-            <p><strong>Dashboard output directory:</strong> {DASHBOARD_OUTPUT}</p>
-            <p><strong>Config file:</strong> {CONFIG_FILE}</p>
-            <p><strong>Loaded restaurants:</strong> {len(RESTAURANTS_DATA)}</p>
-            <p><strong>iFood API status:</strong> {'âœ… Connected' if IFOOD_API else 'âŒ Not configured'}</p>
-            <p><strong>Last data refresh:</strong> {LAST_DATA_REFRESH.strftime('%Y-%m-%d %H:%M:%S') if LAST_DATA_REFRESH else 'Never'}</p>
         </div>
         <p><a href="/login">â† Back to Login</a></p>
     </body>
@@ -4674,7 +4810,7 @@ def page_not_found(e):
 @app.errorhandler(500)
 def internal_error(e):
     """Custom 500 error handler"""
-    print(f"âŒ 500 Error: {str(e)}")
+    print("âŒ 500 Error")
     traceback.print_exc()
     
     if request.is_json or request.path.startswith('/api/'):
@@ -4688,7 +4824,6 @@ def internal_error(e):
         <div style="background: #fee; border: 1px solid #fcc; padding: 20px; border-radius: 8px;">
             <h1>500 - Internal Server Error</h1>
             <p>An error occurred while processing your request.</p>
-            <pre>{str(e)}</pre>
         </div>
         <p><a href="/login" style="color: #ef4444;">â† Back to Login</a></p>
     </body>
@@ -4838,8 +4973,12 @@ def initialize_database():
         
         users = db.get_all_users()
         if not users:
-            print("ðŸ‘¤ Creating default users...")
-            db.create_default_users()
+            bootstrap_defaults = str(os.environ.get('BOOTSTRAP_DEFAULT_USERS', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
+            if bootstrap_defaults:
+                print("ðŸ‘¤ BOOTSTRAP_DEFAULT_USERS enabled: creating default users")
+                db.create_default_users()
+            else:
+                print("No users found. Skipping insecure default-user bootstrap (set BOOTSTRAP_DEFAULT_USERS=true to enable temporarily).")
         else:
             print(f"   Found {len(users)} existing users")
         print("Database ready")
