@@ -1258,6 +1258,9 @@
                 grid-template-columns: repeat(2, 1fr);
                 gap: var(--space-3);
             }
+            #smartOpsRow {
+                grid-template-columns: 1fr;
+            }
         }
 
         @media (max-width: 768px) {
@@ -1376,6 +1379,10 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
                     Lojas Ocultas
                 </a>
+                <a href="/ops" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+                    Ops
+                </a>
             </div>
         </nav>
         
@@ -1492,6 +1499,43 @@
             </div>
         </div>
 
+        <div id="smartOpsRow" style="display:grid;grid-template-columns:1.4fr 1fr;gap:12px;margin:16px 0 20px 0">
+            <div style="background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:var(--radius-xl);padding:14px;box-shadow:var(--shadow-xs)">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px">
+                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em">Filtros Salvos</div>
+                    <span id="savedViewsCount" style="font-size:11px;color:var(--text-tertiary)">0 filtros</span>
+                </div>
+                <div style="display:grid;grid-template-columns:minmax(120px,1fr) auto;gap:8px;margin-bottom:8px">
+                    <input id="savedViewName" class="search-input" style="height:40px" placeholder="Nome do filtro atual">
+                    <button class="icon-btn" style="width:auto;padding:0 14px" onclick="saveCurrentView()" title="Salvar filtro">Salvar</button>
+                </div>
+                <div style="display:grid;grid-template-columns:minmax(120px,1fr) auto auto auto;gap:8px">
+                    <select id="savedViewsSelect" class="search-input" style="height:40px;padding-right:28px"></select>
+                    <button class="icon-btn" style="width:auto;padding:0 12px" onclick="applySelectedSavedView()" title="Aplicar">Aplicar</button>
+                    <button class="icon-btn" style="width:auto;padding:0 12px" onclick="shareSelectedSavedView()" title="Compartilhar">Share</button>
+                    <button class="icon-btn" style="width:auto;padding:0 12px" onclick="deleteSelectedSavedView()" title="Excluir">Excluir</button>
+                </div>
+                <div id="savedViewShareHint" style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">Use Share para gerar link com expiracao.</div>
+            </div>
+            <div style="background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:var(--radius-xl);padding:14px;box-shadow:var(--shadow-xs)">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
+                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em">Qualidade dos Dados</div>
+                    <span id="qualityStatusPill" style="font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(16,185,129,.12);color:#10b981">OK</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                    <div>
+                        <div style="font-size:11px;color:var(--text-tertiary)">Score médio</div>
+                        <div id="qualityScore" style="font-family:var(--font-mono);font-size:24px;font-weight:700;color:var(--text-primary)">100</div>
+                    </div>
+                    <div>
+                        <div style="font-size:11px;color:var(--text-tertiary)">Lojas com alerta</div>
+                        <div id="qualityAlerts" style="font-family:var(--font-mono);font-size:24px;font-weight:700;color:var(--text-primary)">0</div>
+                    </div>
+                </div>
+                <div id="qualityHints" style="margin-top:10px;font-size:11px;color:var(--text-tertiary)">Sem alertas de qualidade.</div>
+            </div>
+        </div>
+
         <!-- Sort Bar -->
         <div class="sort-bar">
             <span class="results-count" id="resultsCount">0 clientes</span>
@@ -1593,6 +1637,8 @@ let searchQuery = '';
 let isAdmin = false;
 let lastRefreshAt = null;
 let orgCapabilities = null;
+let savedViews = [];
+let sharedViewToken = null;
 
         // Initialize current month filter
         (function initMonth() {
@@ -1615,6 +1661,234 @@ let orgCapabilities = null;
                 "'": '&#39;'
             }[ch]));
         };
+
+        function renderDataQualitySummary(summary) {
+            const score = Number(summary?.average_score ?? 100);
+            const poor = Number(summary?.poor_count ?? 0);
+            const warning = Number(summary?.warning_count ?? 0);
+            const totalAlerts = poor + warning;
+
+            const scoreEl = document.getElementById('qualityScore');
+            const alertEl = document.getElementById('qualityAlerts');
+            const statusEl = document.getElementById('qualityStatusPill');
+            const hintsEl = document.getElementById('qualityHints');
+            if (scoreEl) scoreEl.textContent = Number.isFinite(score) ? String(Math.round(score)) : '100';
+            if (alertEl) alertEl.textContent = String(totalAlerts);
+
+            let status = 'OK';
+            let bg = 'rgba(16,185,129,.12)';
+            let color = '#10b981';
+            if (score < 55) {
+                status = 'Critico';
+                bg = 'rgba(239,68,68,.12)';
+                color = '#ef4444';
+            } else if (score < 80 || totalAlerts > 0) {
+                status = 'Atenção';
+                bg = 'rgba(245,158,11,.18)';
+                color = '#f59e0b';
+            }
+            if (statusEl) {
+                statusEl.textContent = status;
+                statusEl.style.background = bg;
+                statusEl.style.color = color;
+            }
+            if (hintsEl) {
+                const buckets = summary?.issue_buckets || {};
+                const topIssue = Object.keys(buckets).sort((a, b) => buckets[b] - buckets[a])[0];
+                hintsEl.textContent = topIssue
+                    ? `Principal alerta: ${topIssue} (${buckets[topIssue]} lojas)`
+                    : 'Sem alertas de qualidade.';
+            }
+        }
+
+        function getCurrentViewPayload() {
+            return {
+                month: currentMonthFilter || 'all',
+                sort: currentSortOrder || 'name-asc',
+                search: String(document.getElementById('searchInput')?.value || '').trim()
+            };
+        }
+
+        function renderSavedViews() {
+            const select = document.getElementById('savedViewsSelect');
+            const counter = document.getElementById('savedViewsCount');
+            if (!select) return;
+            if (counter) counter.textContent = `${savedViews.length} filtro${savedViews.length === 1 ? '' : 's'}`;
+            if (!savedViews.length) {
+                select.innerHTML = '<option value="">Nenhum filtro salvo</option>';
+                return;
+            }
+            select.innerHTML = savedViews.map(v => {
+                const defaultMark = v.is_default ? ' (padrao)' : '';
+                const sharedMark = v.share_token ? ' [share]' : '';
+                return `<option value="${v.id}">${escapeHtml(v.name)}${defaultMark}${sharedMark}</option>`;
+            }).join('');
+        }
+
+        async function loadSavedViews() {
+            try {
+                const response = await fetch('/api/saved-views?view_type=dashboard');
+                const data = await response.json();
+                if (data.success) {
+                    savedViews = Array.isArray(data.views) ? data.views : [];
+                    renderSavedViews();
+                }
+            } catch (e) {
+                console.error('Error loading saved views:', e);
+            }
+        }
+
+        async function saveCurrentView() {
+            const nameInput = document.getElementById('savedViewName');
+            const name = String(nameInput?.value || '').trim();
+            if (!name) {
+                showToast('Informe um nome para salvar o filtro', 'error');
+                return;
+            }
+            try {
+                const response = await fetch('/api/saved-views', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        view_type: 'dashboard',
+                        name,
+                        payload: getCurrentViewPayload()
+                    })
+                });
+                const data = await response.json();
+                if (!data.success) {
+                    showToast(data.error || 'Nao foi possivel salvar', 'error');
+                    return;
+                }
+                if (nameInput) nameInput.value = '';
+                showToast('Filtro salvo com sucesso', 'success');
+                await loadSavedViews();
+            } catch (e) {
+                showToast('Erro ao salvar filtro', 'error');
+            }
+        }
+
+        function _selectedSavedView() {
+            const select = document.getElementById('savedViewsSelect');
+            const id = Number(select?.value || 0);
+            if (!id) return null;
+            return savedViews.find(v => Number(v.id) === id) || null;
+        }
+
+        function _setSortUi(order) {
+            const labels = {
+                'name-asc': 'Nome (A-Z)',
+                'name-desc': 'Nome (Z-A)',
+                'vendas': 'Vendas',
+                'valor-bruto': 'Valor Bruto',
+                'liquido': 'Liquido'
+            };
+            document.getElementById('sortDropdownValue').textContent = labels[order] || labels['name-asc'];
+            document.querySelectorAll('#sortDropdown .sort-dropdown-item').forEach(item => item.classList.remove('active'));
+            const target = document.querySelector(`#sortDropdown .sort-dropdown-item[data-sort="${order}"]`);
+            if (target) target.classList.add('active');
+            currentSortOrder = order;
+        }
+
+        async function applySavedPayload(payload) {
+            const month = String(payload?.month || 'all');
+            const sort = String(payload?.sort || 'name-asc');
+            const search = String(payload?.search || '');
+            const input = document.getElementById('searchInput');
+            if (input) input.value = search;
+            searchQuery = search.toLowerCase().trim();
+            _setSortUi(sort);
+            await filterByMonth(month);
+            renderRestaurants();
+        }
+
+        async function applySelectedSavedView() {
+            const view = _selectedSavedView();
+            if (!view) {
+                showToast('Selecione um filtro salvo', 'error');
+                return;
+            }
+            await applySavedPayload(view.payload || {});
+            showToast(`Filtro aplicado: ${view.name}`, 'success');
+        }
+
+        async function deleteSelectedSavedView() {
+            const view = _selectedSavedView();
+            if (!view) {
+                showToast('Selecione um filtro salvo', 'error');
+                return;
+            }
+            if (!confirm(`Excluir filtro "${view.name}"?`)) return;
+            try {
+                const response = await fetch(`/api/saved-views/${view.id}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (!data.success) {
+                    showToast(data.error || 'Erro ao excluir filtro', 'error');
+                    return;
+                }
+                showToast('Filtro excluido', 'success');
+                await loadSavedViews();
+            } catch (e) {
+                showToast('Erro ao excluir filtro', 'error');
+            }
+        }
+
+        async function shareSelectedSavedView() {
+            const view = _selectedSavedView();
+            if (!view) {
+                showToast('Selecione um filtro salvo', 'error');
+                return;
+            }
+            try {
+                const response = await fetch(`/api/saved-views/${view.id}/share`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ expires_hours: 24 * 14 })
+                });
+                const data = await response.json();
+                if (!data.success) {
+                    showToast(data.error || 'Erro ao criar link', 'error');
+                    return;
+                }
+                if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(data.share_url);
+                }
+                const hint = document.getElementById('savedViewShareHint');
+                if (hint) {
+                    const expiresAt = new Date(data.expires_at);
+                    hint.textContent = `Link copiado. Expira em ${isNaN(expiresAt.getTime()) ? 'breve' : expiresAt.toLocaleString('pt-BR')}.`;
+                }
+                showToast('Link de filtro copiado', 'success');
+                await loadSavedViews();
+            } catch (e) {
+                showToast('Erro ao compartilhar filtro', 'error');
+            }
+        }
+
+        async function applySharedViewFromUrl() {
+            if (!sharedViewToken) return;
+            try {
+                const response = await fetch(`/api/saved-views/share/${encodeURIComponent(sharedViewToken)}`);
+                const data = await response.json();
+                if (!data.success || !data.view) return;
+                await applySavedPayload(data.view.payload || {});
+                showToast(`Filtro compartilhado aplicado: ${data.view.name}`, 'success');
+            } catch (e) {
+                console.error('Error applying shared filter:', e);
+            }
+        }
+
+        async function loadDataQuality() {
+            try {
+                const response = await fetch('/api/data-quality');
+                const data = await response.json();
+                if (data.success && data.quality && data.quality.summary) {
+                    renderDataQualitySummary(data.quality.summary);
+                }
+            } catch (e) {
+                console.error('Error loading quality:', e);
+            }
+        }
 
         // API Functions - Matching index.html exactly
         async function loadRestaurants(month = 'all') {
@@ -1659,6 +1933,9 @@ let orgCapabilities = null;
                     updateFilterCounts();
                     updateOverviewKPIs();
                     updateLastRefresh();
+                    if (data.data_quality) {
+                        renderDataQualitySummary(data.data_quality);
+                    }
                     renderRestaurants();
                 } else {
                     showToast('Erro ao carregar dados', 'error');
@@ -1821,6 +2098,11 @@ let orgCapabilities = null;
                 const safeNeighborhood = escapeHtml(r.neighborhood || 'Sem bairro');
                 const safeRestaurantId = encodeURIComponent(String(r.id || ''));
                 const initial = (r.name || 'R').charAt(0).toUpperCase();
+                const q = r.quality || {};
+                const qScore = Number(q.score ?? 100);
+                const qLabel = q.status === 'poor' ? 'Critico' : (q.status === 'warning' ? 'Atencao' : 'OK');
+                const qBg = q.status === 'poor' ? 'rgba(239,68,68,.12)' : (q.status === 'warning' ? 'rgba(245,158,11,.18)' : 'rgba(16,185,129,.12)');
+                const qColor = q.status === 'poor' ? '#ef4444' : (q.status === 'warning' ? '#f59e0b' : '#10b981');
 
                 return `
                     <div class="restaurant-card" onclick="window.location.href='/restaurant/${safeRestaurantId}'">
@@ -1835,6 +2117,7 @@ let orgCapabilities = null;
                                     </svg>
                                     ${r.rating.toFixed(1)}
                                 </span>` : ''}
+                                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:${qBg};color:${qColor}" title="Score qualidade ${qScore}">${qLabel} ${qScore}</span>
                             </div>
                             <div class="restaurant-meta">
                                 <span class="restaurant-meta-item">
@@ -1930,7 +2213,7 @@ let orgCapabilities = null;
             document.getElementById('sortDropdown').classList.remove('open');
         }
 
-        function filterByMonth(month, ev) {
+        async function filterByMonth(month, ev) {
             currentMonthFilter = month;
             const monthNames = {
                 'all': 'Todos',
@@ -1943,7 +2226,7 @@ let orgCapabilities = null;
             document.querySelectorAll('#monthDropdown .sort-dropdown-item').forEach(item => item.classList.remove('active'));
             const target = ev && ev.target ? ev.target : document.querySelector(`#monthDropdown .sort-dropdown-item[data-month="${month}"]`);
             if (target) target.classList.add('active');
-            loadRestaurants(month);
+            await loadRestaurants(month);
             document.getElementById('monthDropdown').classList.remove('open');
         }
 
@@ -1954,6 +2237,7 @@ let orgCapabilities = null;
                 if (data.success) {
                     showToast('Atualização iniciada', 'success');
                     await loadRestaurants(currentMonthFilter);
+                    await loadDataQuality();
                 } else {
                     showToast(data.error || 'Erro ao atualizar', 'error');
                 }
@@ -2049,6 +2333,7 @@ let orgCapabilities = null;
                 if (data.success) {
                     showToast(`Loja "${storeName}" ocultada com sucesso`, 'success');
                     await loadRestaurants(currentMonthFilter);
+                    await loadDataQuality();
                 } else {
                     showToast(data.error || 'Erro ao ocultar loja', 'error');
                 }
@@ -2157,8 +2442,13 @@ let orgCapabilities = null;
             };
             document.getElementById('monthValue').textContent = monthNames[currentMonthFilter] || 'Mês atual';
 
+            sharedViewToken = new URLSearchParams(window.location.search).get('shared_view');
             checkUser();
-            loadRestaurants(currentMonthFilter);
+            loadRestaurants(currentMonthFilter).then(async () => {
+                await loadSavedViews();
+                await loadDataQuality();
+                await applySharedViewFromUrl();
+            });
         })();
 
         // Global event listeners

@@ -241,6 +241,10 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
                     <span>Lojas Ocultas</span>
                 </a>
+                <a href="/ops" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+                    <span>Ops</span>
+                </a>
             </div>
         </nav>
         <div class="sidebar-footer"><button class="sidebar-footer-btn" onclick="logout()"><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg><span>Sair</span></button></div>
@@ -258,6 +262,22 @@
             <div class="header-actions">
                 <button class="icon-btn" onclick="toggleTheme()" title="Alternar tema"><svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg><svg id="moonIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg></button>
                 <button class="btn btn-purple" onclick="openCreateModal()" id="createBtn" style="display:none;"><svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>Novo Grupo</button>
+            </div>
+        </div>
+
+        <div class="section animate-in" id="templateSection" style="display:none">
+            <div class="section-header">
+                <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>Templates de Grupo</h2>
+                <button class="btn btn-secondary" onclick="loadGroupTemplates()">Atualizar</button>
+            </div>
+            <div style="padding:1rem 1.25rem;display:grid;grid-template-columns:1fr auto auto;gap:8px">
+                <select id="groupTemplateSelect" class="form-input"></select>
+                <input id="templateGroupName" class="form-input" placeholder="Nome do novo grupo">
+                <button class="btn btn-purple" onclick="createGroupFromTemplate()">Criar do Template</button>
+            </div>
+            <div style="padding:0 1.25rem 1rem 1.25rem;display:grid;grid-template-columns:1fr auto;gap:8px">
+                <input id="newTemplateName" class="form-input" placeholder="Salvar selecao atual como template">
+                <button class="btn btn-secondary" onclick="saveCurrentSelectionAsTemplate()">Salvar Template</button>
             </div>
         </div>
 
@@ -362,6 +382,7 @@
         let isAdmin = false;
         let currentOrgId = null;
         let organizationsCache = [];
+        let groupTemplates = [];
 
         function openOrgModal(id) {
             const el = document.getElementById(id);
@@ -374,7 +395,7 @@
         }
 
         async function loadData() {
-            await Promise.all([loadGroups(), loadRestaurants()]);
+            await Promise.all([loadGroups(), loadRestaurants(), loadGroupTemplates()]);
         }
 
         // Global 401 interceptor
@@ -538,6 +559,119 @@
             }
         }
 
+        async function loadGroupTemplates() {
+            if (!isAdmin) return;
+            try {
+                const r = await fetch('/api/groups/templates');
+                const d = await r.json();
+                if (d.success) {
+                    groupTemplates = d.templates || [];
+                    renderGroupTemplates();
+                }
+            } catch (e) {
+                console.error('Error loading templates:', e);
+            }
+        }
+
+        function renderGroupTemplates() {
+            const select = document.getElementById('groupTemplateSelect');
+            if (!select) return;
+            if (!groupTemplates.length) {
+                select.innerHTML = '<option value="">Nenhum template salvo</option>';
+                return;
+            }
+            select.innerHTML = '<option value="">Selecione um template</option>' + groupTemplates.map(t => {
+                const count = Array.isArray(t.store_ids) ? t.store_ids.length : 0;
+                return `<option value="${t.id}">${escapeHtml(t.name)} (${count} lojas)</option>`;
+            }).join('');
+        }
+
+        function selectedStoreIdsInModal() {
+            return Array.from(document.querySelectorAll('#storesList input:checked')).map(cb => cb.value);
+        }
+
+        async function saveCurrentSelectionAsTemplate() {
+            if (!isAdmin) return;
+            const name = (document.getElementById('newTemplateName')?.value || document.getElementById('groupName')?.value || '').trim();
+            const stores = selectedStoreIdsInModal();
+            if (!name) {
+                showToast('Informe o nome do template', 'error');
+                return;
+            }
+            if (!stores.length) {
+                showToast('Abra/edite um grupo e selecione lojas para salvar template', 'error');
+                return;
+            }
+            try {
+                const r = await fetch('/api/groups/templates', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, store_ids: stores })
+                });
+                const d = await r.json();
+                if (!d.success) {
+                    showToast(d.error || 'Erro ao salvar template', 'error');
+                    return;
+                }
+                const input = document.getElementById('newTemplateName');
+                if (input) input.value = '';
+                showToast('Template salvo com sucesso', 'success');
+                await loadGroupTemplates();
+            } catch (e) {
+                showToast('Erro de conexao', 'error');
+            }
+        }
+
+        async function createGroupFromTemplate() {
+            const templateId = Number(document.getElementById('groupTemplateSelect')?.value || 0);
+            const name = (document.getElementById('templateGroupName')?.value || '').trim();
+            if (!templateId) {
+                showToast('Selecione um template', 'error');
+                return;
+            }
+            if (!name) {
+                showToast('Informe o nome do novo grupo', 'error');
+                return;
+            }
+            try {
+                const r = await fetch('/api/groups/from-template', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ template_id: templateId, name })
+                });
+                const d = await r.json();
+                if (!d.success) {
+                    showToast(d.error || 'Erro ao criar grupo', 'error');
+                    return;
+                }
+                const input = document.getElementById('templateGroupName');
+                if (input) input.value = '';
+                showToast('Grupo criado a partir do template', 'success');
+                await loadGroups();
+            } catch (e) {
+                showToast('Erro de conexao', 'error');
+            }
+        }
+
+        async function createExpiringGroupLink(groupId) {
+            try {
+                const r = await fetch(`/api/groups/${groupId}/share-links`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ expires_hours: 24 * 14 })
+                });
+                const d = await r.json();
+                if (!d.success || !d.link?.url) {
+                    showToast(d.error || 'Erro ao criar link expirável', 'error');
+                    return;
+                }
+                await navigator.clipboard.writeText(d.link.url);
+                showToast('Link expirável copiado', 'success');
+            } catch (e) {
+                showToast('Erro de conexao', 'error');
+            }
+        }
+
         function renderGroups() {
             const tbody = document.getElementById('groupsTable');
             if (!groupsData.length) {
@@ -571,6 +705,7 @@
                     <td>
                         <div class="actions-cell">
                             ${isAdmin ? `
+                                <button class="btn-icon" onclick="createExpiringGroupLink(${g.id})" title="Criar link expiravel"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V8a2 2 0 012-2h8a2 2 0 012 2v2m-5 10h5a2 2 0 002-2v-5a2 2 0 00-2-2h-5a2 2 0 00-2 2v5a2 2 0 002 2z"/></svg></button>
                                 <button class="btn-icon" onclick="editGroup(${g.id})" title="Editar"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>
                                 <button class="btn-icon delete" onclick="deleteGroup(${g.id}, '${escapeHtml(g.name)}')" title="Excluir"><svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
                             ` : '-'}
@@ -752,6 +887,8 @@
                         if (adminEl) adminEl.style.display = 'block';
                         const createEl = document.getElementById('createBtn');
                         if (createEl) createEl.style.display = 'flex';
+                        const templateEl = document.getElementById('templateSection');
+                        if (templateEl) templateEl.style.display = '';
                     }
                     
                     loadData();
@@ -780,6 +917,8 @@
                     if (adminEl) adminEl.style.display = 'block';
                     const createEl = document.getElementById('createBtn');
                     if (createEl) createEl.style.display = 'flex';
+                    const templateEl = document.getElementById('templateSection');
+                    if (templateEl) templateEl.style.display = '';
                 }
 
                 currentOrgId = Number(d.org_id || currentOrgId || 0);

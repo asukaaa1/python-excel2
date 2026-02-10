@@ -282,11 +282,43 @@ class DashboardDatabase:
                     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
                     scope_id VARCHAR(100),
                     is_default BOOLEAN DEFAULT false,
+                    share_token VARCHAR(120) UNIQUE,
+                    is_public BOOLEAN DEFAULT false,
+                    expires_at TIMESTAMP,
+                    shared_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(org_id, user_id, view_type, name, scope_id)
                 )
             """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_saved_views_token ON saved_views(share_token)")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS group_templates (
+                    id SERIAL PRIMARY KEY,
+                    org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                    name VARCHAR(120) NOT NULL,
+                    description TEXT,
+                    store_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    created_by VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(org_id, name)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS group_share_links (
+                    id SERIAL PRIMARY KEY,
+                    org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                    group_id INTEGER NOT NULL REFERENCES client_groups(id) ON DELETE CASCADE,
+                    token VARCHAR(120) UNIQUE NOT NULL,
+                    created_by INTEGER REFERENCES dashboard_users(id) ON DELETE SET NULL,
+                    expires_at TIMESTAMP,
+                    is_active BOOLEAN DEFAULT true,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_group_share_links_lookup ON group_share_links(token, is_active)")
             
             # ── SaaS: Per-org data snapshots ──
             cursor.execute("""
@@ -321,6 +353,24 @@ class DashboardDatabase:
                             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                 WHERE table_name='{tbl}' AND column_name='org_id')
                             THEN ALTER TABLE {tbl} ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE;
+                            END IF;
+                        END $$;
+                    """)
+                except Exception:
+                    pass
+
+            for col_name, col_sql in [
+                ('share_token', "VARCHAR(120)"),
+                ('is_public', "BOOLEAN DEFAULT false"),
+                ('expires_at', "TIMESTAMP"),
+                ('shared_at', "TIMESTAMP"),
+            ]:
+                try:
+                    cursor.execute(f"""
+                        DO $$ BEGIN
+                            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                WHERE table_name='saved_views' AND column_name='{col_name}')
+                            THEN ALTER TABLE saved_views ADD COLUMN {col_name} {col_sql};
                             END IF;
                         END $$;
                     """)
@@ -738,6 +788,52 @@ class DashboardDatabase:
             return True
         except Exception as e:
             conn.rollback(); print(f"❌ update_org_ifood_config: {e}"); return False
+        finally:
+            cursor.close(); conn.close()
+
+    def get_org_settings(self, org_id):
+        conn = self.get_connection()
+        if not conn:
+            return {}
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT settings FROM organizations WHERE id=%s", (org_id,))
+            row = cursor.fetchone()
+            settings = row[0] if row else {}
+            if isinstance(settings, str):
+                settings = json.loads(settings)
+            return settings if isinstance(settings, dict) else {}
+        except Exception as e:
+            print(f"❌ get_org_settings: {e}")
+            return {}
+        finally:
+            cursor.close(); conn.close()
+
+    def update_org_settings(self, org_id, settings_patch=None, replace=False):
+        conn = self.get_connection()
+        if not conn:
+            return False
+        cursor = conn.cursor()
+        try:
+            current = self.get_org_settings(org_id)
+            if replace:
+                next_settings = settings_patch if isinstance(settings_patch, dict) else {}
+            else:
+                next_settings = dict(current or {})
+                if isinstance(settings_patch, dict):
+                    next_settings.update(settings_patch)
+
+            cursor.execute("""
+                UPDATE organizations
+                SET settings=%s::jsonb, updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s
+            """, (json.dumps(next_settings, ensure_ascii=False, default=str), org_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            print(f"❌ update_org_settings: {e}")
+            return False
         finally:
             cursor.close(); conn.close()
 
@@ -1270,14 +1366,16 @@ class DashboardDatabase:
         try:
             if scope_id is None:
                 cursor.execute("""
-                    SELECT id, name, payload, scope_id, is_default, created_at, updated_at
+                    SELECT id, name, payload, scope_id, is_default, created_at, updated_at,
+                           share_token, is_public, expires_at, shared_at
                     FROM saved_views
                     WHERE org_id=%s AND user_id=%s AND view_type=%s
                     ORDER BY is_default DESC, created_at DESC
                 """, (org_id, user_id, view_type))
             else:
                 cursor.execute("""
-                    SELECT id, name, payload, scope_id, is_default, created_at, updated_at
+                    SELECT id, name, payload, scope_id, is_default, created_at, updated_at,
+                           share_token, is_public, expires_at, shared_at
                     FROM saved_views
                     WHERE org_id=%s AND user_id=%s AND view_type=%s AND scope_id=%s
                     ORDER BY is_default DESC, created_at DESC
@@ -1295,7 +1393,11 @@ class DashboardDatabase:
                     'scope_id': r[3],
                     'is_default': r[4],
                     'created_at': r[5].isoformat() if isinstance(r[5], datetime) else str(r[5]),
-                    'updated_at': r[6].isoformat() if isinstance(r[6], datetime) else str(r[6])
+                    'updated_at': r[6].isoformat() if isinstance(r[6], datetime) else str(r[6]),
+                    'share_token': r[7],
+                    'is_public': bool(r[8]),
+                    'expires_at': r[9].isoformat() if isinstance(r[9], datetime) else (str(r[9]) if r[9] else None),
+                    'shared_at': r[10].isoformat() if isinstance(r[10], datetime) else (str(r[10]) if r[10] else None)
                 })
             return result
         except Exception as e:
@@ -1368,6 +1470,301 @@ class DashboardDatabase:
             return True
         except Exception as e:
             conn.rollback(); print(f"❌ set_default_saved_view: {e}"); return False
+        finally:
+            cursor.close(); conn.close()
+
+    def create_saved_view_share_link(self, org_id, user_id, view_id, expires_hours=168):
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id FROM saved_views
+                WHERE id=%s AND org_id=%s AND user_id=%s
+            """, (view_id, org_id, user_id))
+            if not cursor.fetchone():
+                return None
+
+            token = secrets.token_urlsafe(24)
+            expires_at = datetime.utcnow() + timedelta(hours=max(1, int(expires_hours or 168)))
+            cursor.execute("""
+                UPDATE saved_views
+                SET share_token=%s,
+                    is_public=true,
+                    expires_at=%s,
+                    shared_at=CURRENT_TIMESTAMP,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s AND org_id=%s AND user_id=%s
+            """, (token, expires_at, view_id, org_id, user_id))
+            conn.commit()
+            return {
+                'token': token,
+                'expires_at': expires_at.isoformat()
+            }
+        except Exception as e:
+            conn.rollback()
+            print(f"❌ create_saved_view_share_link: {e}")
+            return None
+        finally:
+            cursor.close(); conn.close()
+
+    def revoke_saved_view_share_link(self, org_id, user_id, view_id):
+        conn = self.get_connection()
+        if not conn:
+            return False
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE saved_views
+                SET share_token=NULL,
+                    is_public=false,
+                    expires_at=NULL,
+                    shared_at=NULL,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=%s AND org_id=%s AND user_id=%s
+            """, (view_id, org_id, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            print(f"❌ revoke_saved_view_share_link: {e}")
+            return False
+        finally:
+            cursor.close(); conn.close()
+
+    def get_saved_view_by_share_token(self, token):
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, org_id, user_id, view_type, name, payload, scope_id, expires_at
+                FROM saved_views
+                WHERE share_token=%s AND is_public=true
+                LIMIT 1
+            """, (token,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            expires_at = row[7]
+            if expires_at and expires_at < datetime.utcnow():
+                return None
+            payload = row[5] if row[5] else {}
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            return {
+                'id': row[0],
+                'org_id': row[1],
+                'user_id': row[2],
+                'view_type': row[3],
+                'name': row[4],
+                'payload': payload,
+                'scope_id': row[6],
+                'expires_at': expires_at.isoformat() if isinstance(expires_at, datetime) else (str(expires_at) if expires_at else None)
+            }
+        except Exception as e:
+            print(f"❌ get_saved_view_by_share_token: {e}")
+            return None
+        finally:
+            cursor.close(); conn.close()
+
+    def list_group_templates(self, org_id):
+        conn = self.get_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, name, description, store_ids, created_by, created_at, updated_at
+                FROM group_templates
+                WHERE org_id=%s
+                ORDER BY name
+            """, (org_id,))
+            rows = cursor.fetchall()
+            result = []
+            for r in rows:
+                store_ids = r[3] if r[3] else []
+                if isinstance(store_ids, str):
+                    store_ids = json.loads(store_ids)
+                result.append({
+                    'id': r[0],
+                    'name': r[1],
+                    'description': r[2],
+                    'store_ids': store_ids,
+                    'created_by': r[4],
+                    'created_at': r[5].isoformat() if isinstance(r[5], datetime) else str(r[5]),
+                    'updated_at': r[6].isoformat() if isinstance(r[6], datetime) else str(r[6])
+                })
+            return result
+        except Exception as e:
+            print(f"❌ list_group_templates: {e}")
+            return []
+        finally:
+            cursor.close(); conn.close()
+
+    def create_group_template(self, org_id, name, store_ids, created_by=None, description=None):
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO group_templates (org_id, name, description, store_ids, created_by)
+                VALUES (%s, %s, %s, %s::jsonb, %s)
+                RETURNING id
+            """, (org_id, name, description, json.dumps(store_ids or []), created_by))
+            template_id = cursor.fetchone()[0]
+            conn.commit()
+            return template_id
+        except Exception as e:
+            conn.rollback()
+            print(f"❌ create_group_template: {e}")
+            return None
+        finally:
+            cursor.close(); conn.close()
+
+    def delete_group_template(self, org_id, template_id):
+        conn = self.get_connection()
+        if not conn:
+            return False
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM group_templates WHERE id=%s AND org_id=%s", (template_id, org_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            print(f"❌ delete_group_template: {e}")
+            return False
+        finally:
+            cursor.close(); conn.close()
+
+    def get_group_template(self, org_id, template_id):
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, name, description, store_ids
+                FROM group_templates
+                WHERE id=%s AND org_id=%s
+            """, (template_id, org_id))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            store_ids = row[3] if row[3] else []
+            if isinstance(store_ids, str):
+                store_ids = json.loads(store_ids)
+            return {'id': row[0], 'name': row[1], 'description': row[2], 'store_ids': store_ids}
+        except Exception as e:
+            print(f"❌ get_group_template: {e}")
+            return None
+        finally:
+            cursor.close(); conn.close()
+
+    def list_group_share_links(self, org_id, group_id):
+        conn = self.get_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, token, expires_at, is_active, created_at, created_by
+                FROM group_share_links
+                WHERE org_id=%s AND group_id=%s
+                ORDER BY created_at DESC
+            """, (org_id, group_id))
+            rows = cursor.fetchall()
+            return [{
+                'id': r[0],
+                'token': r[1],
+                'expires_at': r[2].isoformat() if isinstance(r[2], datetime) else (str(r[2]) if r[2] else None),
+                'is_active': bool(r[3]),
+                'created_at': r[4].isoformat() if isinstance(r[4], datetime) else str(r[4]),
+                'created_by': r[5]
+            } for r in rows]
+        except Exception as e:
+            print(f"❌ list_group_share_links: {e}")
+            return []
+        finally:
+            cursor.close(); conn.close()
+
+    def create_group_share_link(self, org_id, group_id, created_by=None, expires_hours=168):
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            token = secrets.token_urlsafe(24)
+            expires_at = datetime.utcnow() + timedelta(hours=max(1, int(expires_hours or 168)))
+            cursor.execute("""
+                INSERT INTO group_share_links (org_id, group_id, token, created_by, expires_at, is_active)
+                VALUES (%s, %s, %s, %s, %s, true)
+                RETURNING id
+            """, (org_id, group_id, token, created_by, expires_at))
+            link_id = cursor.fetchone()[0]
+            conn.commit()
+            return {'id': link_id, 'token': token, 'expires_at': expires_at.isoformat()}
+        except Exception as e:
+            conn.rollback()
+            print(f"❌ create_group_share_link: {e}")
+            return None
+        finally:
+            cursor.close(); conn.close()
+
+    def revoke_group_share_link(self, org_id, group_id, link_id):
+        conn = self.get_connection()
+        if not conn:
+            return False
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE group_share_links
+                SET is_active=false
+                WHERE id=%s AND org_id=%s AND group_id=%s
+            """, (link_id, org_id, group_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            print(f"❌ revoke_group_share_link: {e}")
+            return False
+        finally:
+            cursor.close(); conn.close()
+
+    def get_group_by_share_token(self, token):
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT gsl.group_id, gsl.org_id, gsl.expires_at, cg.name, cg.slug, cg.active
+                FROM group_share_links gsl
+                JOIN client_groups cg ON cg.id = gsl.group_id
+                WHERE gsl.token=%s AND gsl.is_active=true
+                LIMIT 1
+            """, (token,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            expires_at = row[2]
+            if expires_at and expires_at < datetime.utcnow():
+                return None
+            return {
+                'group_id': row[0],
+                'org_id': row[1],
+                'expires_at': expires_at.isoformat() if isinstance(expires_at, datetime) else (str(expires_at) if expires_at else None),
+                'group_name': row[3],
+                'group_slug': row[4],
+                'group_active': bool(row[5])
+            }
+        except Exception as e:
+            print(f"❌ get_group_by_share_token: {e}")
+            return None
         finally:
             cursor.close(); conn.close()
 

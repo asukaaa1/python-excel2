@@ -370,6 +370,85 @@ def enrich_plan_payload(plan_row):
     return payload
 
 
+ONBOARDING_STEPS = [
+    {'id': 'connect_ifood', 'label': 'Conectar credenciais iFood'},
+    {'id': 'add_merchants', 'label': 'Cadastrar merchants'},
+    {'id': 'first_refresh', 'label': 'Executar primeiro refresh'},
+    {'id': 'create_group', 'label': 'Criar primeiro grupo de cliente'},
+    {'id': 'invite_team', 'label': 'Convidar equipe'},
+]
+
+
+def build_onboarding_state(org_id):
+    settings = db.get_org_settings(org_id) or {}
+    onboarding = settings.get('onboarding') if isinstance(settings.get('onboarding'), dict) else {}
+    manual_completed = set(onboarding.get('completed_steps') or [])
+    dismissed = bool(onboarding.get('dismissed'))
+
+    cfg = db.get_org_ifood_config(org_id) or {}
+    merchants = cfg.get('merchants') or []
+    if isinstance(merchants, str):
+        try:
+            merchants = json.loads(merchants)
+        except Exception:
+            merchants = []
+
+    has_credentials = bool((cfg.get('client_id') or '').strip() and (cfg.get('client_secret') or '').strip())
+    has_merchants = len(merchants) > 0
+    has_refresh = bool(ORG_DATA.get(org_id, {}).get('last_refresh') or LAST_DATA_REFRESH)
+    has_invited = len(db.get_org_users(org_id)) > 1
+
+    has_group = False
+    conn = db.get_connection()
+    if conn:
+        cursor = conn.cursor()
+        try:
+            if _table_has_org_id(cursor, 'client_groups'):
+                cursor.execute("SELECT 1 FROM client_groups WHERE org_id=%s LIMIT 1", (org_id,))
+            else:
+                cursor.execute("SELECT 1 FROM client_groups LIMIT 1")
+            has_group = cursor.fetchone() is not None
+        except Exception:
+            has_group = False
+        finally:
+            cursor.close()
+            conn.close()
+
+    auto_completed = {
+        'connect_ifood': has_credentials,
+        'add_merchants': has_merchants,
+        'first_refresh': has_refresh,
+        'create_group': has_group,
+        'invite_team': has_invited,
+    }
+
+    steps = []
+    next_step = None
+    for step in ONBOARDING_STEPS:
+        sid = step['id']
+        done = bool(auto_completed.get(sid) or sid in manual_completed)
+        if not done and next_step is None:
+            next_step = sid
+        steps.append({
+            'id': sid,
+            'label': step['label'],
+            'done': done,
+            'auto_done': bool(auto_completed.get(sid))
+        })
+
+    completed_count = sum(1 for s in steps if s['done'])
+    return {
+        'dismissed': dismissed,
+        'completed_steps': sorted(set(list(manual_completed) + [s['id'] for s in steps if s['done']])),
+        'steps': steps,
+        'completed_count': completed_count,
+        'total_steps': len(steps),
+        'is_complete': completed_count == len(steps),
+        'next_step': next_step,
+        'updated_at': onboarding.get('updated_at')
+    }
+
+
 def parse_month_filter(raw_month):
     """Validate month query parameter."""
     if raw_month in (None, '', 'all'):
@@ -451,6 +530,124 @@ def aggregate_dashboard_summary(restaurants):
         'avg_ticket': (net_revenue / total_orders) if total_orders else 0,
         'positive_trend_count': positive_trend_count,
         'negative_trend_count': negative_trend_count
+    }
+
+
+def _parse_order_datetime(order):
+    created_at = (order or {}).get('createdAt')
+    if not created_at:
+        return None
+    try:
+        return datetime.fromisoformat(str(created_at).replace('Z', '+00:00')).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def evaluate_restaurant_quality(restaurant, reference_last_refresh=None):
+    """Build data-quality diagnostics for one restaurant payload."""
+    issues = []
+    score = 100
+    now = datetime.utcnow()
+    metrics = restaurant.get('metrics', {}) or {}
+    total_orders = int(metrics.get('vendas') or metrics.get('total_pedidos') or restaurant.get('orders') or 0)
+    manager = str(restaurant.get('manager') or '').strip()
+    neighborhood = str(restaurant.get('neighborhood') or '').strip()
+
+    order_dates = []
+    for o in (restaurant.get('_orders_cache') or []):
+        dt = _parse_order_datetime(o)
+        if dt:
+            order_dates.append(dt)
+
+    last_order_at = max(order_dates) if order_dates else None
+    last_order_age_days = (now - last_order_at).days if last_order_at else None
+
+    if total_orders <= 0:
+        issues.append({'code': 'no_orders', 'severity': 'critical', 'message': 'Loja sem pedidos no periodo carregado'})
+        score -= 45
+    elif total_orders < 20:
+        issues.append({'code': 'low_sample_size', 'severity': 'medium', 'message': 'Baixa amostra de pedidos para analise confiavel'})
+        score -= 12
+
+    if not manager:
+        issues.append({'code': 'missing_manager', 'severity': 'medium', 'message': 'Sem gestor atribuido'})
+        score -= 10
+
+    if not neighborhood:
+        issues.append({'code': 'missing_neighborhood', 'severity': 'low', 'message': 'Bairro nao informado'})
+        score -= 6
+
+    if last_order_age_days is None:
+        issues.append({'code': 'missing_order_timestamps', 'severity': 'high', 'message': 'Nao foi possivel validar recencia dos pedidos'})
+        score -= 20
+    elif last_order_age_days > 14:
+        issues.append({'code': 'stale_orders', 'severity': 'high', 'message': f'Sem pedidos recentes ha {last_order_age_days} dias'})
+        score -= 20
+
+    if reference_last_refresh and isinstance(reference_last_refresh, datetime):
+        refresh_age_minutes = int((datetime.utcnow() - reference_last_refresh).total_seconds() / 60)
+        if refresh_age_minutes > 180:
+            issues.append({'code': 'stale_refresh', 'severity': 'medium', 'message': f'Dados sem refresh ha {refresh_age_minutes} minutos'})
+            score -= 10
+
+    score = max(0, min(100, score))
+    status = 'good'
+    if score < 55:
+        status = 'poor'
+    elif score < 80:
+        status = 'warning'
+
+    return {
+        'score': score,
+        'status': status,
+        'issues': issues,
+        'issue_count': len(issues),
+        'total_orders': total_orders,
+        'last_order_at': last_order_at.isoformat() if last_order_at else None,
+        'last_order_age_days': last_order_age_days
+    }
+
+
+def build_data_quality_payload(restaurants, reference_last_refresh=None):
+    per_store = []
+    issue_buckets = {}
+    poor = 0
+    warning = 0
+    good = 0
+    score_sum = 0
+
+    for r in restaurants:
+        quality = evaluate_restaurant_quality(r, reference_last_refresh=reference_last_refresh)
+        per_store.append({
+            'store_id': r.get('id'),
+            'store_name': r.get('name'),
+            'manager': r.get('manager'),
+            'quality': quality
+        })
+        score_sum += quality['score']
+        if quality['status'] == 'poor':
+            poor += 1
+        elif quality['status'] == 'warning':
+            warning += 1
+        else:
+            good += 1
+        for issue in quality['issues']:
+            code = issue.get('code', 'unknown')
+            issue_buckets[code] = issue_buckets.get(code, 0) + 1
+
+    per_store.sort(key=lambda x: (x['quality']['score'], x['store_name'] or ''))
+    avg_score = round(score_sum / len(per_store), 1) if per_store else 100.0
+
+    return {
+        'summary': {
+            'store_count': len(per_store),
+            'average_score': avg_score,
+            'poor_count': poor,
+            'warning_count': warning,
+            'good_count': good,
+            'issue_buckets': issue_buckets
+        },
+        'stores': per_store
     }
 
 # ============================================================================
@@ -1374,6 +1571,16 @@ def admin_page():
     return "Admin page not found", 404
 
 
+@app.route('/ops')
+@admin_required
+def ops_page():
+    """Serve operations panel page."""
+    ops_file = DASHBOARD_OUTPUT / 'ops.html'
+    if ops_file.exists():
+        return send_file(ops_file)
+    return "Ops page not found", 404
+
+
 @app.route('/comparativo')
 @admin_required
 @require_feature('comparativo')
@@ -2080,6 +2287,136 @@ def api_org_capabilities():
     })
 
 
+@app.route('/api/onboarding', methods=['GET'])
+@admin_required
+def api_onboarding_state():
+    """Get onboarding checklist state for current organization."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+    return jsonify({'success': True, 'onboarding': build_onboarding_state(org_id)})
+
+
+@app.route('/api/onboarding', methods=['PATCH'])
+@admin_required
+def api_onboarding_update():
+    """Patch onboarding settings for current organization."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    data = get_json_payload()
+    onboarding = (db.get_org_settings(org_id) or {}).get('onboarding') or {}
+    completed_steps = set(onboarding.get('completed_steps') or [])
+
+    step_id = (data.get('complete_step') or '').strip()
+    if step_id:
+        completed_steps.add(step_id)
+
+    if bool(data.get('reset_completed')):
+        completed_steps = set()
+
+    if 'dismissed' in data:
+        onboarding['dismissed'] = bool(data.get('dismissed'))
+
+    onboarding['completed_steps'] = sorted(completed_steps)
+    onboarding['updated_at'] = datetime.utcnow().isoformat()
+
+    ok = db.update_org_settings(org_id, {'onboarding': onboarding})
+    if not ok:
+        return jsonify({'success': False, 'error': 'Unable to save onboarding state'}), 500
+
+    return jsonify({'success': True, 'onboarding': build_onboarding_state(org_id)})
+
+
+@app.route('/api/data-quality')
+@login_required
+def api_data_quality():
+    """Get data-quality overview for currently visible stores."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    user = session.get('user', {})
+    allowed_ids = get_user_allowed_restaurant_ids(user.get('id'), user.get('role'))
+    stores = []
+    for r in get_current_org_restaurants():
+        if allowed_ids is not None and r.get('id') not in allowed_ids:
+            continue
+        stores.append(r)
+    last_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') or LAST_DATA_REFRESH
+    payload = build_data_quality_payload(stores, reference_last_refresh=last_refresh)
+    payload['last_refresh'] = last_refresh.isoformat() if isinstance(last_refresh, datetime) else None
+    return jsonify({'success': True, 'quality': payload})
+
+
+@app.route('/api/ops/summary')
+@admin_required
+def api_ops_summary():
+    """Operations summary for Railway/production diagnostics."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    refresh_payload = get_refresh_status()
+    redis_client = get_redis_client()
+    queue_depth = 0
+    lock_present = False
+    redis_ok = bool(redis_client)
+    if redis_client:
+        try:
+            queue_depth = int(redis_client.llen(REDIS_REFRESH_QUEUE) or 0)
+            lock_present = bool(redis_client.get(REDIS_REFRESH_LOCK_KEY))
+        except Exception:
+            redis_ok = False
+            queue_depth = 0
+            lock_present = False
+
+    org_details = db.get_org_details(org_id) or {}
+    last_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') or LAST_DATA_REFRESH
+    restaurants = get_current_org_restaurants()
+    quality = build_data_quality_payload(restaurants, reference_last_refresh=last_refresh).get('summary', {})
+
+    return jsonify({
+        'success': True,
+        'ops': {
+            'instance_id': REDIS_INSTANCE_ID,
+            'uptime_seconds': int((datetime.utcnow() - APP_STARTED_AT).total_seconds()),
+            'started_at': APP_STARTED_AT.isoformat(),
+            'org': {
+                'id': org_id,
+                'name': org_details.get('name'),
+                'plan': org_details.get('plan'),
+                'plan_display': org_details.get('plan_display')
+            },
+            'refresh': {
+                'status': refresh_payload.get('status'),
+                'payload': refresh_payload,
+                'last_refresh': last_refresh.isoformat() if isinstance(last_refresh, datetime) else None,
+                'is_refreshing_local': bool(bg_refresher.is_refreshing)
+            },
+            'queue': {
+                'enabled': bool(USE_REDIS_QUEUE),
+                'redis_connected': redis_ok,
+                'pending_jobs': queue_depth,
+                'lock_present': lock_present
+            },
+            'cache': {
+                'redis_cache_enabled': bool(USE_REDIS_CACHE),
+                'local_keys': len(_api_cache)
+            },
+            'realtime': {
+                'redis_pubsub_enabled': bool(USE_REDIS_PUBSUB),
+                'connected_clients': sse_manager.client_count
+            },
+            'stores': {
+                'count': len(restaurants),
+                'quality': quality
+            }
+        }
+    })
+
+
 # ============================================================================
 # API ROUTES - SAVED VIEWS
 # ============================================================================
@@ -2167,6 +2504,54 @@ def api_saved_views_set_default(view_id):
     return jsonify({'success': True})
 
 
+@app.route('/api/saved-views/<int:view_id>/share', methods=['POST'])
+@login_required
+def api_saved_view_share_create(view_id):
+    """Create or rotate share link for a saved view."""
+    org_id = get_current_org_id()
+    user = session.get('user', {})
+    if not org_id or not user:
+        return jsonify({'success': False}), 403
+
+    data = get_json_payload()
+    try:
+        expires_hours = int(data.get('expires_hours', 24 * 7))
+    except Exception:
+        expires_hours = 24 * 7
+    expires_hours = max(1, min(expires_hours, 24 * 90))
+
+    shared = db.create_saved_view_share_link(org_id, user.get('id'), view_id, expires_hours=expires_hours)
+    if not shared:
+        return jsonify({'success': False, 'error': 'View not found'}), 404
+
+    share_url = f"{request.host_url.rstrip('/')}/dashboard?shared_view={shared['token']}"
+    return jsonify({'success': True, 'share_url': share_url, 'token': shared['token'], 'expires_at': shared['expires_at']})
+
+
+@app.route('/api/saved-views/<int:view_id>/share', methods=['DELETE'])
+@login_required
+def api_saved_view_share_revoke(view_id):
+    """Revoke share link for a saved view."""
+    org_id = get_current_org_id()
+    user = session.get('user', {})
+    if not org_id or not user:
+        return jsonify({'success': False}), 403
+    ok = db.revoke_saved_view_share_link(org_id, user.get('id'), view_id)
+    if not ok:
+        return jsonify({'success': False, 'error': 'View not found'}), 404
+    return jsonify({'success': True})
+
+
+@app.route('/api/saved-views/share/<token>')
+@login_required
+def api_saved_view_share_resolve(token):
+    """Resolve a shared saved-view token into payload."""
+    shared = db.get_saved_view_by_share_token((token or '').strip())
+    if not shared:
+        return jsonify({'success': False, 'error': 'Shared view not found'}), 404
+    return jsonify({'success': True, 'view': shared})
+
+
 # ============================================================================
 # API ROUTES - RESTAURANT DATA
 # ============================================================================
@@ -2190,6 +2575,7 @@ def api_restaurants():
         # Get user's allowed restaurants based on squad membership
         user = session.get('user', {})
         allowed_ids = get_user_allowed_restaurant_ids(user.get('id'), user.get('role'))
+        org_last_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') if org_id else LAST_DATA_REFRESH
         
         # Return data without internal caches
         restaurants = []
@@ -2232,6 +2618,7 @@ def api_restaurants():
                     
                     # Remove internal caches before sending
                     restaurant = {k: v for k, v in restaurant_data.items() if not k.startswith('_')}
+                    restaurant['quality'] = evaluate_restaurant_quality(r, reference_last_refresh=org_last_refresh)
                     restaurants.append(restaurant)
                 else:
                     # No orders for this month, return empty metrics
@@ -2248,20 +2635,40 @@ def api_restaurants():
                     restaurant['orders'] = 0
                     restaurant['ticket'] = 0
                     restaurant['trend'] = 0
+                    restaurant['quality'] = evaluate_restaurant_quality(r, reference_last_refresh=org_last_refresh)
                     restaurants.append(restaurant)
             else:
                 # No filter, return all data
                 restaurant = {k: v for k, v in r.items() if not k.startswith('_')}
+                restaurant['quality'] = evaluate_restaurant_quality(r, reference_last_refresh=org_last_refresh)
                 restaurants.append(restaurant)
         
         org_id = get_current_org_id()
         org_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') if org_id else None
+        quality_summary = {'store_count': len(restaurants), 'average_score': 100.0, 'poor_count': 0, 'warning_count': 0, 'good_count': 0, 'issue_buckets': {}}
+        if restaurants:
+            score_sum = 0
+            for store in restaurants:
+                q = store.get('quality') or {}
+                score_sum += float(q.get('score') or 0)
+                status = q.get('status')
+                if status == 'poor':
+                    quality_summary['poor_count'] += 1
+                elif status == 'warning':
+                    quality_summary['warning_count'] += 1
+                else:
+                    quality_summary['good_count'] += 1
+                for issue in (q.get('issues') or []):
+                    code = issue.get('code', 'unknown')
+                    quality_summary['issue_buckets'][code] = quality_summary['issue_buckets'].get(code, 0) + 1
+            quality_summary['average_score'] = round(score_sum / len(restaurants), 1)
         
         result = {
             'success': True,
             'restaurants': restaurants,
             'last_refresh': (org_refresh or LAST_DATA_REFRESH).isoformat() if (org_refresh or LAST_DATA_REFRESH) else None,
-            'month_filter': month_filter
+            'month_filter': month_filter,
+            'data_quality': quality_summary
         }
         
         # Cache the processed result
@@ -4473,6 +4880,14 @@ def api_remove_squad_restaurant(squad_id, restaurant_id):
 # GROUPS (CLIENT GROUPS) ROUTES
 # ============================================================================
 
+
+def _group_belongs_to_org(cursor, group_id, org_id):
+    if _table_has_org_id(cursor, 'client_groups'):
+        cursor.execute("SELECT 1 FROM client_groups WHERE id=%s AND org_id=%s", (group_id, org_id))
+    else:
+        cursor.execute("SELECT 1 FROM client_groups WHERE id=%s", (group_id,))
+    return cursor.fetchone() is not None
+
 # Page route for grupos
 @app.route('/grupos')
 @login_required
@@ -4599,6 +5014,17 @@ def public_group_page(slug):
         return "Error loading group", 500
 
 
+@app.route('/grupo/share/<token>')
+def public_group_share_page(token):
+    """Resolve expirable token and redirect to public group page."""
+    shared = db.get_group_by_share_token((token or '').strip())
+    if not shared:
+        return "Shared group link not found or expired", 404
+    if not shared.get('group_active'):
+        return "Group is inactive", 404
+    return redirect(f"/grupo/{shared.get('group_slug')}")
+
+
 # API: Get all groups
 @app.route('/api/groups', methods=['GET'])
 @login_required
@@ -4666,6 +5092,212 @@ def api_get_groups():
         print(f"Error getting groups: {e}")
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/groups/templates', methods=['GET'])
+@login_required
+def api_group_templates_list():
+    """List saved group templates for current organization."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+    templates = db.list_group_templates(org_id)
+    return jsonify({'success': True, 'templates': templates})
+
+
+@app.route('/api/groups/templates', methods=['POST'])
+@admin_required
+def api_group_templates_create():
+    """Create reusable group template from selected stores."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    data = get_json_payload()
+    name = (data.get('name') or '').strip()
+    description = (data.get('description') or '').strip()
+    store_ids = data.get('store_ids') or []
+    if not name:
+        return jsonify({'success': False, 'error': 'name is required'}), 400
+    if not isinstance(store_ids, list):
+        return jsonify({'success': False, 'error': 'store_ids must be a list'}), 400
+    store_ids = [str(s).strip() for s in store_ids if str(s).strip()]
+    if not store_ids:
+        return jsonify({'success': False, 'error': 'At least one store is required'}), 400
+
+    created_by = session.get('user', {}).get('username')
+    template_id = db.create_group_template(org_id, name, store_ids, created_by=created_by, description=description)
+    if not template_id:
+        return jsonify({'success': False, 'error': 'Unable to create template'}), 400
+    return jsonify({'success': True, 'template_id': template_id})
+
+
+@app.route('/api/groups/templates/<int:template_id>', methods=['DELETE'])
+@admin_required
+def api_group_templates_delete(template_id):
+    """Delete a group template."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+    ok = db.delete_group_template(org_id, template_id)
+    if not ok:
+        return jsonify({'success': False, 'error': 'Template not found'}), 404
+    return jsonify({'success': True})
+
+
+@app.route('/api/groups/from-template', methods=['POST'])
+@admin_required
+def api_create_group_from_template():
+    """Create a group quickly from template stores."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    data = get_json_payload()
+    template_id = data.get('template_id')
+    name = (data.get('name') or '').strip()
+    slug = (data.get('slug') or '').strip()
+    if isinstance(template_id, str) and template_id.isdigit():
+        template_id = int(template_id)
+    if not isinstance(template_id, int):
+        return jsonify({'success': False, 'error': 'template_id is required'}), 400
+    if not name:
+        return jsonify({'success': False, 'error': 'name is required'}), 400
+
+    template = db.get_group_template(org_id, template_id)
+    if not template:
+        return jsonify({'success': False, 'error': 'Template not found'}), 404
+
+    import re
+    if not slug:
+        slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+    slug = re.sub(r'[^a-z0-9-]', '', slug.lower())
+    if not slug:
+        slug = f"group-{int(time.time())}"
+
+    conn = db.get_connection()
+    if not conn:
+        return jsonify({'success': False, 'error': 'Database unavailable'}), 500
+    cursor = conn.cursor()
+    try:
+        has_org_id = _table_has_org_id(cursor, 'client_groups')
+        cursor.execute("SELECT id FROM client_groups WHERE slug = %s", (slug,))
+        if cursor.fetchone():
+            slug = f"{slug}-{int(time.time()) % 1000}"
+
+        created_by = session.get('user', {}).get('username', 'Unknown')
+        if has_org_id:
+            cursor.execute("""
+                INSERT INTO client_groups (name, slug, created_by, org_id)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+            """, (name, slug, created_by, org_id))
+        else:
+            cursor.execute("""
+                INSERT INTO client_groups (name, slug, created_by)
+                VALUES (%s, %s, %s)
+                RETURNING id
+            """, (name, slug, created_by))
+        group_id = cursor.fetchone()[0]
+
+        stores_by_id = {r.get('id'): r.get('name', r.get('id')) for r in get_current_org_restaurants()}
+        for store_id in template.get('store_ids') or []:
+            sid = str(store_id).strip()
+            if not sid:
+                continue
+            cursor.execute("""
+                INSERT INTO group_stores (group_id, store_id, store_name)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (group_id, store_id) DO NOTHING
+            """, (group_id, sid, stores_by_id.get(sid, sid)))
+
+        conn.commit()
+        return jsonify({'success': True, 'group_id': group_id, 'slug': slug})
+    except Exception as e:
+        conn.rollback()
+        print(f"Error creating group from template: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/groups/<int:group_id>/share-links', methods=['GET'])
+@admin_required
+def api_group_share_links_list(group_id):
+    """List expirable share links for a group."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+    conn = db.get_connection()
+    if not conn:
+        return jsonify({'success': False, 'error': 'Database unavailable'}), 500
+    cursor = conn.cursor()
+    try:
+        if not _group_belongs_to_org(cursor, group_id, org_id):
+            return jsonify({'success': False, 'error': 'Group not found'}), 404
+    finally:
+        cursor.close()
+        conn.close()
+    links = db.list_group_share_links(org_id, group_id)
+    return jsonify({'success': True, 'links': links})
+
+
+@app.route('/api/groups/<int:group_id>/share-links', methods=['POST'])
+@admin_required
+def api_group_share_links_create(group_id):
+    """Create expirable share link for group."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    data = get_json_payload()
+    try:
+        expires_hours = int(data.get('expires_hours', 24 * 7))
+    except Exception:
+        expires_hours = 24 * 7
+    expires_hours = max(1, min(expires_hours, 24 * 90))
+
+    conn = db.get_connection()
+    if not conn:
+        return jsonify({'success': False, 'error': 'Database unavailable'}), 500
+    cursor = conn.cursor()
+    try:
+        if not _group_belongs_to_org(cursor, group_id, org_id):
+            return jsonify({'success': False, 'error': 'Group not found'}), 404
+    finally:
+        cursor.close()
+        conn.close()
+
+    link = db.create_group_share_link(org_id, group_id, created_by=session.get('user', {}).get('id'), expires_hours=expires_hours)
+    if not link:
+        return jsonify({'success': False, 'error': 'Unable to create share link'}), 400
+    share_url = f"{request.host_url.rstrip('/')}/grupo/share/{link['token']}"
+    return jsonify({'success': True, 'link': {**link, 'url': share_url}})
+
+
+@app.route('/api/groups/<int:group_id>/share-links/<int:link_id>', methods=['DELETE'])
+@admin_required
+def api_group_share_links_revoke(group_id, link_id):
+    """Disable an existing group share link."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+    conn = db.get_connection()
+    if not conn:
+        return jsonify({'success': False, 'error': 'Database unavailable'}), 500
+    cursor = conn.cursor()
+    try:
+        if not _group_belongs_to_org(cursor, group_id, org_id):
+            return jsonify({'success': False, 'error': 'Group not found'}), 404
+    finally:
+        cursor.close()
+        conn.close()
+    ok = db.revoke_group_share_link(org_id, group_id, link_id)
+    if not ok:
+        return jsonify({'success': False, 'error': 'Share link not found'}), 404
+    return jsonify({'success': True})
 
 
 @app.route('/api/groups/<int:group_id>/comparison', methods=['GET'])

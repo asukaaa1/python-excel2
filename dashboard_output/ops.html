@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ops - TIMO</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <style>
+        :root {
+            --bg: #f7f8fa;
+            --card: #ffffff;
+            --border: #e5e7eb;
+            --text: #1f2937;
+            --muted: #6b7280;
+            --ok: #10b981;
+            --warn: #f59e0b;
+            --bad: #ef4444;
+        }
+        [data-theme="dark"] {
+            --bg: #08090b;
+            --card: #0f1115;
+            --border: #1f2937;
+            --text: #f3f4f6;
+            --muted: #9ca3af;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        .top {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+        .links { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn {
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            border-radius: 10px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px;
+        }
+        .k {
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+        }
+        .v { font-size: 22px; font-weight: 700; }
+        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .pill {
+            display: inline-flex;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-left: 8px;
+        }
+        .ok { background: rgba(16,185,129,.12); color: var(--ok); }
+        .warn { background: rgba(245,158,11,.16); color: var(--warn); }
+        .bad { background: rgba(239,68,68,.16); color: var(--bad); }
+        .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 13px;
+            padding: 5px 0;
+            border-bottom: 1px dashed var(--border);
+        }
+        .row:last-child { border-bottom: none; }
+        .small { font-size: 12px; color: var(--muted); }
+        @media (max-width: 900px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="top">
+            <div>
+                <h1 style="margin:0;font-size:24px">Painel Operacional</h1>
+                <div class="small">Resumo de fila, refresh, cache e qualidade</div>
+            </div>
+            <div class="links">
+                <a class="btn" href="/dashboard">Dashboard</a>
+                <a class="btn" href="/admin">Admin</a>
+                <button class="btn" onclick="toggleTheme()">Tema</button>
+                <button class="btn" onclick="loadOps()">Atualizar</button>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <div class="k">Refresh</div>
+                <div class="v" id="refreshStatus">-</div>
+                <div class="small mono" id="refreshAt">-</div>
+            </div>
+            <div class="card">
+                <div class="k">Fila Redis</div>
+                <div class="v" id="queueDepth">0</div>
+                <div class="small" id="queueMeta">-</div>
+            </div>
+            <div class="card">
+                <div class="k">Qualidade</div>
+                <div class="v" id="qualityScore">100</div>
+                <div class="small" id="qualityMeta">-</div>
+            </div>
+        </div>
+
+        <div class="grid" style="margin-top:10px">
+            <div class="card">
+                <div class="k">Instancia</div>
+                <div class="row"><span>ID</span><span class="mono" id="instanceId">-</span></div>
+                <div class="row"><span>Uptime</span><span id="uptime">-</span></div>
+                <div class="row"><span>SSE clients</span><span id="clients">0</span></div>
+            </div>
+            <div class="card">
+                <div class="k">Cache e PubSub</div>
+                <div class="row"><span>Redis cache</span><span id="redisCache">-</span></div>
+                <div class="row"><span>Cache local keys</span><span id="localCache">0</span></div>
+                <div class="row"><span>PubSub</span><span id="pubsub">-</span></div>
+            </div>
+            <div class="card">
+                <div class="k">Organizacao</div>
+                <div class="row"><span>Nome</span><span id="orgName">-</span></div>
+                <div class="row"><span>Plano</span><span id="orgPlan">-</span></div>
+                <div class="row"><span>Lojas</span><span id="storeCount">0</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadOps() {
+            try {
+                const res = await fetch('/api/ops/summary');
+                const data = await res.json();
+                if (!res.ok || !data.success) return;
+                const ops = data.ops || {};
+                const refresh = ops.refresh || {};
+                const queue = ops.queue || {};
+                const stores = ops.stores || {};
+                const quality = stores.quality || {};
+
+                const status = String(refresh.status || '-');
+                const statusEl = document.getElementById('refreshStatus');
+                const statusClass = status === 'refreshing' ? 'warn' : (status === 'error' ? 'bad' : 'ok');
+                statusEl.innerHTML = `${status}<span class="pill ${statusClass}">${statusClass.toUpperCase()}</span>`;
+                document.getElementById('refreshAt').textContent = refresh.last_refresh || '-';
+
+                document.getElementById('queueDepth').textContent = String(queue.pending_jobs || 0);
+                document.getElementById('queueMeta').textContent = `redis=${queue.redis_connected ? 'on' : 'off'} lock=${queue.lock_present ? 'on' : 'off'}`;
+
+                document.getElementById('qualityScore').textContent = String(Math.round(Number(quality.average_score || 100)));
+                document.getElementById('qualityMeta').textContent = `critico=${quality.poor_count || 0} alerta=${quality.warning_count || 0}`;
+
+                document.getElementById('instanceId').textContent = ops.instance_id || '-';
+                document.getElementById('uptime').textContent = `${Math.round(Number(ops.uptime_seconds || 0) / 60)} min`;
+                document.getElementById('clients').textContent = String(ops.realtime?.connected_clients || 0);
+
+                document.getElementById('redisCache').textContent = ops.cache?.redis_cache_enabled ? 'ativo' : 'inativo';
+                document.getElementById('localCache').textContent = String(ops.cache?.local_keys || 0);
+                document.getElementById('pubsub').textContent = ops.realtime?.redis_pubsub_enabled ? 'ativo' : 'inativo';
+
+                document.getElementById('orgName').textContent = ops.org?.name || '-';
+                document.getElementById('orgPlan').textContent = ops.org?.plan_display || ops.org?.plan || '-';
+                document.getElementById('storeCount').textContent = String(stores.count || 0);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', current);
+            localStorage.setItem('theme', current);
+        }
+
+        (function init() {
+            const t = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+            loadOps();
+            setInterval(loadOps, 10000);
+        })();
+    </script>
+</body>
+</html>

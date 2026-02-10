@@ -265,6 +265,10 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
                     <span>Lojas Ocultas</span>
                 </a>
+                <a href="/ops" class="sidebar-link">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+                    <span>Ops</span>
+                </a>
             </div>
         </nav>
         <div class="sidebar-footer">
@@ -309,6 +313,31 @@
             <div class="stat-card animate-in">
                 <div class="stat-icon api"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>
                 <div class="stat-info"><h3 id="apiStatus">-</h3><p>Status da API</p></div>
+            </div>
+        </div>
+
+        <div class="section animate-in" id="onboardingSection">
+            <div class="section-header">
+                <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5-1a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Onboarding</h2>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <span class="badge badge-user" id="onboardingProgress">0/0</span>
+                    <button class="btn btn-secondary" onclick="dismissOnboarding()">Dispensar</button>
+                </div>
+            </div>
+            <div class="section-body" style="padding:1rem 1.5rem">
+                <div id="onboardingSteps" style="display:grid;gap:8px">
+                    <div class="empty-state" style="padding:1rem">Carregando onboarding...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section animate-in">
+            <div class="section-header">
+                <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4V7m3 10V5M3 19h18"/></svg>Qualidade dos Dados</h2>
+                <span class="badge badge-user" id="dataQualityScore">Score 100</span>
+            </div>
+            <div class="section-body" style="padding:1rem 1.5rem">
+                <div id="dataQualitySummary" class="config-card">Carregando qualidade dos dados...</div>
             </div>
         </div>
 
@@ -554,7 +583,7 @@
         };
         let currentOrgId = null;
         let organizationsCache = [];
-        async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig(), loadSubscription()]); }
+        async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig(), loadSubscription(), loadOnboarding(), loadDataQualitySummary()]); }
 
         async function refreshOrgContext() {
             await loadUserInfo();
@@ -791,6 +820,118 @@
                 renderPlanCards(plans, subscription, usage);
             } catch (error) {
                 showToast('Falha ao carregar assinatura', 'error');
+            }
+        }
+
+        async function loadOnboarding() {
+            try {
+                const response = await fetch('/api/onboarding');
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    return;
+                }
+                const onboarding = data.onboarding || {};
+                const progress = document.getElementById('onboardingProgress');
+                if (progress) {
+                    progress.textContent = `${onboarding.completed_count || 0}/${onboarding.total_steps || 0}`;
+                }
+                const stepsEl = document.getElementById('onboardingSteps');
+                if (!stepsEl) return;
+                const steps = Array.isArray(onboarding.steps) ? onboarding.steps : [];
+                if (!steps.length) {
+                    stepsEl.innerHTML = '<div class="empty-state" style="padding:1rem">Nenhuma etapa configurada.</div>';
+                    return;
+                }
+                stepsEl.innerHTML = steps.map(step => {
+                    const done = !!step.done;
+                    const statusColor = done ? 'var(--success-500)' : 'var(--text-tertiary)';
+                    const action = done ? '' : `<button class="btn btn-secondary" style="padding:6px 10px" onclick="completeOnboardingStep('${escapeJs(step.id)}')">Marcar</button>`;
+                    return `
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--border-light);border-radius:var(--radius-lg)">
+                            <div style="display:flex;align-items:center;gap:10px">
+                                <span style="width:10px;height:10px;border-radius:999px;background:${statusColor}"></span>
+                                <div>
+                                    <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${escapeHtml(step.label || step.id)}</div>
+                                    <div style="font-size:11px;color:var(--text-tertiary)">${done ? 'Concluida' : 'Pendente'}</div>
+                                </div>
+                            </div>
+                            ${action}
+                        </div>
+                    `;
+                }).join('');
+
+                const section = document.getElementById('onboardingSection');
+                if (section) {
+                    section.style.display = onboarding.dismissed || onboarding.is_complete ? 'none' : '';
+                }
+            } catch (error) {
+                console.error('Error loading onboarding:', error);
+            }
+        }
+
+        async function completeOnboardingStep(stepId) {
+            try {
+                const response = await fetch('/api/onboarding', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ complete_step: stepId })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    showToast(data.error || 'Falha ao atualizar onboarding', 'error');
+                    return;
+                }
+                await loadOnboarding();
+            } catch (error) {
+                showToast('Erro de conexao ao atualizar onboarding', 'error');
+            }
+        }
+
+        async function dismissOnboarding() {
+            try {
+                await fetch('/api/onboarding', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dismissed: true })
+                });
+                const section = document.getElementById('onboardingSection');
+                if (section) section.style.display = 'none';
+            } catch (error) {
+                showToast('Erro ao dispensar onboarding', 'error');
+            }
+        }
+
+        async function loadDataQualitySummary() {
+            try {
+                const response = await fetch('/api/data-quality');
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    return;
+                }
+                const summary = data.quality?.summary || {};
+                const score = Number(summary.average_score || 100);
+                const poor = Number(summary.poor_count || 0);
+                const warning = Number(summary.warning_count || 0);
+                const badge = document.getElementById('dataQualityScore');
+                const container = document.getElementById('dataQualitySummary');
+                if (badge) {
+                    badge.textContent = `Score ${Math.round(score)}`;
+                    badge.style.background = score < 55 ? 'var(--error-50)' : (score < 80 ? '#fffbeb' : 'var(--success-50)');
+                    badge.style.color = score < 55 ? 'var(--error-600)' : (score < 80 ? '#b45309' : 'var(--success-600)');
+                }
+                if (container) {
+                    const issues = summary.issue_buckets || {};
+                    const issueRows = Object.keys(issues).sort((a, b) => issues[b] - issues[a]).slice(0, 3).map(code => {
+                        return `<div class="config-row"><span class="config-label">${escapeHtml(code)}</span><span class="config-value">${issues[code]}</span></div>`;
+                    }).join('');
+                    container.innerHTML = `
+                        <div class="config-row"><span class="config-label">Lojas monitoradas</span><span class="config-value">${summary.store_count || 0}</span></div>
+                        <div class="config-row"><span class="config-label">Alertas (critico + atencao)</span><span class="config-value">${poor + warning}</span></div>
+                        ${issueRows || '<div class="config-row"><span class="config-label">Sem alertas relevantes</span><span class="config-value">OK</span></div>'}
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading data quality:', error);
             }
         }
 
