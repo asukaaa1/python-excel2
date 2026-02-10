@@ -26,6 +26,7 @@ import copy
 import csv
 import io
 import sys
+import signal
 
 # Try to enable gzip compression
 try:
@@ -42,6 +43,14 @@ try:
         sys.stderr.reconfigure(errors="replace")
 except Exception:
     pass
+
+# Optional Redis integration for distributed queue/cache/pubsub
+try:
+    import redis
+    _HAS_REDIS = True
+except ImportError:
+    redis = None
+    _HAS_REDIS = False
 
 
 # Configure paths FIRST - before Flask app creation
@@ -83,6 +92,12 @@ app.config['SESSION_COOKIE_SECURE'] = IS_BEHIND_PROXY
 ENABLE_LEGACY_FALLBACK = str(
     os.environ.get('ENABLE_LEGACY_FALLBACK', '0' if IS_BEHIND_PROXY else '1')
 ).strip().lower() in ('1', 'true', 'yes', 'on')
+
+# Redis-backed distributed features (queue/cache/pubsub)
+REDIS_URL = os.environ.get('REDIS_URL', '').strip()
+USE_REDIS_QUEUE = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDIS_QUEUE', '1')).strip().lower() in ('1', 'true', 'yes', 'on'))
+USE_REDIS_CACHE = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDIS_CACHE', '1')).strip().lower() in ('1', 'true', 'yes', 'on'))
+USE_REDIS_PUBSUB = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDIS_PUBSUB', '1')).strip().lower() in ('1', 'true', 'yes', 'on'))
 
 # Enable gzip compression if available
 if _HAS_COMPRESS:
@@ -142,12 +157,53 @@ def add_cache_headers(response):
 # Database configuration
 db = DashboardDatabase()
 
+_REDIS_CLIENT = None
+REDIS_INSTANCE_ID = str(uuid.uuid4())
+REDIS_EVENTS_CHANNEL = 'timo:events'
+REDIS_REFRESH_QUEUE = 'timo:jobs:refresh'
+REDIS_REFRESH_STATUS_KEY = 'timo:refresh:status'
+REDIS_REFRESH_LOCK_KEY = 'timo:refresh:lock'
+REDIS_CACHE_PREFIX = 'timo:cache:restaurants'
+
+
+def get_redis_client():
+    """Lazy Redis client initializer (returns None when unavailable)."""
+    global _REDIS_CLIENT
+    if _REDIS_CLIENT is not None:
+        return _REDIS_CLIENT
+    if not (_HAS_REDIS and REDIS_URL):
+        return None
+    try:
+        _REDIS_CLIENT = redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=3, socket_connect_timeout=3)
+        _REDIS_CLIENT.ping()
+        return _REDIS_CLIENT
+    except Exception as e:
+        print(f"Redis unavailable: {e}")
+        _REDIS_CLIENT = None
+        return None
+
 # In-memory cache for processed API responses
 _api_cache = {}  # key: (org_id, month) -> {'data': [...], 'timestamp': datetime}
 _API_CACHE_TTL = 30  # seconds
 
+
+def _restaurants_cache_key(org_id, month_filter):
+    safe_org = org_id if org_id is not None else 'global'
+    safe_month = month_filter if month_filter is not None else 'all'
+    return f"{REDIS_CACHE_PREFIX}:{safe_org}:{safe_month}"
+
+
 def get_cached_restaurants(org_id, month_filter):
     """Get cached processed restaurant data if still fresh"""
+    if USE_REDIS_CACHE:
+        r = get_redis_client()
+        if r:
+            try:
+                raw = r.get(_restaurants_cache_key(org_id, month_filter))
+                if raw:
+                    return json.loads(raw)
+            except Exception:
+                pass
     key = (org_id, month_filter)
     cached = _api_cache.get(key)
     if cached and (datetime.now() - cached['timestamp']).total_seconds() < _API_CACHE_TTL:
@@ -156,11 +212,26 @@ def get_cached_restaurants(org_id, month_filter):
 
 def set_cached_restaurants(org_id, month_filter, data):
     """Cache processed restaurant data"""
+    if USE_REDIS_CACHE:
+        r = get_redis_client()
+        if r:
+            try:
+                r.setex(_restaurants_cache_key(org_id, month_filter), _API_CACHE_TTL, json.dumps(data, ensure_ascii=False, default=str))
+            except Exception:
+                pass
     key = (org_id, month_filter)
     _api_cache[key] = {'data': data, 'timestamp': datetime.now()}
 
 def invalidate_cache():
     """Clear all API caches (called after data refresh)"""
+    if USE_REDIS_CACHE:
+        r = get_redis_client()
+        if r:
+            try:
+                for k in r.scan_iter(match=f"{REDIS_CACHE_PREFIX}:*"):
+                    r.delete(k)
+            except Exception:
+                pass
     _api_cache.clear()
 
 # Per-org data store: {org_id: {'restaurants': [], 'api': IFoodAPI, 'last_refresh': datetime, 'config': {}}}
@@ -392,6 +463,11 @@ class SSEManager:
     def __init__(self):
         self._clients = []  # List of queue objects, one per connected client
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._redis_thread = None
+        if USE_REDIS_PUBSUB and get_redis_client():
+            self._redis_thread = threading.Thread(target=self._redis_listener_loop, daemon=True, name="sse-redis-sub")
+            self._redis_thread.start()
     
     def register(self):
         """Register a new SSE client, returns a queue for that client"""
@@ -405,9 +481,8 @@ class SSEManager:
         with self._lock:
             if q in self._clients:
                 self._clients.remove(q)
-    
-    def broadcast(self, event_type: str, data: dict):
-        """Send an event to all connected clients"""
+
+    def _broadcast_local(self, event_type: str, data: dict):
         message = f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
         dead_clients = []
         with self._lock:
@@ -418,6 +493,62 @@ class SSEManager:
                     dead_clients.append(q)
             for q in dead_clients:
                 self._clients.remove(q)
+
+    def _publish_redis(self, event_type: str, data: dict):
+        r = get_redis_client()
+        if not (USE_REDIS_PUBSUB and r):
+            return
+        try:
+            payload = {
+                'source': REDIS_INSTANCE_ID,
+                'event_type': event_type,
+                'data': data
+            }
+            r.publish(REDIS_EVENTS_CHANNEL, json.dumps(payload, ensure_ascii=False, default=str))
+        except Exception:
+            pass
+
+    def _redis_listener_loop(self):
+        """Subscribe to distributed SSE events and relay to local clients."""
+        r = get_redis_client()
+        if not r:
+            return
+        while not self._stop_event.is_set():
+            pubsub = None
+            try:
+                pubsub = r.pubsub(ignore_subscribe_messages=True)
+                pubsub.subscribe(REDIS_EVENTS_CHANNEL)
+                for message in pubsub.listen():
+                    if self._stop_event.is_set():
+                        break
+                    if not message or message.get('type') != 'message':
+                        continue
+                    raw = message.get('data')
+                    if not raw:
+                        continue
+                    try:
+                        payload = json.loads(raw)
+                    except Exception:
+                        continue
+                    if payload.get('source') == REDIS_INSTANCE_ID:
+                        continue
+                    event_type = payload.get('event_type')
+                    event_data = payload.get('data', {})
+                    if event_type:
+                        self._broadcast_local(event_type, event_data)
+            except Exception:
+                time.sleep(2)
+            finally:
+                try:
+                    if pubsub:
+                        pubsub.close()
+                except Exception:
+                    pass
+    
+    def broadcast(self, event_type: str, data: dict):
+        """Send an event to all connected clients"""
+        self._broadcast_local(event_type, data)
+        self._publish_redis(event_type, data)
     
     @property
     def client_count(self):
@@ -466,21 +597,32 @@ class BackgroundRefresher:
         """Perform a data refresh (thread-safe)"""
         if not self._refresh_lock.acquire(blocking=False):
             return False  # Already refreshing
+        lock_token = None
         try:
+            lock_token = acquire_refresh_lock()
+            if USE_REDIS_QUEUE and not lock_token:
+                return False
             self._is_refreshing = True
-            sse_manager.broadcast('refresh_status', {'status': 'refreshing', 'timestamp': datetime.now().isoformat()})
+            status_payload = {'status': 'refreshing', 'timestamp': datetime.now().isoformat()}
+            set_refresh_status(status_payload)
+            sse_manager.broadcast('refresh_status', status_payload)
             
             _do_data_refresh()
             
-            sse_manager.broadcast('refresh_status', {'status': 'complete', 'timestamp': datetime.now().isoformat(), 'count': len(RESTAURANTS_DATA)})
+            complete_payload = {'status': 'complete', 'timestamp': datetime.now().isoformat(), 'count': len(RESTAURANTS_DATA)}
+            set_refresh_status(complete_payload)
+            sse_manager.broadcast('refresh_status', complete_payload)
             sse_manager.broadcast('data_updated', {'restaurant_count': len(RESTAURANTS_DATA), 'timestamp': datetime.now().isoformat()})
             return True
         except Exception as e:
             print(f"âŒ Background refresh error: {e}")
-            sse_manager.broadcast('refresh_status', {'status': 'error', 'error': str(e)})
+            error_payload = {'status': 'error', 'error': str(e), 'timestamp': datetime.now().isoformat()}
+            set_refresh_status(error_payload)
+            sse_manager.broadcast('refresh_status', error_payload)
             return False
         finally:
             self._is_refreshing = False
+            release_refresh_lock(lock_token)
             self._refresh_lock.release()
     
     @property
@@ -488,6 +630,149 @@ class BackgroundRefresher:
         return self._is_refreshing
 
 bg_refresher = BackgroundRefresher()
+
+
+def acquire_refresh_lock(ttl_seconds=600):
+    """Acquire distributed refresh lock when Redis queue is enabled."""
+    if not USE_REDIS_QUEUE:
+        return REDIS_INSTANCE_ID
+    r = get_redis_client()
+    if not r:
+        return None
+    token = str(uuid.uuid4())
+    try:
+        ok = r.set(REDIS_REFRESH_LOCK_KEY, token, nx=True, ex=ttl_seconds)
+        return token if ok else None
+    except Exception:
+        return None
+
+
+def release_refresh_lock(token):
+    """Release distributed refresh lock owned by token."""
+    if not (USE_REDIS_QUEUE and token):
+        return
+    r = get_redis_client()
+    if not r:
+        return
+    try:
+        current = r.get(REDIS_REFRESH_LOCK_KEY)
+        if current == token:
+            r.delete(REDIS_REFRESH_LOCK_KEY)
+    except Exception:
+        pass
+
+
+def set_refresh_status(status_payload: dict):
+    """Persist refresh status for all instances."""
+    if not isinstance(status_payload, dict):
+        return
+    r = get_redis_client()
+    if USE_REDIS_QUEUE and r:
+        try:
+            r.set(REDIS_REFRESH_STATUS_KEY, json.dumps(status_payload, ensure_ascii=False, default=str), ex=86400)
+        except Exception:
+            pass
+
+
+def get_refresh_status():
+    """Read shared refresh status when available."""
+    r = get_redis_client()
+    if USE_REDIS_QUEUE and r:
+        try:
+            raw = r.get(REDIS_REFRESH_STATUS_KEY)
+            if raw:
+                payload = json.loads(raw)
+                if isinstance(payload, dict):
+                    return payload
+        except Exception:
+            pass
+    return {
+        'status': 'refreshing' if bg_refresher.is_refreshing else 'idle',
+        'timestamp': datetime.now().isoformat()
+    }
+
+
+def enqueue_refresh_job(trigger='api'):
+    """Enqueue a refresh request for worker processing."""
+    r = get_redis_client()
+    if not (USE_REDIS_QUEUE and r):
+        return None
+    job_id = str(uuid.uuid4())
+    payload = {
+        'job_id': job_id,
+        'trigger': trigger,
+        'requested_at': datetime.now().isoformat(),
+        'requested_by_instance': REDIS_INSTANCE_ID
+    }
+    try:
+        r.lpush(REDIS_REFRESH_QUEUE, json.dumps(payload, ensure_ascii=False, default=str))
+        set_refresh_status({'status': 'queued', 'timestamp': datetime.now().isoformat(), 'job_id': job_id, 'trigger': trigger})
+        return job_id
+    except Exception:
+        return None
+
+
+def run_refresh_worker_loop(interval_seconds=1800):
+    """Redis-backed worker loop for reliable background refresh."""
+    print(f"Refresh worker started (interval={interval_seconds}s)")
+    r = get_redis_client()
+    if not r:
+        print("Refresh worker exiting: Redis not available")
+        return
+
+    stop_flag = {'stop': False}
+
+    def _handle_stop(signum, frame):
+        stop_flag['stop'] = True
+
+    try:
+        signal.signal(signal.SIGTERM, _handle_stop)
+    except Exception:
+        pass
+    try:
+        signal.signal(signal.SIGINT, _handle_stop)
+    except Exception:
+        pass
+
+    next_periodic = time.time() + interval_seconds
+    while not stop_flag['stop']:
+        try:
+            timeout = max(1, int(next_periodic - time.time()))
+            item = r.brpop(REDIS_REFRESH_QUEUE, timeout=timeout)
+            if item:
+                _, raw = item
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    payload = {}
+                refreshed = bg_refresher.refresh_now()
+                if refreshed:
+                    set_refresh_status({
+                        'status': 'done',
+                        'timestamp': datetime.now().isoformat(),
+                        'job_id': payload.get('job_id'),
+                        'trigger': payload.get('trigger', 'queue')
+                    })
+                else:
+                    set_refresh_status({
+                        'status': 'busy',
+                        'timestamp': datetime.now().isoformat(),
+                        'job_id': payload.get('job_id'),
+                        'trigger': payload.get('trigger', 'queue')
+                    })
+                continue
+
+            if time.time() >= next_periodic:
+                refreshed = bg_refresher.refresh_now()
+                set_refresh_status({
+                    'status': 'done' if refreshed else 'busy',
+                    'timestamp': datetime.now().isoformat(),
+                    'trigger': 'periodic'
+                })
+                next_periodic = time.time() + interval_seconds
+        except Exception as e:
+            print(f"Refresh worker error: {e}")
+            time.sleep(2)
 
 
 def _do_data_refresh():
@@ -2371,18 +2656,30 @@ def api_delete_interruption(restaurant_id, interruption_id):
 @app.route('/api/refresh-data', methods=['POST'])
 @admin_required
 def api_refresh_data():
-    """Refresh restaurant data from iFood API (now uses background thread)"""
+    """Refresh restaurant data from iFood API."""
     try:
         has_org_api = any(od.get('api') for od in ORG_DATA.values())
         if not IFOOD_API and not has_org_api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-        
+
+        if USE_REDIS_QUEUE and get_redis_client():
+            job_id = enqueue_refresh_job(trigger='api')
+            if not job_id:
+                return jsonify({'success': False, 'error': 'Failed to enqueue refresh job'}), 500
+            return jsonify({
+                'success': True,
+                'message': 'Refresh job queued',
+                'status': 'queued',
+                'job_id': job_id,
+                'last_refresh': LAST_DATA_REFRESH.isoformat() if LAST_DATA_REFRESH else None
+            })
+
         if bg_refresher.is_refreshing:
             return jsonify({'success': True, 'message': 'Refresh already in progress', 'status': 'refreshing'})
-        
-        # Trigger async refresh
+
+        # Fallback: trigger in-process refresh.
         threading.Thread(target=bg_refresher.refresh_now, daemon=True).start()
-        
+
         return jsonify({
             'success': True,
             'message': 'Refresh started in background',
@@ -2443,9 +2740,12 @@ def sse_stream():
 @login_required
 def api_refresh_status():
     """Get current refresh status and system info"""
+    refresh_payload = get_refresh_status()
+    refresh_status = refresh_payload.get('status')
     return jsonify({
         'success': True,
-        'is_refreshing': bg_refresher.is_refreshing,
+        'is_refreshing': refresh_status in ('refreshing', 'queued'),
+        'refresh_status': refresh_payload,
         'last_refresh': get_current_org_last_refresh().isoformat() if get_current_org_last_refresh() else None,
         'restaurant_count': len(get_current_org_restaurants()),
         'connected_clients': sse_manager.client_count,
@@ -5033,6 +5333,8 @@ def initialize_app():
     # Try per-org initialization first (SaaS mode)
     initialize_all_orgs()
     
+    queue_mode = USE_REDIS_QUEUE and bool(get_redis_client())
+
     # Fallback: if no orgs have data, try legacy config file
     if not any(od['restaurants'] for od in ORG_DATA.values()):
         print("\nNo org data found, trying legacy config file...")
@@ -5041,18 +5343,23 @@ def initialize_app():
             snapshot_loaded = _load_data_snapshot()
             if snapshot_loaded:
                 print("Fast start: serving cached data while refreshing in background")
-                threading.Thread(target=bg_refresher.refresh_now, daemon=True).start()
+                if queue_mode:
+                    enqueue_refresh_job(trigger='startup')
+                else:
+                    threading.Thread(target=bg_refresher.refresh_now, daemon=True).start()
             else:
                 print("First start: loading data from iFood API...")
                 load_restaurants_from_ifood()
                 _save_data_snapshot()
             refresh_minutes = IFOOD_CONFIG.get('refresh_interval_minutes', 30)
-            bg_refresher.interval = refresh_minutes * 60
-            bg_refresher.start()
+            if not queue_mode:
+                bg_refresher.interval = refresh_minutes * 60
+                bg_refresher.start()
     else:
         # Start background refresh for all orgs
-        bg_refresher.interval = 1800  # 30 min
-        bg_refresher.start()
+        if not queue_mode:
+            bg_refresher.interval = 1800  # 30 min
+            bg_refresher.start()
     
     total_restaurants = sum(len(od['restaurants']) for od in ORG_DATA.values()) + len(RESTAURANTS_DATA)
     total_orgs = len([o for o in ORG_DATA.values() if o['restaurants']])
@@ -5062,7 +5369,10 @@ def initialize_app():
     print("="*60)
     print(f"\nOrganizations: {total_orgs}")
     print(f"Total Restaurants: {total_restaurants}")
-    print("Background refresh: every 30 min")
+    if queue_mode:
+        print("Background refresh: Redis queue worker mode")
+    else:
+        print("Background refresh: every 30 min")
     print("SSE: ready on /api/events")
     print(f"\nAccess: http://localhost:{os.environ.get('PORT', 5000)}")
     print("="*60)
@@ -5074,6 +5384,20 @@ initialize_app()
 
 if __name__ == '__main__':
     import sys
+    run_worker = ('--worker' in sys.argv) or (str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on'))
+
+    if run_worker:
+        if not (USE_REDIS_QUEUE and get_redis_client()):
+            print("Worker mode requires Redis queue (set REDIS_URL and USE_REDIS_QUEUE=true).")
+            sys.exit(1)
+        interval_minutes = 30
+        try:
+            interval_minutes = int((IFOOD_CONFIG or {}).get('refresh_interval_minutes') or os.environ.get('REFRESH_INTERVAL_MINUTES', 30))
+        except Exception:
+            interval_minutes = 30
+        print(f"Running in WORKER mode (refresh interval: {interval_minutes} min)")
+        run_refresh_worker_loop(interval_seconds=max(60, interval_minutes * 60))
+        sys.exit(0)
     
     # Check if running in production mode
     if '--production' in sys.argv or os.environ.get('FLASK_ENV') == 'production':
