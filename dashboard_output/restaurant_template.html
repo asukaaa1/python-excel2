@@ -581,7 +581,18 @@ function renderMainChart() {
             : Array.isArray(fc.revenue_lower) && Array.isArray(fc.revenue_upper) &&
               fc.revenue_lower.length === fcValuesRaw.length && fc.revenue_upper.length === fcValuesRaw.length
     );
-    const canShowBand = hasInterval && forecastQualityRaw !== 'low' && forecastQualityRaw !== 'unknown';
+    const avgForecastValue = fcValuesRaw.length > 0
+        ? (fcValuesRaw.reduce((acc, v) => acc + (Number(v) || 0), 0) / fcValuesRaw.length)
+        : 0;
+    let avgBandWidth = 0;
+    if (hasInterval) {
+        const lower = activeChartType === 'orders' ? fc.orders_lower : fc.revenue_lower;
+        const upper = activeChartType === 'orders' ? fc.orders_upper : fc.revenue_upper;
+        const widths = upper.map((u, i) => Math.max((Number(u) || 0) - (Number(lower[i]) || 0), 0));
+        avgBandWidth = widths.length > 0 ? widths.reduce((acc, w) => acc + w, 0) / widths.length : 0;
+    }
+    const bandRatio = avgForecastValue > 0 ? (avgBandWidth / avgForecastValue) : 1;
+    const canShowBand = hasInterval && forecastQualityRaw === 'high' && bandRatio <= 0.6;
 
     let allLabels = histLabels;
     let datasets = [];
@@ -621,7 +632,7 @@ function renderMainChart() {
             datasets.push({
                 data: upperBandData,
                 borderColor: 'rgba(249,112,21,0)',
-                backgroundColor: isDark ? 'rgba(249,112,21,0.18)' : 'rgba(249,112,21,0.12)',
+                backgroundColor: isDark ? 'rgba(249,112,21,0.10)' : 'rgba(249,112,21,0.08)',
                 borderWidth: 0,
                 pointRadius: 0,
                 pointHoverRadius: 0,
@@ -658,13 +669,11 @@ function renderMainChart() {
         id: 'forecastSeparator',
         afterDraw(chart) {
             if (boundaryIndex < 0) return;
-            const { ctx: c, chartArea: { top, bottom, right }, scales: { x } } = chart;
+            const { ctx: c, chartArea: { top, bottom }, scales: { x } } = chart;
             const xHist = x.getPixelForValue(boundaryIndex);
             const xForecast = x.getPixelForValue(boundaryIndex + 1);
-            const xPos = Number.isFinite(xForecast) ? (xHist + xForecast) / 2 : xHist;
+            const xPos = Number.isFinite(xForecast) ? xForecast : xHist;
             c.save();
-            c.fillStyle = isDark ? 'rgba(249,112,21,0.06)' : 'rgba(249,112,21,0.05)';
-            c.fillRect(xPos, top, right - xPos, bottom - top);
             c.beginPath();
             c.setLineDash([4, 4]);
             c.strokeStyle = isDark ? '#525252' : '#d4d4d4';
