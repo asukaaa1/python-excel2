@@ -774,11 +774,11 @@
                     if (merchants.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum merchant configurado</td></tr>'; return; }
                     tbody.innerHTML = merchants.map(merchant => `
                         <tr>
-                            <td style="font-family: var(--font-mono); font-size: 0.75rem;">${merchant.merchant_id.substring(0, 8)}...</td>
-                            <td>${merchant.name}</td>
-                            <td>${merchant.manager || '-'}</td>
+                            <td style="font-family: var(--font-mono); font-size: 0.75rem;">${String(merchant.merchant_id || '').substring(0, 8)}...</td>
+                            <td>${escapeHtml(merchant.name || '-')}</td>
+                            <td>${escapeHtml(merchant.manager || '-')}</td>
                             <td><span class="badge badge-connected">Ativo</span></td>
-                            <td><button class="btn btn-secondary btn-danger" onclick="removeMerchant('${merchant.merchant_id}', '${merchant.name}')">Remover</button></td>
+                            <td><button class="btn btn-secondary btn-danger" onclick="removeMerchant('${escapeJs(merchant.merchant_id || '')}', '${escapeJs(merchant.name || '')}')">Remover</button></td>
                         </tr>
                     `).join('');
                 }
@@ -1166,11 +1166,14 @@
                 const connected = !!(cfg.connection_active ?? configured);
                 const mode = String(cfg.mode || '').toLowerCase();
                 const usingLegacyFallback = !!cfg.using_legacy_fallback;
+                const usingEnvFallback = !!cfg.using_env_fallback;
                 const isMock = mode === 'mock' || !!cfg.use_mock_data;
 
                 let clientLabel = 'Nao configurado';
                 if (configured) {
                     clientLabel = isMock ? 'Mock' : 'Configurado';
+                } else if (usingEnvFallback) {
+                    clientLabel = 'Configurado (ENV)';
                 } else if (usingLegacyFallback) {
                     clientLabel = isMock ? 'Mock (global)' : 'Configurado (global)';
                 }

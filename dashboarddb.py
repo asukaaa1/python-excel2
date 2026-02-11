@@ -1,4 +1,4 @@
-"""
+﻿"""
 PostgreSQL Database Module for Restaurant Dashboard
 Handles user authentication and password storage
 UPDATED VERSION - Supports DATABASE_URL from Render
@@ -39,7 +39,7 @@ class DashboardDatabase:
                 'password': parsed.password,
                 'client_encoding': 'utf8'
             }
-            print(f"📊 Using DATABASE_URL: {parsed.hostname}")
+            print(f"ðŸ“Š Using DATABASE_URL: {parsed.hostname}")
         else:
             # Use individual parameters
             self.config = {
@@ -50,7 +50,7 @@ class DashboardDatabase:
                 'password': password,
                 'client_encoding': 'utf8'
             }
-            print(f"📊 Using individual DB params: {host}:{port}/{database}")
+            print(f"ðŸ“Š Using individual DB params: {host}:{port}/{database}")
     
     def get_connection(self):
         """Get database connection"""
@@ -136,7 +136,7 @@ class DashboardDatabase:
                 )
             """)
             
-            # ── SaaS: Organizations (tenants) ──
+            # â”€â”€ SaaS: Organizations (tenants) â”€â”€
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS organizations (
                     id SERIAL PRIMARY KEY,
@@ -160,7 +160,7 @@ class DashboardDatabase:
                 )
             """)
             
-            # ── SaaS: Org membership ──
+            # â”€â”€ SaaS: Org membership â”€â”€
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS org_members (
                     id SERIAL PRIMARY KEY,
@@ -172,7 +172,7 @@ class DashboardDatabase:
                 )
             """)
             
-            # ── SaaS: Team invites ──
+            # â”€â”€ SaaS: Team invites â”€â”€
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS org_invites (
                     id SERIAL PRIMARY KEY,
@@ -187,7 +187,7 @@ class DashboardDatabase:
                 )
             """)
             
-            # ── SaaS: Plans ──
+            # â”€â”€ SaaS: Plans â”€â”€
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS plans (
                     id SERIAL PRIMARY KEY,
@@ -258,7 +258,7 @@ class DashboardDatabase:
                   )
             """)
             
-            # ── SaaS: Audit log ──
+            # â”€â”€ SaaS: Audit log â”€â”€
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS audit_log (
                     id SERIAL PRIMARY KEY,
@@ -271,7 +271,7 @@ class DashboardDatabase:
                 )
             """)
 
-            # ── Saved views (filters/date ranges) ──
+            # â”€â”€ Saved views (filters/date ranges) â”€â”€
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS saved_views (
                     id SERIAL PRIMARY KEY,
@@ -320,7 +320,7 @@ class DashboardDatabase:
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_group_share_links_lookup ON group_share_links(token, is_active)")
             
-            # ── SaaS: Per-org data snapshots ──
+            # â”€â”€ SaaS: Per-org data snapshots â”€â”€
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS org_data_cache (
                     id SERIAL PRIMARY KEY,
@@ -332,7 +332,7 @@ class DashboardDatabase:
                 )
             """)
             
-            # ── Migration: add primary_org_id to users if missing ──
+            # â”€â”€ Migration: add primary_org_id to users if missing â”€â”€
             try:
                 cursor.execute("""
                     DO $$ BEGIN
@@ -345,7 +345,7 @@ class DashboardDatabase:
             except Exception:
                 pass
             
-            # ── Migration: add org_id to existing tables ──
+            # â”€â”€ Migration: add org_id to existing tables â”€â”€
             for tbl in ['squads', 'client_groups', 'hidden_stores']:
                 try:
                     cursor.execute(f"""
@@ -378,11 +378,11 @@ class DashboardDatabase:
                     pass
             
             conn.commit()
-            print("✅ Database tables created successfully!")
+            print("âœ… Database tables created successfully!")
             return True
             
         except Exception as e:
-            print(f"❌ Error creating tables: {e}")
+            print(f"âŒ Error creating tables: {e}")
             conn.rollback()
             return False
         finally:
@@ -422,16 +422,16 @@ class DashboardDatabase:
             
             user_id = cursor.fetchone()[0]
             conn.commit()
-            print(f"✅ User '{username}' created with ID: {user_id}")
+            print(f"âœ… User '{username}' created with ID: {user_id}")
             return user_id
             
         except psycopg2.IntegrityError:
             conn.rollback()
-            print(f"⚠️  User '{username}' already exists")
+            print(f"âš ï¸  User '{username}' already exists")
             return None
         except Exception as e:
             conn.rollback()
-            print(f"❌ Error creating user: {e}")
+            print(f"âŒ Error creating user: {e}")
             return None
         finally:
             cursor.close()
@@ -475,7 +475,7 @@ class DashboardDatabase:
             return None
             
         except Exception as e:
-            print(f"❌ Authentication error: {e}")
+            print(f"âŒ Authentication error: {e}")
             return None
         finally:
             cursor.close()
@@ -508,7 +508,7 @@ class DashboardDatabase:
             ]
             
         except Exception as e:
-            print(f"❌ Error fetching restaurants: {e}")
+            print(f"âŒ Error fetching restaurants: {e}")
             return []
         finally:
             cursor.close()
@@ -533,7 +533,7 @@ class DashboardDatabase:
             return True
             
         except Exception as e:
-            print(f"❌ Error assigning restaurant: {e}")
+            print(f"âŒ Error assigning restaurant: {e}")
             conn.rollback()
             return False
         finally:
@@ -578,7 +578,7 @@ class DashboardDatabase:
             return None
             
         except Exception as e:
-            print(f"❌ Authentication error: {e}")
+            print(f"âŒ Authentication error: {e}")
             return None
         finally:
             cursor.close()
@@ -586,7 +586,7 @@ class DashboardDatabase:
 
     def create_default_users(self):
         """Create default admin and user accounts"""
-        print("\n👤 Creating default users...")
+        print("\nðŸ‘¤ Creating default users...")
         
         # Create admin user
         self.create_user(
@@ -636,7 +636,7 @@ class DashboardDatabase:
             ]
             
         except Exception as e:
-            print(f"❌ Error fetching users: {e}")
+            print(f"âŒ Error fetching users: {e}")
             return []
         finally:
             cursor.close()
@@ -657,7 +657,7 @@ class DashboardDatabase:
 
             allowed_admins_raw = (os.environ.get('PLATFORM_ADMIN_EMAILS') or '').strip()
             if not allowed_admins_raw:
-                return True
+                return str(os.environ.get('ALLOW_ANY_PLATFORM_ADMIN', '')).strip().lower() in ('1', 'true', 'yes', 'on')
 
             allowed_admins = {
                 email.strip().lower()
@@ -703,7 +703,7 @@ class DashboardDatabase:
             conn.commit()
             return {'id': org_id, 'name': name, 'slug': slug, 'plan': plan, 'max_restaurants': max_r, 'max_users': max_u}
         except Exception as e:
-            conn.rollback(); print(f"❌ Error creating org: {e}"); return None
+            conn.rollback(); print(f"âŒ Error creating org: {e}"); return None
         finally:
             cursor.close(); conn.close()
 
@@ -723,7 +723,7 @@ class DashboardDatabase:
                      'max_users':r[5],'is_active':r[6],'org_role':r[7],'created_at':str(r[8])}
                     for r in cursor.fetchall()]
         except Exception as e:
-            print(f"❌ get_user_orgs: {e}"); return []
+            print(f"âŒ get_user_orgs: {e}"); return []
         finally:
             cursor.close(); conn.close()
 
@@ -747,7 +747,7 @@ class DashboardDatabase:
                 elif hasattr(v, '__float__'): d[k] = float(v)
             return d
         except Exception as e:
-            print(f"❌ get_org_details: {e}"); return None
+            print(f"âŒ get_org_details: {e}"); return None
         finally:
             cursor.close(); conn.close()
 
@@ -766,7 +766,7 @@ class DashboardDatabase:
             if isinstance(merchants, str): merchants = json.loads(merchants)
             return {'client_id':row[0],'client_secret':row[1],'merchants':merchants,'settings':row[3] or {}}
         except Exception as e:
-            print(f"❌ get_org_ifood_config: {e}"); return None
+            print(f"âŒ get_org_ifood_config: {e}"); return None
         finally:
             cursor.close(); conn.close()
 
@@ -787,7 +787,7 @@ class DashboardDatabase:
                 conn.commit()
             return True
         except Exception as e:
-            conn.rollback(); print(f"❌ update_org_ifood_config: {e}"); return False
+            conn.rollback(); print(f"âŒ update_org_ifood_config: {e}"); return False
         finally:
             cursor.close(); conn.close()
 
@@ -804,7 +804,7 @@ class DashboardDatabase:
                 settings = json.loads(settings)
             return settings if isinstance(settings, dict) else {}
         except Exception as e:
-            print(f"❌ get_org_settings: {e}")
+            print(f"âŒ get_org_settings: {e}")
             return {}
         finally:
             cursor.close(); conn.close()
@@ -832,7 +832,7 @@ class DashboardDatabase:
             return True
         except Exception as e:
             conn.rollback()
-            print(f"❌ update_org_settings: {e}")
+            print(f"âŒ update_org_settings: {e}")
             return False
         finally:
             cursor.close(); conn.close()
@@ -850,7 +850,7 @@ class DashboardDatabase:
                      'ifood_client_id':r[4],'ifood_client_secret':r[5],
                      'ifood_merchants':r[6] if r[6] else []} for r in cursor.fetchall()]
         except Exception as e:
-            print(f"❌ get_all_active_orgs: {e}"); return []
+            print(f"âŒ get_all_active_orgs: {e}"); return []
         finally:
             cursor.close(); conn.close()
 
@@ -874,27 +874,53 @@ class DashboardDatabase:
             cursor.execute("INSERT INTO org_invites (org_id,email,org_role,token,invited_by,expires_at) VALUES (%s,%s,%s,%s,%s,%s)", (org_id, email.lower(), role, token, invited_by, expires))
             conn.commit(); return token
         except Exception as e:
-            conn.rollback(); print(f"❌ create_invite: {e}"); return None
+            conn.rollback(); print(f"âŒ create_invite: {e}"); return None
         finally:
             cursor.close(); conn.close()
 
     def accept_invite(self, token, user_id):
         conn = self.get_connection()
-        if not conn: return None
+        if not conn:
+            return {'success': False, 'error': 'db_unavailable'}
         cursor = conn.cursor()
         try:
-            cursor.execute("SELECT id, org_id, org_role, expires_at, accepted_at FROM org_invites WHERE token=%s", (token,))
+            cursor.execute(
+                "SELECT id, org_id, org_role, expires_at, accepted_at, email FROM org_invites WHERE token=%s",
+                (token,)
+            )
             row = cursor.fetchone()
-            if not row or row[4] or row[3] < datetime.now(): return None
+            if not row:
+                return {'success': False, 'error': 'invite_not_found'}
+            if row[4]:
+                return {'success': False, 'error': 'invite_already_accepted'}
+            if row[3] < datetime.now():
+                return {'success': False, 'error': 'invite_expired'}
+
             invite_id, org_id, org_role = row[0], row[1], row[2]
+            invited_email = (row[5] or '').strip().lower()
+            cursor.execute("SELECT email FROM dashboard_users WHERE id=%s", (user_id,))
+            user_row = cursor.fetchone()
+            user_email = (user_row[0] or '').strip().lower() if user_row else ''
+            if not user_email or user_email != invited_email:
+                return {'success': False, 'error': 'invite_email_mismatch'}
+
             if org_role not in ('viewer', 'admin', 'owner'):
                 org_role = 'viewer'
-            cursor.execute("INSERT INTO org_members (org_id,user_id,org_role) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", (org_id, user_id, org_role))
+            cursor.execute(
+                "INSERT INTO org_members (org_id,user_id,org_role) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                (org_id, user_id, org_role)
+            )
             cursor.execute("UPDATE org_invites SET accepted_at=CURRENT_TIMESTAMP WHERE id=%s", (invite_id,))
-            cursor.execute("UPDATE dashboard_users SET primary_org_id=%s WHERE id=%s AND primary_org_id IS NULL", (org_id, user_id))
-            conn.commit(); return {'org_id': org_id, 'org_role': org_role}
+            cursor.execute(
+                "UPDATE dashboard_users SET primary_org_id=%s WHERE id=%s AND primary_org_id IS NULL",
+                (org_id, user_id)
+            )
+            conn.commit()
+            return {'success': True, 'org_id': org_id, 'org_role': org_role}
         except Exception as e:
-            conn.rollback(); print(f"❌ accept_invite: {e}"); return None
+            conn.rollback()
+            print(f"accept_invite error: {e}")
+            return {'success': False, 'error': 'invite_accept_failed'}
         finally:
             cursor.close(); conn.close()
 
@@ -1335,7 +1361,7 @@ class DashboardDatabase:
             conn.commit()
             return {'user_id':user_id,'username':username,'org_id':org_id,'org_slug':slug,'plan':'free'}
         except Exception as e:
-            conn.rollback(); print(f"❌ register: {e}"); return None
+            conn.rollback(); print(f"âŒ register: {e}"); return None
         finally:
             cursor.close(); conn.close()
 
@@ -1401,7 +1427,7 @@ class DashboardDatabase:
                 })
             return result
         except Exception as e:
-            print(f"❌ list_saved_views: {e}")
+            print(f"âŒ list_saved_views: {e}")
             return []
         finally:
             cursor.close(); conn.close()
@@ -1425,7 +1451,7 @@ class DashboardDatabase:
             conn.commit()
             return new_id
         except Exception as e:
-            conn.rollback(); print(f"❌ create_saved_view: {e}"); return None
+            conn.rollback(); print(f"âŒ create_saved_view: {e}"); return None
         finally:
             cursor.close(); conn.close()
 
@@ -1441,7 +1467,7 @@ class DashboardDatabase:
             conn.commit()
             return cursor.rowcount > 0
         except Exception as e:
-            conn.rollback(); print(f"❌ delete_saved_view: {e}"); return False
+            conn.rollback(); print(f"âŒ delete_saved_view: {e}"); return False
         finally:
             cursor.close(); conn.close()
 
@@ -1469,7 +1495,7 @@ class DashboardDatabase:
             conn.commit()
             return True
         except Exception as e:
-            conn.rollback(); print(f"❌ set_default_saved_view: {e}"); return False
+            conn.rollback(); print(f"âŒ set_default_saved_view: {e}"); return False
         finally:
             cursor.close(); conn.close()
 
@@ -1504,7 +1530,7 @@ class DashboardDatabase:
             }
         except Exception as e:
             conn.rollback()
-            print(f"❌ create_saved_view_share_link: {e}")
+            print(f"âŒ create_saved_view_share_link: {e}")
             return None
         finally:
             cursor.close(); conn.close()
@@ -1528,7 +1554,7 @@ class DashboardDatabase:
             return cursor.rowcount > 0
         except Exception as e:
             conn.rollback()
-            print(f"❌ revoke_saved_view_share_link: {e}")
+            print(f"âŒ revoke_saved_view_share_link: {e}")
             return False
         finally:
             cursor.close(); conn.close()
@@ -1565,7 +1591,7 @@ class DashboardDatabase:
                 'expires_at': expires_at.isoformat() if isinstance(expires_at, datetime) else (str(expires_at) if expires_at else None)
             }
         except Exception as e:
-            print(f"❌ get_saved_view_by_share_token: {e}")
+            print(f"âŒ get_saved_view_by_share_token: {e}")
             return None
         finally:
             cursor.close(); conn.close()
@@ -1599,7 +1625,7 @@ class DashboardDatabase:
                 })
             return result
         except Exception as e:
-            print(f"❌ list_group_templates: {e}")
+            print(f"âŒ list_group_templates: {e}")
             return []
         finally:
             cursor.close(); conn.close()
@@ -1620,7 +1646,7 @@ class DashboardDatabase:
             return template_id
         except Exception as e:
             conn.rollback()
-            print(f"❌ create_group_template: {e}")
+            print(f"âŒ create_group_template: {e}")
             return None
         finally:
             cursor.close(); conn.close()
@@ -1636,7 +1662,7 @@ class DashboardDatabase:
             return cursor.rowcount > 0
         except Exception as e:
             conn.rollback()
-            print(f"❌ delete_group_template: {e}")
+            print(f"âŒ delete_group_template: {e}")
             return False
         finally:
             cursor.close(); conn.close()
@@ -1660,7 +1686,7 @@ class DashboardDatabase:
                 store_ids = json.loads(store_ids)
             return {'id': row[0], 'name': row[1], 'description': row[2], 'store_ids': store_ids}
         except Exception as e:
-            print(f"❌ get_group_template: {e}")
+            print(f"âŒ get_group_template: {e}")
             return None
         finally:
             cursor.close(); conn.close()
@@ -1687,7 +1713,7 @@ class DashboardDatabase:
                 'created_by': r[5]
             } for r in rows]
         except Exception as e:
-            print(f"❌ list_group_share_links: {e}")
+            print(f"âŒ list_group_share_links: {e}")
             return []
         finally:
             cursor.close(); conn.close()
@@ -1710,7 +1736,7 @@ class DashboardDatabase:
             return {'id': link_id, 'token': token, 'expires_at': expires_at.isoformat()}
         except Exception as e:
             conn.rollback()
-            print(f"❌ create_group_share_link: {e}")
+            print(f"âŒ create_group_share_link: {e}")
             return None
         finally:
             cursor.close(); conn.close()
@@ -1730,7 +1756,7 @@ class DashboardDatabase:
             return cursor.rowcount > 0
         except Exception as e:
             conn.rollback()
-            print(f"❌ revoke_group_share_link: {e}")
+            print(f"âŒ revoke_group_share_link: {e}")
             return False
         finally:
             cursor.close(); conn.close()
@@ -1763,7 +1789,7 @@ class DashboardDatabase:
                 'group_active': bool(row[5])
             }
         except Exception as e:
-            print(f"❌ get_group_by_share_token: {e}")
+            print(f"âŒ get_group_by_share_token: {e}")
             return None
         finally:
             cursor.close(); conn.close()
@@ -1784,7 +1810,7 @@ class DashboardDatabase:
                   json.dumps(data, ensure_ascii=False, default=str)))
             conn.commit()
         except Exception as e:
-            conn.rollback(); print(f"⚠️ save_org_cache: {e}")
+            conn.rollback(); print(f"âš ï¸ save_org_cache: {e}")
         finally:
             cursor.close(); conn.close()
 
@@ -2003,13 +2029,13 @@ def setup_database():
         db.create_default_users()
         
         print("\n" + "=" * 60)
-        print("✅ Database setup complete!")
+        print("âœ… Database setup complete!")
         print("=" * 60)
         print("\nDefault credentials:")
         print("  Admin:  admin@dashboard.com / admin123")
         print("  User:   user@dashboard.com / user123")
     else:
-        print("\n❌ Database setup failed!")
+        print("\nâŒ Database setup failed!")
 
 
 if __name__ == "__main__":

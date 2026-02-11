@@ -1,4 +1,4 @@
-"""
+﻿"""
 Flask Web Server for Restaurant Dashboard - iFood API Version
 Integrated with iFood Merchant API instead of Excel files
 Features: Real-time SSE, Background Refresh, Comparative Analytics, Data Caching
@@ -27,6 +27,10 @@ import csv
 import io
 import sys
 import signal
+import logging
+import hmac
+from urllib.parse import urlparse
+from collections import deque
 
 # Try to enable gzip compression
 try:
@@ -51,6 +55,12 @@ try:
 except ImportError:
     redis = None
     _HAS_REDIS = False
+
+logging.basicConfig(
+    level=getattr(logging, str(os.environ.get('LOG_LEVEL', 'INFO')).upper(), logging.INFO),
+    format='%(asctime)s %(levelname)s %(name)s %(message)s'
+)
+logger = logging.getLogger('dashboard')
 
 
 # Configure paths FIRST - before Flask app creation
@@ -242,6 +252,11 @@ IFOOD_API = None
 IFOOD_CONFIG = {}
 LAST_DATA_REFRESH = None
 APP_STARTED_AT = datetime.utcnow()
+APP_INITIALIZED = False
+_INIT_LOCK = threading.Lock()
+
+_RATE_LIMIT_LOCAL = {}
+_RATE_LIMIT_LOCK = threading.Lock()
 
 # Marketing metadata for plan cards in admin UI.
 PLAN_CATALOG_UI = {
@@ -283,7 +298,13 @@ PLAN_CATALOG_UI = {
 def get_org_data(org_id):
     """Get or initialize org data container"""
     if org_id not in ORG_DATA:
-        ORG_DATA[org_id] = {'restaurants': [], 'api': None, 'last_refresh': None, 'config': {}}
+        ORG_DATA[org_id] = {
+            'restaurants': [],
+            'api': None,
+            'last_refresh': None,
+            'config': {},
+            'init_attempted_at': None
+        }
     return ORG_DATA[org_id]
 
 
@@ -311,10 +332,31 @@ def is_shared_mock_mode():
 def get_current_org_restaurants():
     """Get restaurant data for the current session's org"""
     org_id = get_current_org_id()
-    if org_id and org_id in ORG_DATA:
-        org_restaurants = ORG_DATA[org_id].get('restaurants') or []
+    if org_id:
+        org = get_org_data(org_id)
+        org_restaurants = org.get('restaurants') or []
         if org_restaurants:
             return org_restaurants
+
+        # Load tenant cache on-demand so newly selected orgs immediately show stores.
+        cached_org_data = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=12)
+        if isinstance(cached_org_data, list) and cached_org_data:
+            org['restaurants'] = cached_org_data
+            org['last_refresh'] = datetime.now()
+            return cached_org_data
+
+        # Retry iFood init occasionally (supports env fallback credentials).
+        now = time.time()
+        attempted_at = org.get('init_attempted_at')
+        if not attempted_at or (now - attempted_at) > 300:
+            org['init_attempted_at'] = now
+            api = org.get('api') or _init_org_ifood(org_id)
+            if api:
+                _load_org_restaurants(org_id)
+                org_restaurants = org.get('restaurants') or []
+                if org_restaurants:
+                    return org_restaurants
+
         # In shared mock mode, expose legacy mock restaurants to all orgs.
         if is_shared_mock_mode():
             return RESTAURANTS_DATA
@@ -447,6 +489,119 @@ def build_onboarding_state(org_id):
         'next_step': next_step,
         'updated_at': onboarding.get('updated_at')
     }
+
+
+def log_exception(context, exc):
+    logger.exception("%s | %s", context, type(exc).__name__)
+
+
+def internal_error_response(message='Internal server error', status=500):
+    return jsonify({'success': False, 'error': message}), status
+
+
+def ensure_csrf_token():
+    token = session.get('_csrf_token')
+    if not token:
+        token = uuid.uuid4().hex
+        session['_csrf_token'] = token
+    return token
+
+
+def _request_origin_matches_host():
+    origin = request.headers.get('Origin') or request.headers.get('Referer')
+    if not origin:
+        return False
+    try:
+        parsed = urlparse(origin)
+        return bool(parsed.scheme and parsed.netloc and parsed.scheme == request.scheme and parsed.netloc == request.host)
+    except Exception:
+        return False
+
+
+def get_public_base_url():
+    configured = str(os.environ.get('PUBLIC_BASE_URL') or '').strip().rstrip('/')
+    if configured:
+        return configured
+    return request.host_url.rstrip('/')
+
+
+def _rate_limit_key(scope):
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    client_ip = forwarded.split(',')[0].strip() if forwarded else (request.remote_addr or 'unknown')
+    return f"rl:{scope}:{client_ip}"
+
+
+def _check_rate_limit(scope, limit, window_seconds):
+    now = int(time.time())
+    key = _rate_limit_key(scope)
+    redis_client = get_redis_client()
+
+    if redis_client:
+        cutoff = now - window_seconds
+        try:
+            pipe = redis_client.pipeline()
+            pipe.zremrangebyscore(key, 0, cutoff)
+            pipe.zcard(key)
+            pipe.expire(key, window_seconds + 5)
+            _, count, _ = pipe.execute()
+            if int(count or 0) >= limit:
+                return False
+            redis_client.zadd(key, {f"{now}:{uuid.uuid4().hex}": now})
+            redis_client.expire(key, window_seconds + 5)
+            return True
+        except Exception:
+            pass
+
+    with _RATE_LIMIT_LOCK:
+        bucket = _RATE_LIMIT_LOCAL.get(key)
+        if bucket is None:
+            bucket = deque()
+            _RATE_LIMIT_LOCAL[key] = bucket
+        cutoff = now - window_seconds
+        while bucket and bucket[0] <= cutoff:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            return False
+        bucket.append(now)
+        return True
+
+
+def rate_limit(limit, window_seconds, scope):
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            if not _check_rate_limit(scope=scope, limit=limit, window_seconds=window_seconds):
+                return jsonify({'success': False, 'error': 'Too many requests'}), 429
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
+@app.before_request
+def csrf_protect():
+    if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        return None
+    if not request.path.startswith('/api/'):
+        return None
+    if 'user' not in session:
+        return None
+
+    csrf_exempt = {
+        '/api/login',
+        '/api/register',
+    }
+    if request.path in csrf_exempt:
+        return None
+
+    session_token = session.get('_csrf_token')
+    header_token = request.headers.get('X-CSRF-Token') or request.headers.get('X-CSRFToken')
+    if session_token and header_token and hmac.compare_digest(str(session_token), str(header_token)):
+        return None
+
+    if _request_origin_matches_host():
+        return None
+
+    return jsonify({'success': False, 'error': 'CSRF validation failed'}), 403
 
 
 def parse_month_filter(raw_month):
@@ -873,7 +1028,7 @@ class BackgroundRefresher:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True, name="bg-refresh")
         self._thread.start()
-        print(f"ðŸ”„ Background refresh started (every {self.interval // 60} min)")
+        print(f"Ã°Å¸â€â€ž Background refresh started (every {self.interval // 60} min)")
     
     def stop(self):
         self._stop_event.set()
@@ -909,7 +1064,7 @@ class BackgroundRefresher:
             sse_manager.broadcast('data_updated', {'restaurant_count': len(RESTAURANTS_DATA), 'timestamp': datetime.now().isoformat()})
             return True
         except Exception as e:
-            print(f"âŒ Background refresh error: {e}")
+            print(f"Ã¢ÂÅ’ Background refresh error: {e}")
             error_payload = {'status': 'error', 'error': str(e), 'timestamp': datetime.now().isoformat()}
             set_refresh_status(error_payload)
             sse_manager.broadcast('refresh_status', error_payload)
@@ -1079,7 +1234,7 @@ def _do_data_refresh():
             try:
                 _load_org_restaurants(org_id)
             except Exception as e:
-                print(f"âš ï¸ Org {org_id} refresh error: {e}")
+                print(f"Ã¢Å¡Â Ã¯Â¸Â Org {org_id} refresh error: {e}")
     
     # Also refresh legacy global data if configured
     if not IFOOD_API:
@@ -1132,7 +1287,7 @@ def _do_data_refresh():
             _detect_and_broadcast_new_orders(merchant_id, name, orders)
             
         except Exception as e:
-            print(f"   âŒ Failed to refresh {name}: {e}")
+            print(f"   Ã¢ÂÅ’ Failed to refresh {name}: {e}")
     
     # Atomic swap
     RESTAURANTS_DATA = new_data
@@ -1144,7 +1299,7 @@ def _do_data_refresh():
     # Save snapshot to DB for fast cold starts
     _save_data_snapshot()
     
-    print(f"ðŸ”„ Refreshed {len(RESTAURANTS_DATA)} restaurant(s) at {LAST_DATA_REFRESH.strftime('%H:%M:%S')}")
+    print(f"Ã°Å¸â€â€ž Refreshed {len(RESTAURANTS_DATA)} restaurant(s) at {LAST_DATA_REFRESH.strftime('%H:%M:%S')}")
 
 
 # Track last seen order IDs per restaurant for new order detection
@@ -1213,7 +1368,7 @@ def _save_data_snapshot():
         cursor.close()
         conn.close()
     except Exception as e:
-        print(f"âš ï¸ Failed to save snapshot: {e}")
+        print(f"Ã¢Å¡Â Ã¯Â¸Â Failed to save snapshot: {e}")
 
 
 def _load_data_snapshot():
@@ -1244,14 +1399,14 @@ def _load_data_snapshot():
             if age < timedelta(hours=2):
                 RESTAURANTS_DATA = data
                 LAST_DATA_REFRESH = created_at
-                print(f"âš¡ Loaded {len(data)} restaurants from DB snapshot ({age.seconds // 60} min old)")
+                print(f"Ã¢Å¡Â¡ Loaded {len(data)} restaurants from DB snapshot ({age.seconds // 60} min old)")
                 return True
             else:
-                print(f"â³ DB snapshot too old ({age.seconds // 3600}h), will refresh from API")
+                print(f"Ã¢ÂÂ³ DB snapshot too old ({age.seconds // 3600}h), will refresh from API")
                 return False
         return False
     except Exception as e:
-        print(f"âš ï¸ Failed to load snapshot: {e}")
+        print(f"Ã¢Å¡Â Ã¯Â¸Â Failed to load snapshot: {e}")
         return False
 
 
@@ -1266,21 +1421,32 @@ def _load_data_snapshot():
 
 def _init_org_ifood(org_id):
     """Initialize iFood API for a specific org from DB credentials"""
-    config = db.get_org_ifood_config(org_id)
-    if not config or not config.get('client_id'):
+    config = db.get_org_ifood_config(org_id) or {}
+    client_id = str(config.get('client_id') or '').strip()
+    client_secret = str(config.get('client_secret') or '').strip()
+
+    # Optional environment fallback for deployments that centralize iFood credentials.
+    if not client_id or not client_secret:
+        env_client_id = str(os.environ.get('IFOOD_CLIENT_ID') or '').strip()
+        env_client_secret = str(os.environ.get('IFOOD_CLIENT_SECRET') or '').strip()
+        if env_client_id and env_client_secret:
+            client_id = env_client_id
+            client_secret = env_client_secret
+
+    if not client_id or not client_secret:
         return None
     org = get_org_data(org_id)
     org['config'] = config
     try:
-        api = IFoodAPI(config['client_id'], config['client_secret'])
+        api = IFoodAPI(client_id, client_secret)
         if api.authenticate():
             org['api'] = api
-            print(f"âœ… Org {org_id}: iFood API authenticated")
+            print(f"Ã¢Å“â€¦ Org {org_id}: iFood API authenticated")
             return api
         else:
-            print(f"âš ï¸ Org {org_id}: iFood auth failed")
+            print(f"Ã¢Å¡Â Ã¯Â¸Â Org {org_id}: iFood auth failed")
     except Exception as e:
-        print(f"âŒ Org {org_id}: iFood init error: {e}")
+        print(f"Ã¢ÂÅ’ Org {org_id}: iFood init error: {e}")
     return None
 
 
@@ -1324,18 +1490,18 @@ def _load_org_restaurants(org_id):
             restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
             new_data.append(restaurant_data)
         except Exception as e:
-            print(f"  âš ï¸ Org {org_id}, merchant {merchant_id}: {e}")
+            print(f"  Ã¢Å¡Â Ã¯Â¸Â Org {org_id}, merchant {merchant_id}: {e}")
     org['restaurants'] = new_data
     org['last_refresh'] = datetime.now()
     db.save_org_data_cache(org_id, 'restaurants', [{k:v for k,v in r.items() if not k.startswith('_')} for r in new_data])
-    print(f"âœ… Org {org_id}: loaded {len(new_data)} restaurants")
+    print(f"Ã¢Å“â€¦ Org {org_id}: loaded {len(new_data)} restaurants")
 
 
 def initialize_all_orgs():
     """Initialize iFood API and load data for all active orgs with credentials"""
     global RESTAURANTS_DATA, IFOOD_API, IFOOD_CONFIG, LAST_DATA_REFRESH
     orgs = db.get_all_active_orgs()
-    print(f"\nðŸ¢ Initializing {len(orgs)} organization(s)...")
+    print(f"\nÃ°Å¸ÂÂ¢ Initializing {len(orgs)} organization(s)...")
     for org_info in orgs:
         org_id = org_info['id']
         # Try cache first
@@ -1344,7 +1510,7 @@ def initialize_all_orgs():
             od = get_org_data(org_id)
             od['restaurants'] = cached
             od['last_refresh'] = datetime.now()
-            print(f"  âš¡ Org {org_id} ({org_info['name']}): {len(cached)} restaurants from cache")
+            print(f"  Ã¢Å¡Â¡ Org {org_id} ({org_info['name']}): {len(cached)} restaurants from cache")
             # Init API in background
             threading.Thread(target=_init_and_refresh_org, args=(org_id,), daemon=True).start()
         else:
@@ -1375,7 +1541,7 @@ def initialize_ifood_api():
     IFOOD_CONFIG = IFoodConfig.load_config(str(CONFIG_FILE))
     
     if not IFOOD_CONFIG:
-        print("âš ï¸  No iFood configuration found")
+        print("Ã¢Å¡Â Ã¯Â¸Â  No iFood configuration found")
         print(f"   Creating sample config at {CONFIG_FILE}")
         IFoodConfig.create_sample_config(str(CONFIG_FILE))
         return False
@@ -1384,7 +1550,7 @@ def initialize_ifood_api():
     client_secret = IFOOD_CONFIG.get('client_secret')
     
     if not client_id or client_id == 'your_ifood_client_id_here':
-        print("âš ï¸  iFood API credentials not configured")
+        print("Ã¢Å¡Â Ã¯Â¸Â  iFood API credentials not configured")
         print(f"   Please update {CONFIG_FILE} with your credentials")
         return False
     
@@ -1393,10 +1559,10 @@ def initialize_ifood_api():
     
     # Authenticate
     if IFOOD_API.authenticate():
-        print("âœ… iFood API initialized successfully")
+        print("Ã¢Å“â€¦ iFood API initialized successfully")
         return True
     else:
-        print("âŒ iFood API authentication failed")
+        print("Ã¢ÂÅ’ iFood API authentication failed")
         return False
 
 
@@ -1407,16 +1573,16 @@ def load_restaurants_from_ifood():
     RESTAURANTS_DATA = []
     
     if not IFOOD_API:
-        print("âŒ iFood API not initialized")
+        print("Ã¢ÂÅ’ iFood API not initialized")
         return
     
-    print(f"\nðŸ“Š Fetching restaurant data from iFood API...")
+    print(f"\nÃ°Å¸â€œÅ  Fetching restaurant data from iFood API...")
     
     # Get merchants from config
     merchants_config = IFOOD_CONFIG.get('merchants', [])
     
     if not merchants_config:
-        print("âš ï¸  No merchants configured in config file")
+        print("Ã¢Å¡Â Ã¯Â¸Â  No merchants configured in config file")
         # Try to fetch all merchants from API
         try:
             merchants = IFOOD_API.get_merchants()
@@ -1430,7 +1596,7 @@ def load_restaurants_from_ifood():
                 IFOOD_CONFIG['merchants'] = merchants_config
                 IFoodConfig.save_config(IFOOD_CONFIG, str(CONFIG_FILE))
         except Exception as e:
-            print(f"âŒ Error fetching merchants: {e}")
+            print(f"Ã¢ÂÅ’ Error fetching merchants: {e}")
             return
     
     # Get data fetch period
@@ -1445,7 +1611,7 @@ def load_restaurants_from_ifood():
         merchant_id = merchant_config.get('merchant_id')
         name = merchant_config.get('name', 'Unknown Restaurant')
         
-        print(f"   ðŸ“„ Processing: {name}")
+        print(f"   Ã°Å¸â€œâ€ž Processing: {name}")
         
         try:
             # Get merchant details
@@ -1491,14 +1657,14 @@ def load_restaurants_from_ifood():
             restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
             
             RESTAURANTS_DATA.append(restaurant_data)
-            print(f"      âœ… {restaurant_data['name']}")
+            print(f"      Ã¢Å“â€¦ {restaurant_data['name']}")
             
         except Exception as e:
-            print(f"      âŒ Failed to process {name}: {e}")
-            traceback.print_exc()
+            print(f"      Ã¢ÂÅ’ Failed to process {name}: {e}")
+            log_exception("request_exception", e)
     
     LAST_DATA_REFRESH = datetime.now()
-    print(f"\nâœ… Loaded {len(RESTAURANTS_DATA)} restaurant(s) from iFood")
+    print(f"\nÃ¢Å“â€¦ Loaded {len(RESTAURANTS_DATA)} restaurant(s) from iFood")
 
 
 # ============================================================================
@@ -1660,6 +1826,23 @@ def login_page():
     return "Login page not found. Please check dashboard_output directory.", 404
 
 
+@app.route('/invite/<token>')
+def invite_page(token):
+    """Invitation landing route used in invite URLs."""
+    invite_token = (token or '').strip()
+    if not invite_token:
+        return "Invite not found", 404
+
+    if 'user' in session:
+        result = db.accept_invite(invite_token, session['user']['id'])
+        if result and result.get('success'):
+            session['org_id'] = result['org_id']
+            return redirect('/dashboard')
+        return redirect(f"/login?invite={invite_token}&invite_error=1")
+
+    return redirect(f"/login?invite={invite_token}")
+
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -1760,6 +1943,7 @@ def restaurant_page(restaurant_id):
 # ============================================================================
 
 @app.route('/api/login', methods=['POST'])
+@rate_limit(limit=10, window_seconds=60, scope='login')
 def api_login():
     """Handle login requests"""
     try:
@@ -1782,6 +1966,7 @@ def api_login():
             user['is_platform_admin'] = bool(db.is_platform_admin(user.get('id')))
             session['user'] = user
             session.permanent = True
+            ensure_csrf_token()
             
             # Set org context
             orgs = db.get_user_orgs(user['id'])
@@ -1805,7 +1990,7 @@ def api_login():
             
     except Exception as e:
         print(f"Login error: {e}")
-        traceback.print_exc()
+        log_exception("request_exception", e)
         return jsonify({
             'success': False,
             'error': 'Server error during login'
@@ -1841,7 +2026,8 @@ def api_me():
         'success': True,
         'user': user_payload,
         'org_id': org_id,
-        'org': org_info
+        'org': org_info,
+        'csrf_token': ensure_csrf_token()
     })
 
 
@@ -1850,23 +2036,24 @@ def api_me():
 # ============================================================================
 
 @app.route('/api/register', methods=['POST'])
+@rate_limit(limit=5, window_seconds=3600, scope='register')
 def api_register():
     """Self-service signup: create account + organization"""
     try:
         data = get_json_payload()
         if not data:
-            return jsonify({'success': False, 'error': 'Payload inválido'}), 400
+            return jsonify({'success': False, 'error': 'Payload invÃ¡lido'}), 400
         email = (data.get('email') or '').strip().lower()
         password = data.get('password', '')
         full_name = (data.get('full_name') or '').strip()
         org_name = (data.get('org_name') or '').strip()
         if not all([email, password, full_name, org_name]):
-            return jsonify({'success': False, 'error': 'Todos os campos sÃ£o obrigatÃ³rios'}), 400
+            return jsonify({'success': False, 'error': 'Todos os campos sÃƒÂ£o obrigatÃƒÂ³rios'}), 400
         if len(password) < 8:
-            return jsonify({'success': False, 'error': 'Senha deve ter no mÃ­nimo 8 caracteres'}), 400
+            return jsonify({'success': False, 'error': 'Senha deve ter no mÃƒÂ­nimo 8 caracteres'}), 400
         result = db.register_user_and_org(email, password, full_name, org_name)
         if not result:
-            return jsonify({'success': False, 'error': 'Email jÃ¡ cadastrado'}), 409
+            return jsonify({'success': False, 'error': 'Email jÃƒÂ¡ cadastrado'}), 409
         session['user'] = {
             'id': result['user_id'],
             'username': result['username'],
@@ -1878,6 +2065,7 @@ def api_register():
         }
         session['org_id'] = result['org_id']
         session.permanent = True
+        ensure_csrf_token()
         db.log_action('user.registered', org_id=result['org_id'], user_id=result['user_id'], details={'email': email, 'org_name': org_name}, ip_address=request.remote_addr)
         return jsonify({'success': True, 'user_id': result['user_id'], 'org_id': result['org_id'], 'redirect': '/dashboard'})
     except Exception as e:
@@ -1995,7 +2183,7 @@ def api_switch_org():
     """Switch active organization"""
     data = get_json_payload()
     if not data:
-        return jsonify({'success': False, 'error': 'Payload inválido'}), 400
+        return jsonify({'success': False, 'error': 'Payload invÃ¡lido'}), 400
     org_id = data.get('org_id')
     # Normalize org_id to int if it's a numeric string
     if isinstance(org_id, str):
@@ -2038,7 +2226,7 @@ def api_org_ifood_config():
         client_secret = config.get('client_secret')
         merchants = config.get('merchants', []) or []
 
-        org_has_credentials = bool(client_id)
+        org_has_credentials = bool((client_id or '').strip() and (client_secret or '').strip())
         org_mode = 'none'
         if org_has_credentials:
             org_mode = 'mock' if str(client_id).strip().upper() == 'MOCK_DATA_MODE' else 'live'
@@ -2055,11 +2243,23 @@ def api_org_ifood_config():
         if legacy_client_id:
             legacy_mode = 'mock' if str(legacy_client_id).strip().upper() == 'MOCK_DATA_MODE' else 'live'
         legacy_available = bool(IFOOD_API and legacy_client_id)
+        env_credentials_available = bool(
+            str(os.environ.get('IFOOD_CLIENT_ID') or '').strip() and
+            str(os.environ.get('IFOOD_CLIENT_SECRET') or '').strip()
+        )
 
         using_legacy_fallback = (not org_has_credentials) and legacy_available
-        connection_active = org_connected or using_legacy_fallback
+        using_env_fallback = (not org_has_credentials) and env_credentials_available
+        connection_active = org_connected or using_legacy_fallback or using_env_fallback
         effective_mode = org_mode if org_mode != 'none' else legacy_mode
-        source = 'org' if org_has_credentials else ('legacy' if using_legacy_fallback else 'none')
+        source = 'org'
+        if not org_has_credentials:
+            if using_env_fallback:
+                source = 'env'
+            elif using_legacy_fallback:
+                source = 'legacy'
+            else:
+                source = 'none'
 
         masked = None
         if client_secret:
@@ -2075,6 +2275,7 @@ def api_org_ifood_config():
                 'connection_active': bool(connection_active),
                 'mode': effective_mode,
                 'source': source,
+                'using_env_fallback': bool(using_env_fallback),
                 'using_legacy_fallback': bool(using_legacy_fallback),
                 'use_mock_data': effective_mode == 'mock'
             }
@@ -2082,42 +2283,66 @@ def api_org_ifood_config():
     # POST
     data = get_json_payload()
     if not data:
-        return jsonify({'success': False, 'error': 'Payload inválido'}), 400
-    db.update_org_ifood_config(org_id, data.get('client_id'), data.get('client_secret') if data.get('client_secret') != '****' else None, data.get('merchants'))
+        return jsonify({'success': False, 'error': 'Payload invÃ¡lido'}), 400
+    client_id_payload = data.get('client_id') if 'client_id' in data else None
+    client_secret_payload = data.get('client_secret') if 'client_secret' in data else None
+    merchants_payload = data.get('merchants') if 'merchants' in data else None
+
+    client_id_update = client_id_payload if isinstance(client_id_payload, str) and client_id_payload.strip() else None
+    client_secret_update = None
+    if isinstance(client_secret_payload, str) and client_secret_payload.strip() and client_secret_payload != '****':
+        client_secret_update = client_secret_payload.strip()
+
+    db.update_org_ifood_config(
+        org_id,
+        client_id=client_id_update,
+        client_secret=client_secret_update,
+        merchants=merchants_payload
+    )
     db.log_action('org.ifood_config_updated', org_id=org_id, user_id=session['user']['id'], ip_address=request.remote_addr)
     # Reinitialize this org's API connection
-    _init_org_ifood(org_id)
-    return jsonify({'success': True})
+    api = _init_org_ifood(org_id)
+    if api:
+        _load_org_restaurants(org_id)
+    return jsonify({'success': True, 'connection_active': bool(api), 'restaurant_count': len(ORG_DATA.get(org_id, {}).get('restaurants') or [])})
 
 
 @app.route('/api/org/invite', methods=['POST'])
 @login_required
 @org_owner_required
+@rate_limit(limit=20, window_seconds=3600, scope='org_invite')
 def api_create_invite():
     """Create a team invite"""
     org_id = get_current_org_id()
     if not org_id: return jsonify({'success': False}), 403
     data = get_json_payload()
     if not data:
-        return jsonify({'success': False, 'error': 'Payload inválido'}), 400
+        return jsonify({'success': False, 'error': 'Payload invÃ¡lido'}), 400
     email = (data.get('email') or '').strip().lower()
     role = (data.get('role') or 'viewer').strip().lower()
     if role not in ('viewer', 'admin'):
         return jsonify({'success': False, 'error': 'Invalid role'}), 400
-    if not email: return jsonify({'success': False, 'error': 'Email obrigatÃ³rio'}), 400
+    if not email: return jsonify({'success': False, 'error': 'Email obrigatÃƒÂ³rio'}), 400
     token = db.create_invite(org_id, email, role, session['user']['id'])
     if not token: return jsonify({'success': False, 'error': 'Limite de membros atingido'}), 400
-    invite_url = f"{request.host_url}invite/{token}"
+    invite_url = f"{get_public_base_url()}/invite/{token}"
     db.log_action('org.member_invited', org_id=org_id, user_id=session['user']['id'], details={'email': email, 'role': role}, ip_address=request.remote_addr)
     return jsonify({'success': True, 'invite_url': invite_url, 'token': token})
 
 
 @app.route('/api/invite/<token>/accept', methods=['POST'])
 @login_required
+@rate_limit(limit=20, window_seconds=3600, scope='invite_accept')
 def api_accept_invite(token):
     """Accept a team invite"""
     result = db.accept_invite(token, session['user']['id'])
-    if not result: return jsonify({'success': False, 'error': 'Convite invÃ¡lido ou expirado'}), 400
+    if not result or not result.get('success'):
+        code = (result or {}).get('error')
+        if code == 'invite_email_mismatch':
+            return jsonify({'success': False, 'error': 'Este convite pertence a outro e-mail'}), 403
+        if code == 'invite_already_accepted':
+            return jsonify({'success': False, 'error': 'Convite já foi utilizado'}), 409
+        return jsonify({'success': False, 'error': 'Convite inválido ou expirado'}), 400
     session['org_id'] = result['org_id']
     return jsonify({'success': True, 'org_id': result['org_id'], 'redirect': '/dashboard'})
 
@@ -2636,7 +2861,7 @@ def api_saved_view_share_create(view_id):
     if not shared:
         return jsonify({'success': False, 'error': 'View not found'}), 404
 
-    share_url = f"{request.host_url.rstrip('/')}/dashboard?shared_view={shared['token']}"
+    share_url = f"{get_public_base_url()}/dashboard?shared_view={shared['token']}"
     return jsonify({'success': True, 'share_url': share_url, 'token': shared['token'], 'expires_at': shared['expires_at']})
 
 
@@ -2920,8 +3145,8 @@ def api_restaurants():
     except Exception as e:
         print(f"Error getting restaurants: {e}")
         import traceback
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 
@@ -3070,8 +3295,8 @@ def api_restaurant_detail(restaurant_id):
 
     except Exception as e:
         print(f"Error getting restaurant detail: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 @app.route('/api/restaurant/<restaurant_id>/orders')
 @login_required
@@ -3122,8 +3347,8 @@ def api_restaurant_orders(restaurant_id):
         
     except Exception as e:
         print(f"Error getting restaurant orders: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/restaurant/<restaurant_id>/menu-performance')
@@ -3181,8 +3406,8 @@ def api_restaurant_menu_performance(restaurant_id):
         })
     except Exception as e:
         print(f"Error getting menu performance: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 
@@ -3211,8 +3436,8 @@ def api_restaurant_interruptions(restaurant_id):
         
     except Exception as e:
         print(f"Error getting interruptions: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/restaurant/<restaurant_id>/status')
@@ -3234,8 +3459,8 @@ def api_restaurant_status(restaurant_id):
         
     except Exception as e:
         print(f"Error getting status: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/restaurant/<restaurant_id>/interruptions', methods=['POST'])
@@ -3269,8 +3494,8 @@ def api_create_interruption(restaurant_id):
         
     except Exception as e:
         print(f"Error creating interruption: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/restaurant/<restaurant_id>/interruptions/<interruption_id>', methods=['DELETE'])
@@ -3295,8 +3520,8 @@ def api_delete_interruption(restaurant_id, interruption_id):
         
     except Exception as e:
         print(f"Error deleting interruption: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 
@@ -3304,9 +3529,16 @@ def api_delete_interruption(restaurant_id, interruption_id):
 
 @app.route('/api/refresh-data', methods=['POST'])
 @admin_required
+@rate_limit(limit=20, window_seconds=60, scope='refresh_data')
 def api_refresh_data():
     """Refresh restaurant data from iFood API."""
     try:
+        org_id = get_current_org_id()
+        if org_id:
+            current_org = get_org_data(org_id)
+            if not current_org.get('api'):
+                _init_org_ifood(org_id)
+
         has_org_api = any(od.get('api') for od in ORG_DATA.values())
         if not IFOOD_API and not has_org_api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
@@ -3338,8 +3570,8 @@ def api_refresh_data():
         
     except Exception as e:
         print(f"Error refreshing data: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/reload', methods=['POST'])
@@ -3646,8 +3878,8 @@ def api_compare_periods():
         return jsonify({'success': False, 'error': f'Invalid date format: {e}'}), 400
     except Exception as e:
         print(f"Error in compare: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/analytics/daily-comparison')
@@ -3704,8 +3936,8 @@ def api_daily_comparison():
         
     except Exception as e:
         print(f"Error in daily comparison: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 # ============================================================================
@@ -4029,7 +4261,7 @@ def api_comparativo_stats():
         
     except Exception as e:
         print(f"Error getting comparativo stats: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return internal_error_response()
 
 
 @app.route('/api/comparativo/managers')
@@ -4099,7 +4331,7 @@ def api_comparativo_managers():
         
     except Exception as e:
         print(f"Error getting managers data: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return internal_error_response()
 
 
 @app.route('/api/comparativo/cancelled')
@@ -4164,7 +4396,7 @@ def api_cancel_restaurant():
         
     except Exception as e:
         print(f"Error cancelling restaurant: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return internal_error_response()
 
 
 @app.route('/api/comparativo/cancelled/<restaurant_id>', methods=['DELETE'])
@@ -4198,7 +4430,7 @@ def api_restore_restaurant(restaurant_id):
         
     except Exception as e:
         print(f"Error restoring restaurant: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return internal_error_response()
 
 
 # ============================================================================
@@ -4234,6 +4466,7 @@ def api_users():
 
 @app.route('/api/users', methods=['POST'])
 @admin_required
+@rate_limit(limit=30, window_seconds=3600, scope='create_user')
 def api_create_user():
     """Create user; org admins create tenant users, platform admins may create global admins."""
     try:
@@ -4253,6 +4486,11 @@ def api_create_user():
             return jsonify({
                 'success': False,
                 'error': 'Username, password, and full name required'
+            }), 400
+        if len(str(password)) < 8:
+            return jsonify({
+                'success': False,
+                'error': 'Password must have at least 8 characters'
             }), 400
 
         if org_role not in ('owner', 'admin', 'viewer'):
@@ -4435,7 +4673,7 @@ def get_hidden_stores():
         })
     except Exception as e:
         print(f"Error getting hidden stores: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return internal_error_response()
 
 
 @app.route('/api/stores/<store_id>/hide', methods=['POST'])
@@ -4490,7 +4728,7 @@ def hide_store(store_id):
         })
     except Exception as e:
         print(f"Error hiding store: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return internal_error_response()
 
 
 @app.route('/api/stores/<store_id>/unhide', methods=['POST'])
@@ -4541,7 +4779,7 @@ def unhide_store(store_id):
         })
     except Exception as e:
         print(f"Error unhiding store: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return internal_error_response()
 
 
 # ============================================================================
@@ -4552,6 +4790,16 @@ def get_user_allowed_restaurant_ids(user_id, user_role):
     """Helper function to get allowed restaurant IDs for a user based on squad membership"""
     if user_role == 'admin':
         return None  # None means all restaurants allowed
+
+    # Owners/admins in the active org should always see all restaurants.
+    try:
+        org_id = get_current_org_id()
+        if org_id and user_id:
+            org_role = db.get_org_member_role(org_id, user_id)
+            if org_role in ('owner', 'admin'):
+                return None
+    except Exception:
+        pass
 
     try:
         org_id = get_current_org_id()
@@ -4720,8 +4968,8 @@ def api_get_squads():
 
     except Exception as e:
         print(f"Error getting squads: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/squads', methods=['POST'])
@@ -4806,8 +5054,8 @@ def api_create_squad():
 
     except Exception as e:
         print(f"Error creating squad: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/squads/<int:squad_id>', methods=['PUT'])
@@ -4870,8 +5118,8 @@ def api_update_squad(squad_id):
 
     except Exception as e:
         print(f"Error updating squad: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/squads/<int:squad_id>', methods=['DELETE'])
@@ -4917,8 +5165,8 @@ def api_delete_squad(squad_id):
 
     except Exception as e:
         print(f"Error deleting squad: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/squads/<int:squad_id>/members', methods=['POST'])
@@ -4970,8 +5218,8 @@ def api_add_squad_members(squad_id):
 
     except Exception as e:
         print(f"Error adding squad members: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/squads/<int:squad_id>/members/<int:user_id>', methods=['DELETE'])
@@ -5012,8 +5260,8 @@ def api_remove_squad_member(squad_id, user_id):
 
     except Exception as e:
         print(f"Error removing squad member: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/squads/<int:squad_id>/restaurants', methods=['POST'])
@@ -5072,8 +5320,8 @@ def api_add_squad_restaurants(squad_id):
 
     except Exception as e:
         print(f"Error adding squad restaurants: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/squads/<int:squad_id>/restaurants/<restaurant_id>', methods=['DELETE'])
@@ -5114,8 +5362,8 @@ def api_remove_squad_restaurant(squad_id, restaurant_id):
 
     except Exception as e:
         print(f"Error removing squad restaurant: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 # ============================================================================
@@ -5151,14 +5399,25 @@ def grupos_comparativo_page():
     return "Grupos comparativo page not found", 404
 
 
-# Public group page (no auth required)
+# Public group page
 @app.route('/grupo/<slug>')
 def public_group_page(slug):
-    """Serve public group dashboard - NO AUTH REQUIRED"""
+    """Serve group dashboard with token-gated public access."""
     try:
+        group_token = (request.args.get('token') or '').strip()
+        shared = None
+        if group_token:
+            shared = db.get_group_by_share_token(group_token)
+            if not shared:
+                return "Shared group link not found or expired", 404
+            if str(shared.get('group_slug') or '') != str(slug):
+                return "Shared group link not found or expired", 404
+            if not shared.get('group_active'):
+                return "Group is inactive", 404
+
         conn = db.get_connection()
         cursor = conn.cursor()
-        
+
         # Get group by slug
         has_group_org = _table_has_org_id(cursor, 'client_groups')
         if has_group_org:
@@ -5173,18 +5432,31 @@ def public_group_page(slug):
                 FROM client_groups
                 WHERE slug = %s AND active = true
             """, (slug,))
-        
+
         group = cursor.fetchone()
-        
         if not group:
             cursor.close()
             conn.close()
             return "Group not found", 404
-        
+
         group_id = group[0]
         group_name = group[1]
         group_org_id = group[4]
-        
+
+        # Without token, only authenticated members of the same org (or platform admins) can view.
+        if not shared:
+            if 'user' not in session:
+                cursor.close()
+                conn.close()
+                return "Shared group link not found or expired", 404
+            current_user = session.get('user', {})
+            if not is_platform_admin_user(current_user):
+                current_org_id = get_current_org_id()
+                if group_org_id and current_org_id != group_org_id:
+                    cursor.close()
+                    conn.close()
+                    return "Access denied", 403
+
         # Get stores in this group
         cursor.execute("""
             SELECT store_id, store_name
@@ -5192,11 +5464,11 @@ def public_group_page(slug):
             WHERE group_id = %s
             ORDER BY store_name
         """, (group_id,))
-        
+
         store_rows = cursor.fetchall()
         cursor.close()
         conn.close()
-        
+
         # Resolve store data using the group's organization when available.
         source_restaurants = get_current_org_restaurants()
         if group_org_id:
@@ -5211,7 +5483,7 @@ def public_group_page(slug):
         for store_row in store_rows:
             store_id = store_row[0]
             store_name = store_row[1]
-            
+
             # Find in resolved org data
             for r in source_restaurants:
                 if r['id'] == store_id:
@@ -5226,7 +5498,7 @@ def public_group_page(slug):
                     'name': store_name,
                     'metrics': {}
                 })
-        
+
         # Prepare group data
         group_data = {
             'id': group_id,
@@ -5234,25 +5506,24 @@ def public_group_page(slug):
             'slug': slug,
             'stores': stores_data
         }
-        
+
         # Load template
         template_file = DASHBOARD_OUTPUT / 'grupo_public.html'
         if template_file.exists():
             with open(template_file, 'r', encoding='utf-8') as f:
                 template = f.read()
-            
+
             # Replace placeholders
             rendered = template.replace('{{group_name}}', escape_html_text(group_name))
             rendered = rendered.replace('{{group_initial}}', escape_html_text(group_name[0].upper() if group_name else 'G'))
             rendered = rendered.replace('{{group_data}}', safe_json_for_script(group_data))
-            
+
             return Response(rendered, mimetype='text/html')
-        
+
         return "Template not found", 404
-        
+
     except Exception as e:
-        print(f"Error loading public group: {e}")
-        traceback.print_exc()
+        log_exception("public_group_page_failed", e)
         return "Error loading group", 500
 
 
@@ -5264,7 +5535,7 @@ def public_group_share_page(token):
         return "Shared group link not found or expired", 404
     if not shared.get('group_active'):
         return "Group is inactive", 404
-    return redirect(f"/grupo/{shared.get('group_slug')}")
+    return redirect(f"/grupo/{shared.get('group_slug')}?token={token}")
 
 
 # API: Get all groups
@@ -5332,8 +5603,8 @@ def api_get_groups():
         
     except Exception as e:
         print(f"Error getting groups: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/groups/templates', methods=['GET'])
@@ -5458,8 +5729,8 @@ def api_create_group_from_template():
     except Exception as e:
         conn.rollback()
         print(f"Error creating group from template: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
     finally:
         cursor.close()
         conn.close()
@@ -5515,7 +5786,7 @@ def api_group_share_links_create(group_id):
     link = db.create_group_share_link(org_id, group_id, created_by=session.get('user', {}).get('id'), expires_hours=expires_hours)
     if not link:
         return jsonify({'success': False, 'error': 'Unable to create share link'}), 400
-    share_url = f"{request.host_url.rstrip('/')}/grupo/share/{link['token']}"
+    share_url = f"{get_public_base_url()}/grupo/share/{link['token']}"
     return jsonify({'success': True, 'link': {**link, 'url': share_url}})
 
 
@@ -5581,7 +5852,7 @@ def api_group_comparison(group_id):
         if not group_row:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Grupo nÃ£o encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Grupo nÃƒÂ£o encontrado'}), 404
 
         cursor.execute("""
             SELECT store_id, store_name
@@ -5693,8 +5964,8 @@ def api_group_comparison(group_id):
         return jsonify({'success': False, 'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
     except Exception as e:
         print(f"Error group comparison: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 # API: Create group
@@ -5713,7 +5984,7 @@ def api_create_group():
         store_ids = data.get('store_ids', [])
         
         if not name:
-            return jsonify({'success': False, 'error': 'Nome Ã© obrigatÃ³rio'}), 400
+            return jsonify({'success': False, 'error': 'Nome ÃƒÂ© obrigatÃƒÂ³rio'}), 400
         
         # Generate slug if not provided
         if not slug:
@@ -5781,8 +6052,8 @@ def api_create_group():
         
     except Exception as e:
         print(f"Error creating group: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 # API: Update group
@@ -5802,7 +6073,7 @@ def api_update_group(group_id):
         active = data.get('active', True)
         
         if not name:
-            return jsonify({'success': False, 'error': 'Nome Ã© obrigatÃ³rio'}), 400
+            return jsonify({'success': False, 'error': 'Nome ÃƒÂ© obrigatÃƒÂ³rio'}), 400
         
         conn = db.get_connection()
         cursor = conn.cursor()
@@ -5817,7 +6088,7 @@ def api_update_group(group_id):
         if not existing:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Grupo nÃ£o encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Grupo nÃƒÂ£o encontrado'}), 404
         
         # If slug changed, validate it
         if slug and slug != existing[1]:
@@ -5834,7 +6105,7 @@ def api_update_group(group_id):
             if cursor.fetchone():
                 cursor.close()
                 conn.close()
-                return jsonify({'success': False, 'error': 'Slug jÃ¡ existe'}), 400
+                return jsonify({'success': False, 'error': 'Slug jÃƒÂ¡ existe'}), 400
         else:
             slug = existing[1]
         
@@ -5878,8 +6149,8 @@ def api_update_group(group_id):
         
     except Exception as e:
         print(f"Error updating group: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 # API: Delete group
@@ -5905,7 +6176,7 @@ def api_delete_group(group_id):
         if not result:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Grupo nÃ£o encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Grupo nÃƒÂ£o encontrado'}), 404
         
         group_name = result[0]
         
@@ -5921,13 +6192,13 @@ def api_delete_group(group_id):
         
         return jsonify({
             'success': True,
-            'message': f'Grupo "{group_name}" excluÃ­do com sucesso'
+            'message': f'Grupo "{group_name}" excluÃƒÂ­do com sucesso'
         })
         
     except Exception as e:
         print(f"Error deleting group: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 @app.route('/api/user/allowed-restaurants')
@@ -5966,8 +6237,8 @@ def api_user_allowed_restaurants():
         
     except Exception as e:
         print(f"Error getting allowed restaurants: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_exception("request_exception", e)
+        return internal_error_response()
 
 
 # ============================================================================
@@ -5983,7 +6254,7 @@ def cdn_cgi_fallback(path):
 @app.errorhandler(404)
 def page_not_found(e):
     """Custom 404 error handler"""
-    print(f"âŒ 404 Error: {request.url}")
+    print(f"Ã¢ÂÅ’ 404 Error: {request.url}")
     
     if request.is_json or request.path.startswith('/api/'):
         return jsonify({'error': 'Not found'}), 404
@@ -6004,7 +6275,7 @@ def page_not_found(e):
             <h1>404 - Page Not Found</h1>
             <p>The requested URL was not found on this server.</p>
         </div>
-        <p><a href="/login">â† Back to Login</a></p>
+        <p><a href="/login">Ã¢â€ Â Back to Login</a></p>
     </body>
     </html>
     """, 404
@@ -6013,8 +6284,8 @@ def page_not_found(e):
 @app.errorhandler(500)
 def internal_error(e):
     """Custom 500 error handler"""
-    print("âŒ 500 Error")
-    traceback.print_exc()
+    print("Ã¢ÂÅ’ 500 Error")
+    log_exception("request_exception", e)
     
     if request.is_json or request.path.startswith('/api/'):
         return jsonify({'error': 'Internal server error'}), 500
@@ -6028,7 +6299,7 @@ def internal_error(e):
             <h1>500 - Internal Server Error</h1>
             <p>An error occurred while processing your request.</p>
         </div>
-        <p><a href="/login" style="color: #ef4444;">â† Back to Login</a></p>
+        <p><a href="/login" style="color: #ef4444;">Ã¢â€ Â Back to Login</a></p>
     </body>
     </html>
     """, 500
@@ -6041,14 +6312,14 @@ def internal_error(e):
 def check_setup():
     """Check if setup is correct"""
     print("\n" + "="*60)
-    print("ðŸ” Checking Setup...")
+    print("Ã°Å¸â€Â Checking Setup...")
     print("="*60)
     
     issues = []
     
     # Check dashboard_output directory
     if not DASHBOARD_OUTPUT.exists():
-        issues.append(f"âŒ dashboard_output/ directory not found at {DASHBOARD_OUTPUT}")
+        issues.append(f"Ã¢ÂÅ’ dashboard_output/ directory not found at {DASHBOARD_OUTPUT}")
         # Try to create it
         try:
             DASHBOARD_OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -6056,7 +6327,7 @@ def check_setup():
         except:
             pass
     else:
-        print(f"âœ… dashboard_output/ directory exists")
+        print(f"Ã¢Å“â€¦ dashboard_output/ directory exists")
         
         # Check for HTML files
         required_files = ['login.html', 'index.html']
@@ -6065,32 +6336,32 @@ def check_setup():
         for filename in required_files:
             file_path = DASHBOARD_OUTPUT / filename
             if file_path.exists():
-                print(f"   âœ… {filename}")
+                print(f"   Ã¢Å“â€¦ {filename}")
             else:
-                issues.append(f"âŒ Missing required: dashboard_output/{filename}")
+                issues.append(f"Ã¢ÂÅ’ Missing required: dashboard_output/{filename}")
         
         for filename in optional_files:
             file_path = DASHBOARD_OUTPUT / filename
             if file_path.exists():
-                print(f"   âœ… {filename}")
+                print(f"   Ã¢Å“â€¦ {filename}")
             else:
-                print(f"   âš ï¸ Optional: {filename} not found")
+                print(f"   Ã¢Å¡Â Ã¯Â¸Â Optional: {filename} not found")
     
     # Check iFood config
     if not CONFIG_FILE.exists():
-        print(f"âš ï¸  iFood config not found (will be created)")
+        print(f"Ã¢Å¡Â Ã¯Â¸Â  iFood config not found (will be created)")
     else:
-        print(f"âœ… iFood config file exists")
+        print(f"Ã¢Å“â€¦ iFood config file exists")
     
     if issues:
-        print("\nâš ï¸  Issues found:")
+        print("\nÃ¢Å¡Â Ã¯Â¸Â  Issues found:")
         for issue in issues:
             print(f"   {issue}")
         print()
     else:
-        print("\nâœ… All checks passed!")
+        print("\nÃ¢Å“â€¦ All checks passed!")
     
-    return len([i for i in issues if i.startswith('âŒ')]) == 0
+    return len([i for i in issues if i.startswith('Ã¢ÂÅ’')]) == 0
 
 
 def initialize_database():
@@ -6178,20 +6449,26 @@ def initialize_database():
         if not users:
             bootstrap_defaults = str(os.environ.get('BOOTSTRAP_DEFAULT_USERS', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
             if bootstrap_defaults:
-                print("ðŸ‘¤ BOOTSTRAP_DEFAULT_USERS enabled: creating default users")
+                print("Ã°Å¸â€˜Â¤ BOOTSTRAP_DEFAULT_USERS enabled: creating default users")
                 db.create_default_users()
             else:
                 print("No users found. Skipping insecure default-user bootstrap (set BOOTSTRAP_DEFAULT_USERS=true to enable temporarily).")
         else:
             print(f"   Found {len(users)} existing users")
         print("Database ready")
+        return True
     except Exception as e:
-        print(f"Database initialization failed: {e}")
-        print("âš ï¸  Server will run but authentication may not work")
+        log_exception("database_initialization_failed", e)
+        return False
 
 
 def initialize_app():
     """Initialize the application with SaaS multi-tenant support"""
+    global APP_INITIALIZED
+    with _INIT_LOCK:
+        if APP_INITIALIZED:
+            return
+
     print("="*60)
     print("TIMO Dashboard Server - SaaS Multi-Tenant")
     print("  Features: Per-org data, Self-service registration,")
@@ -6210,7 +6487,9 @@ def initialize_app():
         print("WARNING: Setup check failed; continuing because FLASK_ENV is not production.")
     
     # Initialize database (includes SaaS tables)
-    initialize_database()
+    db_ok = initialize_database()
+    if not db_ok:
+        raise RuntimeError("Database initialization failed")
     
     # Try per-org initialization first (SaaS mode)
     initialize_all_orgs()
@@ -6259,13 +6538,17 @@ def initialize_app():
     print(f"\nAccess: http://localhost:{os.environ.get('PORT', 5000)}")
     print("="*60)
     print()
+    APP_INITIALIZED = True
 
-
-# Run initialization
-initialize_app()
 
 if __name__ == '__main__':
     import sys
+    if '--bootstrap' in sys.argv:
+        initialize_app()
+        print("Bootstrap complete")
+        sys.exit(0)
+
+    initialize_app()
     run_worker = ('--worker' in sys.argv) or (str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on'))
 
     if run_worker:

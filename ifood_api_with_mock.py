@@ -5,6 +5,7 @@ Fixed mock data structure to properly return merchant details and orders separat
 
 import requests
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 from pathlib import Path
@@ -70,11 +71,13 @@ class IFoodAPI:
                 'clientId': self.client_id,
                 'clientSecret': self.client_secret
             }
+            timeout_seconds = float(os.environ.get('IFOOD_HTTP_TIMEOUT', 20))
             
             response = requests.post(
                 self.AUTH_URL,
                 data=payload,
-                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=timeout_seconds
             )
             
             if response.status_code == 200:
@@ -301,16 +304,17 @@ class IFoodAPI:
                 return None
         
         url = f"{self.BASE_URL}{endpoint}"
+        timeout_seconds = float(os.environ.get('IFOOD_HTTP_TIMEOUT', 20))
         
         try:
             if method == 'GET':
-                response = self.session.get(url, params=params)
+                response = self.session.get(url, params=params, timeout=timeout_seconds)
             elif method == 'POST':
-                response = self.session.post(url, json=data, params=params)
+                response = self.session.post(url, json=data, params=params, timeout=timeout_seconds)
             elif method == 'PUT':
-                response = self.session.put(url, json=data, params=params)
+                response = self.session.put(url, json=data, params=params, timeout=timeout_seconds)
             elif method == 'DELETE':
-                response = self.session.delete(url, params=params)
+                response = self.session.delete(url, params=params, timeout=timeout_seconds)
             else:
                 return None
             

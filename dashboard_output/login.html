@@ -405,7 +405,7 @@
         <!-- Brand Panel -->
         <div class="brand-panel">
             <div class="brand-content">
-                <div class="brand-logo"><img src="/static/LOGO.png" alt="TIMO Logo"></div>
+                <div class="brand-logo"><img src="/static/PERFIL.png" alt="TIMO Logo"></div>
                 <p class="brand-subtitle">Gerencie seus restaurantes com inteligência e agilidade</p>
                 
                 <div class="brand-features">
@@ -499,6 +499,12 @@
     </div>
     
     <script>
+        function getInviteTokenFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const token = (params.get('invite') || '').trim();
+            return token || null;
+        }
+
         document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
@@ -535,6 +541,25 @@
                             last_login: new Date().toISOString()
                         }));
                     }
+                    const inviteToken = getInviteTokenFromUrl();
+                    if (inviteToken) {
+                        try {
+                            const inviteResponse = await fetch(`/api/invite/${encodeURIComponent(inviteToken)}/accept`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' }
+                            });
+                            const inviteData = await inviteResponse.json();
+                            if (inviteResponse.ok && inviteData.success) {
+                                window.location.href = inviteData.redirect || '/dashboard';
+                                return;
+                            }
+                            errorText.textContent = inviteData.error || 'Falha ao aceitar convite';
+                            errorMsg.classList.add('show');
+                            setTimeout(() => errorMsg.classList.remove('show'), 3500);
+                        } catch (inviteError) {
+                            console.error('Invite accept error:', inviteError);
+                        }
+                    }
                     window.location.href = data.redirect || '/dashboard';
                 } else {
                     errorText.textContent = data.error || 'Email ou senha incorretos';
@@ -569,6 +594,13 @@
             const savedTheme = localStorage.getItem('theme') || 'light';
             document.documentElement.setAttribute('data-theme', savedTheme);
             updateThemeIcon(savedTheme);
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('invite_error') === '1') {
+                const errorMsg = document.getElementById('errorMessage');
+                const errorText = document.getElementById('errorText');
+                errorText.textContent = 'Nao foi possivel aceitar o convite com este usuario';
+                errorMsg.classList.add('show');
+            }
         })();
     </script>
 </body>
