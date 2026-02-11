@@ -110,15 +110,17 @@
         .brand-logo {
             margin: 0 auto 2.25rem;
             width: 100%;
+            display: flex;
+            justify-content: center;
         }
 
         .brand-logo img {
-            width: clamp(240px, 34vw, 460px);
+            width: min(100%, clamp(260px, 38vw, 520px));
             max-width: 100%;
+            max-height: clamp(56px, 9vw, 110px);
             height: auto;
             object-fit: contain;
             display: block;
-            margin: 0 auto;
             filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.18));
         }
         
@@ -405,7 +407,7 @@
         <!-- Brand Panel -->
         <div class="brand-panel">
             <div class="brand-content">
-                <div class="brand-logo"><img src="/static/PERFIL.png" alt="TIMO Logo"></div>
+                <div class="brand-logo"><img src="/static/LOGO.png" alt="TIMO Logo"></div>
                 <p class="brand-subtitle">Gerencie seus restaurantes com inteligência e agilidade</p>
                 
                 <div class="brand-features">
