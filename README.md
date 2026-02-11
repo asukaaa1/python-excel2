@@ -17,6 +17,8 @@
 - `USE_REDIS_CACHE=true`
 - `USE_REDIS_PUBSUB=true`
 - `RUN_REFRESH_WORKER=true` (worker service only)
+- `IFOOD_KEEPALIVE_POLLING=true` (worker service; keeps test stores connected/open)
+- `IFOOD_POLL_INTERVAL_SECONDS=30` (worker service)
 - `ENABLE_LEGACY_FALLBACK=false`
 - `IFOOD_CLIENT_ID=<optional env fallback>`
 - `IFOOD_CLIENT_SECRET=<optional env fallback>`

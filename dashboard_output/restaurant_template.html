@@ -232,6 +232,9 @@ async function fetchRestaurantData() {
             renderMenuPerformance();
             renderMainChart();
             updateInterruptionBanner();
+            if (!ordersData || ordersData.length === 0) {
+                fetchOrders();
+            }
             
             apiStatus.classList.remove('loading', 'error');
             apiStatus.querySelector('span:last-child').textContent = 'API Conectada';
@@ -255,6 +258,7 @@ async function fetchOrders() {
         if (data.success) {
             ordersData = data.orders || [];
             renderOrdersTable();
+            updateUI();
         }
     } catch (error) {
         console.error('Error loading orders:', error);
@@ -409,6 +413,75 @@ function refreshData() {
     if (ordersData.length > 0) fetchOrders();
 }
 
+function toNumber(value, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeOrderStatus(order) {
+    if (!order || typeof order !== 'object') return 'UNKNOWN';
+    const raw = String(
+        order.orderStatus ||
+        order.status ||
+        order.state ||
+        order.fullCode ||
+        order.code ||
+        (order.metadata && (order.metadata.orderStatus || order.metadata.status || order.metadata.state || order.metadata.fullCode || order.metadata.code)) ||
+        ''
+    ).trim().toUpperCase().replace(/[- ]/g, '_');
+
+    if (!raw) return 'UNKNOWN';
+    if (raw === 'CANCELED' || raw.includes('CANCEL') || raw === 'CAN' || raw === 'DECLINED' || raw === 'REJECTED') return 'CANCELLED';
+    if (raw === 'CONCLUDED' || raw === 'COMPLETED' || raw === 'DELIVERED' || raw === 'FINISHED') return 'CONCLUDED';
+    if (raw === 'CONFIRMED' || raw === 'PLACED' || raw === 'CREATED' || raw === 'PREPARING' || raw === 'READY' || raw === 'HANDOFF' || raw === 'IN_TRANSIT' || raw === 'DISPATCHED' || raw === 'PICKED_UP') return 'CONFIRMED';
+    return raw;
+}
+
+function getOrderAmount(order) {
+    if (!order || typeof order !== 'object') return 0;
+    const fromTotalPrice = toNumber(order.totalPrice, NaN);
+    if (Number.isFinite(fromTotalPrice)) return fromTotalPrice;
+
+    const total = order.total || {};
+    const fromOrderAmount = toNumber(total.orderAmount, NaN);
+    if (Number.isFinite(fromOrderAmount)) return fromOrderAmount;
+
+    const subTotal = toNumber(total.subTotal, 0);
+    const deliveryFee = toNumber(total.deliveryFee, 0);
+    return subTotal + deliveryFee;
+}
+
+function inferOrderMetricsFromList() {
+    if (!Array.isArray(ordersData) || ordersData.length === 0) {
+        return null;
+    }
+
+    let totalOrders = 0;
+    let concludedOrders = 0;
+    let cancelledOrders = 0;
+    let concludedRevenue = 0;
+
+    ordersData.forEach(order => {
+        if (!order || typeof order !== 'object') return;
+        totalOrders += 1;
+        const status = normalizeOrderStatus(order);
+        if (status === 'CONCLUDED') {
+            concludedOrders += 1;
+            concludedRevenue += getOrderAmount(order);
+        } else if (status === 'CANCELLED') {
+            cancelledOrders += 1;
+        }
+    });
+
+    return {
+        total_orders: totalOrders,
+        concluded_orders: concludedOrders,
+        cancelled_orders: cancelledOrders,
+        cancel_rate: totalOrders > 0 ? (cancelledOrders / totalOrders) * 100 : 0,
+        concluded_revenue: concludedRevenue
+    };
+}
+
 // UI Update
 function updateUI() {
     if (!restaurantData) return;
@@ -431,22 +504,39 @@ function updateUI() {
     // Metrics - map backend field names to UI
     const m = restaurantData.metrics || {};
     const t = m.trends || {};
-    
+    const inferred = inferOrderMetricsFromList();
+    const inferredTotalOrders = inferred ? inferred.total_orders : 0;
+    const inferredConcludedOrders = inferred ? inferred.concluded_orders : 0;
+    const inferredCancelledOrders = inferred ? inferred.cancelled_orders : 0;
+    const inferredCancelRate = inferred ? inferred.cancel_rate : 0;
+    const inferredRevenue = inferred ? inferred.concluded_revenue : 0;
+    const backendRevenue = toNumber(m.liquido, toNumber(restaurantData.revenue, 0));
+    const backendTotalOrders = toNumber(m.total_pedidos, toNumber(m.vendas, toNumber(restaurantData.orders, 0)));
+    const backendConcludedOrders = toNumber(m.vendas, toNumber(restaurantData.orders, 0));
+    const backendCancelledOrders = toNumber(m.cancelamentos, 0);
+    const backendCancelRate = toNumber(m.percent_cancelamento, 0);
+
+    const effectiveRevenue = backendRevenue > 0 ? backendRevenue : inferredRevenue;
+    const effectiveTotalOrders = backendTotalOrders > 0 ? backendTotalOrders : inferredTotalOrders;
+    const effectiveConcludedOrders = backendConcludedOrders > 0 ? backendConcludedOrders : inferredConcludedOrders;
+    const effectiveCancelledOrders = backendCancelledOrders > 0 ? backendCancelledOrders : inferredCancelledOrders;
+    const effectiveCancelRate = backendCancelRate > 0 ? backendCancelRate : inferredCancelRate;
+     
     // KPIs: revenue = liquido (net), orders = vendas (count), ticket = ticket_medio, cancellation = percent_cancelamento
-    updateKPI('kpiRevenue', formatCurrency(m.liquido || restaurantData.revenue || 0), t.liquido);
-    updateKPI('kpiOrders', m.vendas || m.total_pedidos || restaurantData.orders || 0, t.vendas);
-    updateKPI('kpiCancellation', `${(m.percent_cancelamento || 0).toFixed(1)}%`, -(t.cancelamentos || 0), true);
-    
+    updateKPI('kpiRevenue', formatCurrency(effectiveRevenue), t.liquido);
+    updateKPI('kpiOrders', effectiveTotalOrders, t.vendas);
+    updateKPI('kpiCancellation', `${effectiveCancelRate.toFixed(1)}%`, -(t.cancelamentos || 0), true);
+     
     // Revenue metrics
-    document.getElementById('metricGross').textContent = formatCurrency(m.valor_bruto || 0);
+    document.getElementById('metricGross').textContent = formatCurrency(toNumber(m.valor_bruto, 0) || inferredRevenue);
     document.getElementById('metricDiscount').textContent = formatCurrency(m.descontos || 0);
     document.getElementById('metricDelivery').textContent = formatCurrency(m.via_loja || 0);
     document.getElementById('metricCommission').textContent = `${(m.percent_desconto || 0).toFixed(1)}%`;
-    document.getElementById('metricNet').textContent = formatCurrency(m.liquido || restaurantData.revenue || 0);
-    
+    document.getElementById('metricNet').textContent = formatCurrency(effectiveRevenue);
+     
     // Order metrics
-    document.getElementById('metricCompleted').textContent = m.vendas || m.total_pedidos || restaurantData.orders || 0;
-    document.getElementById('metricCancelled').textContent = m.cancelamentos || 0;
+    document.getElementById('metricCompleted').textContent = effectiveConcludedOrders;
+    document.getElementById('metricCancelled').textContent = effectiveCancelledOrders;
     document.getElementById('metricItems').textContent = m.novos_clientes || 0;
     document.getElementById('metricDays').textContent = m.tempo_aberto_hours || 0;
 }
@@ -743,9 +833,10 @@ function renderOrdersTable() {
         return;
     }
     tb.innerHTML = ordersData.slice(0, 100).map(o => {
-        const d = new Date(o.createdAt);
-        const sc = o.orderStatus === 'CONCLUDED' ? 'concluded' : o.orderStatus === 'CONFIRMED' ? 'confirmed' : 'cancelled';
-        const st = o.orderStatus === 'CONCLUDED' ? 'Concluído' : o.orderStatus === 'CONFIRMED' ? 'Confirmado' : 'Cancelado';
+        const d = new Date(o.createdAt || o.created_at || o.created || Date.now());
+        const status = normalizeOrderStatus(o);
+        const sc = status === 'CONCLUDED' ? 'concluded' : status === 'CONFIRMED' ? 'confirmed' : status === 'CANCELLED' ? 'cancelled' : 'confirmed';
+        const st = status === 'CONCLUDED' ? 'Concluído' : status === 'CONFIRMED' ? 'Confirmado' : status === 'CANCELLED' ? 'Cancelado' : status;
         return `<tr><td><span class="order-id">${o.displayId || o.id?.substring(0, 8) || '-'}</span></td><td>${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</td><td>${formatCurrency(o.total?.orderAmount || o.totalPrice || 0)}</td><td><span class="status-badge ${sc}">${st}</span></td><td>${o.payments?.[0]?.name || o.payment?.method || '-'}</td></tr>`;
     }).join('');
 }

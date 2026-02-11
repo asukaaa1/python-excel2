@@ -248,6 +248,19 @@ class IFoodAPI:
 
         return self._filter_orders(candidate_orders, merchant_id, start_date, end_date, status)
 
+    def poll_events(self, merchant_id: str) -> List[Dict]:
+        """Perform lightweight events polling for one merchant.
+
+        Useful for keeping test stores connected/open in iFood sandbox.
+        """
+        if self.use_mock_data:
+            return []
+        if not merchant_id:
+            return []
+        polling_headers = {'x-polling-merchants': str(merchant_id)}
+        polling_result = self._request('GET', '/order/v1.0/events:polling', headers=polling_headers)
+        return self._extract_polling_events(polling_result)
+
     def get_order_details(self, order_id: str) -> Optional[Dict]:
         """Resolve full order payload by order id."""
         if not order_id:

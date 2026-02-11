@@ -108,6 +108,12 @@ REDIS_URL = os.environ.get('REDIS_URL', '').strip()
 USE_REDIS_QUEUE = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDIS_QUEUE', '1')).strip().lower() in ('1', 'true', 'yes', 'on'))
 USE_REDIS_CACHE = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDIS_CACHE', '1')).strip().lower() in ('1', 'true', 'yes', 'on'))
 USE_REDIS_PUBSUB = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDIS_PUBSUB', '1')).strip().lower() in ('1', 'true', 'yes', 'on'))
+IFOOD_KEEPALIVE_POLLING = str(os.environ.get('IFOOD_KEEPALIVE_POLLING', '1')).strip().lower() in ('1', 'true', 'yes', 'on')
+try:
+    IFOOD_POLL_INTERVAL_SECONDS = int(os.environ.get('IFOOD_POLL_INTERVAL_SECONDS', '30') or 30)
+except Exception:
+    IFOOD_POLL_INTERVAL_SECONDS = 30
+IFOOD_POLL_INTERVAL_SECONDS = max(10, IFOOD_POLL_INTERVAL_SECONDS)
 
 # Enable gzip compression if available
 if _HAS_COMPRESS:
@@ -1246,6 +1252,94 @@ def enqueue_refresh_job(trigger='api'):
         return None
 
 
+_KEEPALIVE_POLL_CYCLE = 0
+
+
+def _extract_org_merchant_ids(org_config):
+    """Collect normalized merchant ids from org iFood config payload."""
+    if not isinstance(org_config, dict):
+        return []
+    merchants = org_config.get('merchants') or []
+    if isinstance(merchants, str):
+        try:
+            merchants = json.loads(merchants)
+        except Exception:
+            merchants = []
+    if not isinstance(merchants, list):
+        return []
+
+    ids = []
+    for m in merchants:
+        if not isinstance(m, dict):
+            continue
+        merchant_id = m.get('merchant_id') or m.get('id')
+        if merchant_id:
+            ids.append(str(merchant_id))
+    # preserve insertion order, drop duplicates
+    return list(dict.fromkeys(ids))
+
+
+def run_ifood_keepalive_poll_once():
+    """Poll iFood order events to keep test merchants marked as connected/open."""
+    global _KEEPALIVE_POLL_CYCLE
+    summary = {
+        'orgs_checked': 0,
+        'merchants_polled': 0,
+        'events_received': 0,
+        'errors': 0
+    }
+
+    if not IFOOD_KEEPALIVE_POLLING:
+        return summary
+
+    for org_id, org_data in list(ORG_DATA.items()):
+        if not isinstance(org_data, dict):
+            continue
+        api = org_data.get('api')
+        if not api:
+            continue
+
+        config = org_data.get('config') or {}
+        merchant_ids = _extract_org_merchant_ids(config)
+        if not merchant_ids:
+            # Refresh config lazily in worker mode when in-memory config is stale.
+            db_config = db.get_org_ifood_config(org_id) or {}
+            if isinstance(db_config, dict):
+                org_data['config'] = db_config
+                merchant_ids = _extract_org_merchant_ids(db_config)
+
+        if not merchant_ids:
+            continue
+
+        summary['orgs_checked'] += 1
+        for merchant_id in merchant_ids:
+            try:
+                if hasattr(api, 'poll_events'):
+                    events = api.poll_events(merchant_id) or []
+                else:
+                    headers = {'x-polling-merchants': str(merchant_id)}
+                    payload = api._request('GET', '/order/v1.0/events:polling', headers=headers) if hasattr(api, '_request') else None
+                    events = payload if isinstance(payload, list) else []
+                summary['merchants_polled'] += 1
+                summary['events_received'] += len(events)
+            except Exception:
+                summary['errors'] += 1
+
+    _KEEPALIVE_POLL_CYCLE += 1
+    if summary['errors'] > 0:
+        print(
+            f"iFood keepalive polling completed with errors "
+            f"(orgs={summary['orgs_checked']}, merchants={summary['merchants_polled']}, events={summary['events_received']}, errors={summary['errors']})"
+        )
+    elif summary['merchants_polled'] > 0 and (_KEEPALIVE_POLL_CYCLE % 20 == 0):
+        # avoid noisy logs: once every ~10 minutes at 30s interval
+        print(
+            f"iFood keepalive polling active "
+            f"(orgs={summary['orgs_checked']}, merchants={summary['merchants_polled']}, events={summary['events_received']})"
+        )
+    return summary
+
+
 def run_refresh_worker_loop(interval_seconds=1800):
     """Redis-backed worker loop for reliable background refresh."""
     print(f"Refresh worker started (interval={interval_seconds}s)")
@@ -1255,6 +1349,10 @@ def run_refresh_worker_loop(interval_seconds=1800):
         return
 
     stop_flag = {'stop': False}
+    keepalive_enabled = bool(IFOOD_KEEPALIVE_POLLING)
+    keepalive_interval = max(10, int(IFOOD_POLL_INTERVAL_SECONDS or 30))
+    if keepalive_enabled:
+        print(f"iFood keepalive polling enabled (every {keepalive_interval}s)")
 
     def _handle_stop(signum, frame):
         stop_flag['stop'] = True
@@ -1269,10 +1367,17 @@ def run_refresh_worker_loop(interval_seconds=1800):
         pass
 
     next_periodic = time.time() + interval_seconds
+    next_keepalive = time.time() + keepalive_interval
+    if keepalive_enabled:
+        run_ifood_keepalive_poll_once()
     while not stop_flag['stop']:
         try:
-            timeout = max(1, int(next_periodic - time.time()))
+            deadlines = [next_periodic]
+            if keepalive_enabled:
+                deadlines.append(next_keepalive)
+            timeout = max(1, int(min(deadlines) - time.time()))
             item = r.brpop(REDIS_REFRESH_QUEUE, timeout=timeout)
+            now = time.time()
             if item:
                 _, raw = item
                 try:
@@ -1294,16 +1399,22 @@ def run_refresh_worker_loop(interval_seconds=1800):
                         'job_id': payload.get('job_id'),
                         'trigger': payload.get('trigger', 'queue')
                     })
-                continue
+                # Reset periodic timer after active queue processing.
+                next_periodic = now + interval_seconds
+                now = time.time()
 
-            if time.time() >= next_periodic:
+            if keepalive_enabled and now >= next_keepalive:
+                run_ifood_keepalive_poll_once()
+                next_keepalive = now + keepalive_interval
+
+            if now >= next_periodic:
                 refreshed = bg_refresher.refresh_now()
                 set_refresh_status({
                     'status': 'done' if refreshed else 'busy',
                     'timestamp': datetime.now().isoformat(),
                     'trigger': 'periodic'
                 })
-                next_periodic = time.time() + interval_seconds
+                next_periodic = now + interval_seconds
         except Exception as e:
             print(f"Refresh worker error: {e}")
             time.sleep(2)
@@ -6765,6 +6876,8 @@ def initialize_app():
     print(f"Total Restaurants: {total_restaurants}")
     if queue_mode:
         print("Background refresh: Redis queue worker mode")
+        if IFOOD_KEEPALIVE_POLLING:
+            print(f"iFood keepalive polling: every {IFOOD_POLL_INTERVAL_SECONDS}s")
     else:
         print("Background refresh: every 30 min")
     print("SSE: ready on /api/events")
@@ -6793,7 +6906,10 @@ if __name__ == '__main__':
             interval_minutes = int((IFOOD_CONFIG or {}).get('refresh_interval_minutes') or os.environ.get('REFRESH_INTERVAL_MINUTES', 30))
         except Exception:
             interval_minutes = 30
-        print(f"Running in WORKER mode (refresh interval: {interval_minutes} min)")
+        if IFOOD_KEEPALIVE_POLLING:
+            print(f"Running in WORKER mode (refresh interval: {interval_minutes} min, keepalive polling: {IFOOD_POLL_INTERVAL_SECONDS}s)")
+        else:
+            print(f"Running in WORKER mode (refresh interval: {interval_minutes} min)")
         run_refresh_worker_loop(interval_seconds=max(60, interval_minutes * 60))
         sys.exit(0)
     
