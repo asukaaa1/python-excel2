@@ -2110,11 +2110,17 @@ let sharedViewToken = null;
                 const safeNeighborhood = escapeHtml(r.neighborhood || 'Sem bairro');
                 const safeRestaurantId = encodeURIComponent(String(r.id || ''));
                 const initial = (r.name || 'R').charAt(0).toUpperCase();
-                const isClosed = toBoolFlag(r.is_closed);
+                const rawStatus = (r.status && typeof r.status === 'object') ? r.status : null;
+                const stateRaw = String(r.state ?? r.operational_status ?? rawStatus?.state ?? rawStatus?.status ?? (typeof r.status === 'string' ? r.status : '') ?? '').trim().toLowerCase();
+                const closureText = String(r.closure_reason ?? rawStatus?.message ?? rawStatus?.description ?? '').trim().toLowerCase();
+                const interruptions = Number(r.active_interruptions_count ?? r.activeInterruptionsCount ?? 0);
+                const stateSuggestsClosed = ['closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon'].some(token => stateRaw.includes(token));
+                const messageSuggestsClosed = ['closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon'].some(token => closureText.includes(token));
+                const isClosed = toBoolFlag(r.is_closed) || toBoolFlag(r.isClosed) || interruptions > 0 || stateSuggestsClosed || messageSuggestsClosed;
                 const isSuper = toBoolFlag(r.isSuperRestaurant) || toBoolFlag(r.isSuper) || toBoolFlag(r.super);
                 const ratingValue = Number(r.rating);
                 const hasRating = Number.isFinite(ratingValue) && ratingValue > 0;
-                const closedReason = escapeHtml(r.closure_reason || 'Loja fechada no momento');
+                const closedReason = escapeHtml(r.closure_reason || rawStatus?.message || 'Loja fechada no momento');
 
                 return `
                     <div class="restaurant-card" onclick="window.location.href='/restaurant/${safeRestaurantId}'">

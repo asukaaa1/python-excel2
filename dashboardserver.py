@@ -2689,6 +2689,80 @@ def api_restaurants():
                 or to_bool_flag(record.get('super'))
             )
 
+        def normalize_closure(record, api_client=None):
+            if not isinstance(record, dict):
+                return {
+                    'is_closed': False,
+                    'closure_reason': None,
+                    'closed_until': None,
+                    'active_interruptions_count': 0
+                }
+
+            is_closed = to_bool_flag(record.get('is_closed')) or to_bool_flag(record.get('isClosed'))
+            reason = record.get('closure_reason') or record.get('closureReason')
+            closed_until = record.get('closed_until') or record.get('closedUntil')
+            try:
+                active_interruptions = int(record.get('active_interruptions_count') or record.get('activeInterruptionsCount') or 0)
+            except Exception:
+                active_interruptions = 0
+
+            status_field = record.get('status')
+            state_candidates = [record.get('state'), record.get('operational_status')]
+            if isinstance(status_field, dict):
+                state_candidates.append(status_field.get('state') or status_field.get('status'))
+                if not reason:
+                    reason = status_field.get('message') or status_field.get('description')
+            elif isinstance(status_field, str):
+                state_candidates.append(status_field)
+
+            state_raw = ' '.join(str(v or '') for v in state_candidates).strip().lower()
+            if not is_closed and state_raw:
+                if any(token in state_raw for token in ('closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
+                    is_closed = True
+
+            reason_text = str(reason or '').strip().lower()
+            if not is_closed and reason_text:
+                if any(token in reason_text for token in ('closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
+                    is_closed = True
+
+            if active_interruptions > 0:
+                is_closed = True
+
+            has_explicit_closure_fields = any(
+                key in record
+                for key in (
+                    'is_closed',
+                    'isClosed',
+                    'closure_reason',
+                    'closureReason',
+                    'closed_until',
+                    'closedUntil',
+                    'active_interruptions_count',
+                    'activeInterruptionsCount'
+                )
+            )
+
+            # Backfill stale cached records that predate closure fields.
+            if not has_explicit_closure_fields and api_client and record.get('id'):
+                fetched = detect_restaurant_closure(api_client, record.get('id'))
+                if isinstance(fetched, dict):
+                    is_closed = to_bool_flag(fetched.get('is_closed')) or is_closed
+                    reason = fetched.get('closure_reason') or reason
+                    closed_until = fetched.get('closed_until') or closed_until
+                    try:
+                        active_interruptions = int(fetched.get('active_interruptions_count') or active_interruptions or 0)
+                    except Exception:
+                        pass
+                    if active_interruptions > 0:
+                        is_closed = True
+
+            return {
+                'is_closed': bool(is_closed),
+                'closure_reason': reason,
+                'closed_until': closed_until,
+                'active_interruptions_count': int(active_interruptions or 0)
+            }
+
         # Get month filter from query parameters
         month_filter = parse_month_filter(request.args.get('month', 'all'))
         if month_filter is None:
@@ -2698,12 +2772,31 @@ def api_restaurants():
         org_id = get_current_org_id()
         cached = get_cached_restaurants(org_id, month_filter)
         if cached:
-            return jsonify(cached)
+            cached_restaurants = cached.get('restaurants') if isinstance(cached, dict) else None
+            has_closure_payload = True
+            if isinstance(cached_restaurants, list):
+                for store in cached_restaurants:
+                    if not isinstance(store, dict):
+                        continue
+                    if (
+                        'is_closed' not in store
+                        and 'isClosed' not in store
+                        and 'closure_reason' not in store
+                        and 'active_interruptions_count' not in store
+                        and 'activeInterruptionsCount' not in store
+                    ):
+                        has_closure_payload = False
+                        break
+            if has_closure_payload:
+                return jsonify(cached)
+            # Drop stale cache entries that predate closure indicators.
+            invalidate_cache(org_id)
         
         # Get user's allowed restaurants based on squad membership
         user = session.get('user', {})
         allowed_ids = get_user_allowed_restaurant_ids(user.get('id'), user.get('role'))
         org_last_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') if org_id else LAST_DATA_REFRESH
+        org_api = ORG_DATA.get(org_id, {}).get('api') if org_id else IFOOD_API
         
         # Return data without internal caches
         restaurants = []
@@ -2712,6 +2805,12 @@ def api_restaurants():
             if allowed_ids is not None and r['id'] not in allowed_ids:
                 continue
             is_super = get_super_flag(r)
+            closure = normalize_closure(r, api_client=org_api)
+            # Persist normalized closure fields in-memory for subsequent requests.
+            r['is_closed'] = bool(closure.get('is_closed'))
+            r['closure_reason'] = closure.get('closure_reason')
+            r['closed_until'] = closure.get('closed_until')
+            r['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
             
             # If month filter is specified, reprocess with filtered orders
             if month_filter != 'all':
@@ -2748,10 +2847,10 @@ def api_restaurants():
                     restaurant_data['isSuperRestaurant'] = is_super
                     restaurant_data['isSuper'] = is_super
                     restaurant_data['super'] = is_super
-                    restaurant_data['is_closed'] = bool(r.get('is_closed'))
-                    restaurant_data['closure_reason'] = r.get('closure_reason')
-                    restaurant_data['closed_until'] = r.get('closed_until')
-                    restaurant_data['active_interruptions_count'] = int(r.get('active_interruptions_count') or 0)
+                    restaurant_data['is_closed'] = bool(closure.get('is_closed'))
+                    restaurant_data['closure_reason'] = closure.get('closure_reason')
+                    restaurant_data['closed_until'] = closure.get('closed_until')
+                    restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
                     
                     # Remove internal caches before sending
                     restaurant = {k: v for k, v in restaurant_data.items() if not k.startswith('_')}
