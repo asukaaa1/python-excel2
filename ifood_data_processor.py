@@ -3,7 +3,7 @@ iFood Data Processor Module - IMPROVED VERSION
 Processes iFood API data into dashboard-friendly format with complete financial metrics
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import random
 
@@ -312,6 +312,75 @@ class IFoodDataProcessor:
         }
     
     @staticmethod
+    def generate_forecast(daily_data, num_days=7):
+        """Generate 7-day forecast using day-of-week weighted averages.
+
+        Args:
+            daily_data: dict from generate_charts_data with keys like '15/02' and
+                        values containing 'date_sort' (YYYY-MM-DD), 'revenue', 'orders'
+            num_days: number of days to forecast (default 7)
+        Returns:
+            dict with labels, dates, revenue, orders arrays — or empty dict if insufficient data
+        """
+        if len(daily_data) < 3:
+            return {}
+
+        # Parse historical days and group by weekday
+        sorted_entries = sorted(daily_data.values(), key=lambda x: x['date_sort'])
+        last_date = datetime.strptime(sorted_entries[-1]['date_sort'], '%Y-%m-%d')
+
+        # Build per-weekday buckets: {0: [(revenue, orders, age_weeks), ...], ...}
+        weekday_buckets = {d: [] for d in range(7)}
+        for entry in sorted_entries:
+            d = datetime.strptime(entry['date_sort'], '%Y-%m-%d')
+            age_weeks = max((last_date - d).days / 7, 0)
+            weekday_buckets[d.weekday()].append((
+                entry['revenue'], entry['orders'], age_weeks
+            ))
+
+        # Compute weighted average per weekday (decay = 0.9^age_weeks)
+        weekday_avg = {}
+        # Global fallback for weekdays with no data
+        all_rev = [e['revenue'] for e in sorted_entries]
+        all_ord = [e['orders'] for e in sorted_entries]
+        global_rev = sum(all_rev) / len(all_rev) if all_rev else 0
+        global_ord = sum(all_ord) / len(all_ord) if all_ord else 0
+
+        for wd, bucket in weekday_buckets.items():
+            if not bucket:
+                weekday_avg[wd] = (global_rev, global_ord)
+                continue
+            total_w = 0
+            w_rev = 0
+            w_ord = 0
+            for rev, orders, age in bucket:
+                w = 0.9 ** age
+                w_rev += rev * w
+                w_ord += orders * w
+                total_w += w
+            weekday_avg[wd] = (w_rev / total_w, w_ord / total_w)
+
+        # Generate forecast points
+        labels = []
+        dates = []
+        revenue = []
+        orders_fc = []
+        for i in range(1, num_days + 1):
+            fc_date = last_date + timedelta(days=i)
+            avg_rev, avg_ord = weekday_avg[fc_date.weekday()]
+            labels.append(fc_date.strftime('%d/%m'))
+            dates.append(fc_date.strftime('%Y-%m-%d'))
+            revenue.append(round(avg_rev, 2))
+            orders_fc.append(max(round(avg_ord), 0))
+
+        return {
+            'labels': labels,
+            'dates': dates,
+            'revenue': revenue,
+            'orders': orders_fc
+        }
+
+    @staticmethod
     def generate_charts_data(orders: List[Dict]) -> Dict:
         """Generate chart data from orders with full date information for filtering"""
         try:
@@ -437,6 +506,8 @@ class IFoodDataProcessor:
                 },
                 # Available months for filtering
                 'available_months': available_months,
+                # 7-day forecast based on day-of-week weighted averages
+                'forecast': IFoodDataProcessor.generate_forecast(daily_data),
                 # Include all orders data for feedback processing
                 'orders_data': orders
             }
