@@ -861,6 +861,28 @@ def detect_restaurant_closure(api_client, merchant_id):
         except Exception:
             status_payload = {}
 
+    # Some providers return status as list (or dict with nested list) instead of a flat dict.
+    if isinstance(status_payload, dict):
+        for list_key in ('data', 'statuses', 'items', 'results'):
+            nested = status_payload.get(list_key)
+            if isinstance(nested, list) and nested:
+                first = nested[0]
+                if isinstance(first, dict):
+                    status_payload = first
+                    break
+    elif isinstance(status_payload, list):
+        first_dict = next((item for item in status_payload if isinstance(item, dict)), None)
+        if first_dict is not None:
+            status_payload = first_dict
+        elif status_payload:
+            status_payload = {'state': str(status_payload[0])}
+        else:
+            status_payload = {}
+    elif status_payload is None:
+        status_payload = {}
+    else:
+        status_payload = {'state': str(status_payload)}
+
     state_raw = str(status_payload.get('state') or status_payload.get('status') or '').strip().upper()
     message = str(status_payload.get('message') or '').strip()
 
