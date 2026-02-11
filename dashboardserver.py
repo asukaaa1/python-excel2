@@ -6200,6 +6200,14 @@ def initialize_app():
     
     # Check setup
     setup_ok = check_setup()
+    if not setup_ok:
+        is_production = str(os.environ.get('FLASK_ENV', '')).strip().lower() == 'production'
+        if is_production:
+            raise RuntimeError(
+                "Missing required dashboard_output files (login.html/index.html). "
+                "Ensure deployment artifact includes dashboard_output/."
+            )
+        print("WARNING: Setup check failed; continuing because FLASK_ENV is not production.")
     
     # Initialize database (includes SaaS tables)
     initialize_database()

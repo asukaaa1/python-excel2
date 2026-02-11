@@ -7,9 +7,9 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-      python setup_dashboard.py
-    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --log-level info dashboardserver:app
-    healthCheckPath: /
+      python scripts/verify_dashboard_output.py
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --worker-class gevent --worker-connections 1000 --timeout 120 --keep-alive 5 --log-level info dashboardserver:app
+    healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0

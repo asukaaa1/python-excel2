@@ -359,16 +359,11 @@ class IFoodConfig:
     def create_sample_config(config_path: str):
         """Create a sample configuration file"""
         sample_config = {
-            "client_id": "MOCK_DATA_MODE",
-            "client_secret": "not_needed_for_mock",
+            "client_id": "your_ifood_client_id_here",
+            "client_secret": "your_ifood_client_secret_here",
             "data_fetch_days": 30,
-            "merchants": [
-                {
-                    "merchant_id": "mock-restaurant-1",
-                    "name": "Restaurante Demo",
-                    "manager": "Gerente"
-                }
-            ]
+            "refresh_interval_minutes": 30,
+            "merchants": []
         }
         IFoodConfig.save_config(sample_config, config_path)
 
