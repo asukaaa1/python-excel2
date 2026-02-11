@@ -571,6 +571,7 @@ function renderMainChart() {
     const fcLabels = fc && Array.isArray(fc.labels) ? fc.labels : [];
     const fcValuesCandidate = fc ? (activeChartType === 'orders' ? fc.orders : fc.revenue) : [];
     const hasForecast = fcLabels.length > 0 && Array.isArray(fcValuesCandidate) && fcValuesCandidate.length === fcLabels.length;
+    const forecastQualityRaw = fc && fc.quality && fc.quality.rating ? String(fc.quality.rating).toLowerCase() : 'unknown';
     const histLen = histLabels.length;
     const fcValuesRaw = hasForecast ? fcValuesCandidate : [];
     const hasInterval = hasForecast && (
@@ -580,6 +581,7 @@ function renderMainChart() {
             : Array.isArray(fc.revenue_lower) && Array.isArray(fc.revenue_upper) &&
               fc.revenue_lower.length === fcValuesRaw.length && fc.revenue_upper.length === fcValuesRaw.length
     );
+    const canShowBand = hasInterval && forecastQualityRaw !== 'low' && forecastQualityRaw !== 'unknown';
 
     let allLabels = histLabels;
     let datasets = [];
@@ -594,17 +596,17 @@ function renderMainChart() {
         const fcValues = fcValuesRaw;
 
         const histData = [...histValues, ...fcValues.map(() => null)];
-        const fcData = [...histValues.map((_, i) => i === boundaryIndex ? histValues[boundaryIndex] : null), ...fcValues];
+        const fcData = [...histValues.map(() => null), ...fcValues];
 
         datasets.push(
             { data: histData, borderColor: '#f97015', backgroundColor: 'rgba(249,112,21,0.1)', borderWidth: 2, fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: '#f97015', pointBorderColor: isDark ? '#0a0a0a' : '#fff', pointBorderWidth: 2, label: 'Dados' }
         );
 
-        if (hasInterval) {
+        if (canShowBand) {
             fcLower = activeChartType === 'orders' ? fc.orders_lower : fc.revenue_lower;
             fcUpper = activeChartType === 'orders' ? fc.orders_upper : fc.revenue_upper;
-            const lowerBandData = [...histValues.map((_, i) => i === boundaryIndex ? histValues[boundaryIndex] : null), ...fcLower];
-            const upperBandData = [...histValues.map((_, i) => i === boundaryIndex ? histValues[boundaryIndex] : null), ...fcUpper];
+            const lowerBandData = [...histValues.map(() => null), ...fcLower];
+            const upperBandData = [...histValues.map(() => null), ...fcUpper];
 
             datasets.push({
                 data: lowerBandData,
@@ -656,9 +658,13 @@ function renderMainChart() {
         id: 'forecastSeparator',
         afterDraw(chart) {
             if (boundaryIndex < 0) return;
-            const { ctx: c, chartArea: { top, bottom }, scales: { x } } = chart;
-            const xPos = x.getPixelForValue(boundaryIndex);
+            const { ctx: c, chartArea: { top, bottom, right }, scales: { x } } = chart;
+            const xHist = x.getPixelForValue(boundaryIndex);
+            const xForecast = x.getPixelForValue(boundaryIndex + 1);
+            const xPos = Number.isFinite(xForecast) ? (xHist + xForecast) / 2 : xHist;
             c.save();
+            c.fillStyle = isDark ? 'rgba(249,112,21,0.06)' : 'rgba(249,112,21,0.05)';
+            c.fillRect(xPos, top, right - xPos, bottom - top);
             c.beginPath();
             c.setLineDash([4, 4]);
             c.strokeStyle = isDark ? '#525252' : '#d4d4d4';
@@ -700,7 +706,7 @@ function renderMainChart() {
                             return `${prefix}${formatCurrency(c.parsed.y)}`;
                         },
                         afterBody: items => {
-                            if (!hasForecast || !hasInterval || !items || items.length === 0) return;
+                            if (!hasForecast || !canShowBand || !items || items.length === 0) return;
                             const point = items[0];
                             const isForecastPoint = point.datasetIndex === forecastLineDatasetIndex && point.dataIndex >= histLen;
                             if (!isForecastPoint) return;
