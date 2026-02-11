@@ -291,7 +291,6 @@ class DashboardDatabase:
                     UNIQUE(org_id, user_id, view_type, name, scope_id)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_saved_views_token ON saved_views(share_token)")
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS group_templates (
@@ -376,6 +375,12 @@ class DashboardDatabase:
                     """)
                 except Exception:
                     pass
+
+            # Create indexes after legacy-column migrations (older DBs may miss share_token initially).
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_saved_views_token ON saved_views(share_token)")
+            except Exception as index_error:
+                print(f"⚠️ idx_saved_views_token migration: {index_error}")
             
             conn.commit()
             print("âœ… Database tables created successfully!")

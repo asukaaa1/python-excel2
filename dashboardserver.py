@@ -1476,25 +1476,113 @@ def _load_org_restaurants(org_id):
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     new_data = []
+
+    def _fallback_restaurant(merchant_id_value, merchant_name_value, merchant_manager_value, neighborhood_value='Centro'):
+        return {
+            'id': merchant_id_value,
+            'name': merchant_name_value,
+            'manager': merchant_manager_value,
+            'neighborhood': neighborhood_value or 'Centro',
+            'platforms': ['iFood'],
+            'revenue': 0,
+            'orders': 0,
+            'ticket': 0,
+            'trend': 0,
+            'approval_rate': 0,
+            'avatar_color': '#f97015',
+            'rating': 0,
+            'isSuper': False,
+            'metrics': {
+                'vendas': 0,
+                'ticket_medio': 0,
+                'valor_bruto': 0,
+                'liquido': 0,
+                'totals': {
+                    'vendas': 0,
+                    'ticket_medio': 0,
+                    'valorBruto': 0,
+                    'liquido': 0
+                },
+                'trends': {
+                    'vendas': 0,
+                    'ticket_medio': 0,
+                    'valor_bruto': 0,
+                    'liquido': 0
+                }
+            }
+        }
+
     for mc in merchants_config:
         merchant_id = mc.get('merchant_id') or mc.get('id')
         if not merchant_id:
             continue
+        merchant_name = str(mc.get('name') or f"Restaurant {str(merchant_id)[:8]}")
+        merchant_manager = str(mc.get('manager') or 'Gerente')
+
+        details = None
         try:
             details = api.get_merchant_details(merchant_id)
-            if not details:
-                continue
-            orders = api.get_orders(merchant_id, start_date, end_date)
-            restaurant_data = IFoodDataProcessor.process_restaurant_data(details, orders or [], None)
-            closure = detect_restaurant_closure(api, merchant_id)
-            restaurant_data['_orders_cache'] = orders or []
-            restaurant_data['is_closed'] = bool(closure.get('is_closed'))
-            restaurant_data['closure_reason'] = closure.get('closure_reason')
-            restaurant_data['closed_until'] = closure.get('closed_until')
-            restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
-            new_data.append(restaurant_data)
         except Exception as e:
-            print(f"  Ã¢Å¡Â Ã¯Â¸Â Org {org_id}, merchant {merchant_id}: {e}")
+            print(f"  WARN Org {org_id}, merchant {merchant_id}: details fetch failed: {e}")
+
+        if not isinstance(details, dict):
+            details = {
+                'id': merchant_id,
+                'name': merchant_name,
+                'merchantManager': {'name': merchant_manager},
+                'address': {'neighborhood': mc.get('neighborhood') or 'Centro'},
+                'isSuperRestaurant': False
+            }
+        else:
+            details['id'] = details.get('id') or merchant_id
+            details['name'] = merchant_name or details.get('name') or f"Restaurant {str(merchant_id)[:8]}"
+            manager_obj = details.get('merchantManager') if isinstance(details.get('merchantManager'), dict) else {}
+            manager_obj['name'] = merchant_manager or manager_obj.get('name') or 'Gerente'
+            details['merchantManager'] = manager_obj
+            if not isinstance(details.get('address'), dict):
+                details['address'] = {'neighborhood': mc.get('neighborhood') or 'Centro'}
+
+        orders = []
+        try:
+            orders = api.get_orders(merchant_id, start_date, end_date) or []
+        except Exception as e:
+            print(f"  WARN Org {org_id}, merchant {merchant_id}: orders fetch failed: {e}")
+
+        try:
+            restaurant_data = IFoodDataProcessor.process_restaurant_data(details, orders, None)
+        except Exception as e:
+            print(f"  WARN Org {org_id}, merchant {merchant_id}: data processing failed: {e}")
+            neighborhood = (details.get('address') or {}).get('neighborhood') if isinstance(details, dict) else 'Centro'
+            restaurant_data = _fallback_restaurant(merchant_id, merchant_name, merchant_manager, neighborhood)
+
+        if merchant_name:
+            restaurant_data['name'] = merchant_name
+        if merchant_manager:
+            restaurant_data['manager'] = merchant_manager
+
+        closure = {
+            'is_closed': False,
+            'closure_reason': None,
+            'closed_until': None,
+            'active_interruptions_count': 0
+        }
+        try:
+            fetched_closure = detect_restaurant_closure(api, merchant_id) or {}
+            closure.update({
+                'is_closed': bool(fetched_closure.get('is_closed')),
+                'closure_reason': fetched_closure.get('closure_reason'),
+                'closed_until': fetched_closure.get('closed_until'),
+                'active_interruptions_count': int(fetched_closure.get('active_interruptions_count') or 0)
+            })
+        except Exception as e:
+            print(f"  WARN Org {org_id}, merchant {merchant_id}: closure fetch failed: {e}")
+
+        restaurant_data['_orders_cache'] = orders
+        restaurant_data['is_closed'] = bool(closure.get('is_closed'))
+        restaurant_data['closure_reason'] = closure.get('closure_reason')
+        restaurant_data['closed_until'] = closure.get('closed_until')
+        restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
+        new_data.append(restaurant_data)
     org['restaurants'] = new_data
     org['last_refresh'] = datetime.now()
     db.save_org_data_cache(org_id, 'restaurants', [{k:v for k,v in r.items() if not k.startswith('_')} for r in new_data])
@@ -2254,7 +2342,13 @@ def api_org_ifood_config():
 
         using_legacy_fallback = (not org_has_credentials) and legacy_available
         using_env_fallback = (not org_has_credentials) and env_credentials_available
-        connection_active = org_connected or using_legacy_fallback or using_env_fallback
+        credentials_available = bool(org_has_credentials or using_env_fallback or using_legacy_fallback)
+        if not org_connected and credentials_available:
+            # Opportunistic init so status reflects real connectivity (not only env presence).
+            org_api = _init_org_ifood(org_id)
+            org_connected = bool(org_api)
+
+        connection_active = bool(org_connected)
         effective_mode = org_mode if org_mode != 'none' else legacy_mode
         source = 'org'
         if not org_has_credentials:
@@ -2276,6 +2370,7 @@ def api_org_ifood_config():
                 'client_secret_masked': masked,
                 'merchants': merchants,
                 'has_credentials': org_has_credentials,
+                'credentials_available': credentials_available,
                 'connection_active': bool(connection_active),
                 'mode': effective_mode,
                 'source': source,
@@ -4107,7 +4202,9 @@ def api_add_merchant():
                 return jsonify({'success': False, 'error': 'Merchant already exists'}), 400
         merchants.append(merchant_payload)
         db.update_org_ifood_config(org_id, merchants=merchants)
-        _init_org_ifood(org_id)
+        api = _init_org_ifood(org_id)
+        if api:
+            _load_org_restaurants(org_id)
         return jsonify({
             'success': True,
             'message': 'Merchant added successfully',
@@ -4159,7 +4256,9 @@ def api_remove_merchant(merchant_id):
         if len(merchants) == original_count:
             return jsonify({'success': False, 'error': 'Merchant not found'}), 404
         db.update_org_ifood_config(org_id, merchants=merchants)
-        _init_org_ifood(org_id)
+        api = _init_org_ifood(org_id)
+        if api:
+            _load_org_restaurants(org_id)
         return jsonify({
             'success': True,
             'message': 'Merchant removed successfully',

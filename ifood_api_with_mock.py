@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 from pathlib import Path
 import time
+from urllib.parse import urlencode
+from urllib.request import Request, build_opener, ProxyHandler
+from urllib.error import HTTPError, URLError
 
 # Import mock data generator
 try:
@@ -41,12 +44,19 @@ class IFoodAPI:
         self.access_token = None
         self.token_expires_at = None
         self.last_auth_error = None
+        self._http_client = str(os.environ.get('IFOOD_HTTP_CLIENT', 'requests')).strip().lower()
+        self._trust_env = str(os.environ.get('IFOOD_TRUST_ENV', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
         self.session = requests.Session()
-        self.session.trust_env = str(os.environ.get('IFOOD_TRUST_ENV', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
+        self.session.trust_env = self._trust_env
         self.session.headers.update({
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         })
+        if self._trust_env:
+            self._urllib_opener = build_opener()
+        else:
+            # Avoid inheriting proxy env vars unless explicitly enabled.
+            self._urllib_opener = build_opener(ProxyHandler({}))
         
         # Mock data cache - FIXED: Store complete merchant data
         self._mock_merchants = {}
@@ -79,41 +89,62 @@ class IFoodAPI:
                 'clientSecret': self.client_secret
             }
             timeout_seconds = float(os.environ.get('IFOOD_HTTP_TIMEOUT', 20))
-
-            response = self.session.post(
+            payload_bytes = urlencode(payload).encode('utf-8')
+            request_obj = Request(
                 self.AUTH_URL,
-                data=payload,
-                headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                timeout=timeout_seconds
+                data=payload_bytes,
+                method='POST',
+                headers={
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/json'
+                }
             )
-
-            if response.status_code == 200:
-                data = response.json() if response.content else {}
-                token = data.get('accessToken') or data.get('access_token')
-                if not token:
-                    self.last_auth_error = "missing_access_token_in_response"
-                    self.access_token = None
-                    self.token_expires_at = None
-                    print("Authentication failed: token not present in response")
-                    return False
-
-                self.access_token = token
-                expires_in_raw = data.get('expiresIn', data.get('expires_in', 3600))
+            try:
+                with self._urllib_opener.open(request_obj, timeout=timeout_seconds) as response:
+                    body = response.read().decode('utf-8', errors='replace')
+                    data = json.loads(body) if body else {}
+                    status_code = int(getattr(response, 'status', 200) or 200)
+            except HTTPError as http_err:
+                status_code = int(getattr(http_err, 'code', 0) or 0)
+                err_body = ''
                 try:
-                    expires_in = int(expires_in_raw)
+                    err_body = http_err.read().decode('utf-8', errors='replace')
                 except Exception:
-                    expires_in = 3600
-                self.token_expires_at = datetime.now() + timedelta(seconds=max(60, expires_in - 60))
+                    pass
+                response_snippet = str(err_body or '').strip().replace('\n', ' ')[:200]
+                self.last_auth_error = f"http_{status_code}:{response_snippet}" if response_snippet else f"http_{status_code}"
+                print(f"Authentication failed: {status_code} {response_snippet}")
+                return False
+            except URLError as net_err:
+                self.last_auth_error = f"url_error:{net_err}"
+                print(f"Authentication failed: network error {net_err}")
+                return False
 
-                self.session.headers.update({'Authorization': f'Bearer {self.access_token}'})
-                self.last_auth_error = None
-                print("iFood API authenticated successfully")
-                return True
+            if status_code != 200:
+                self.last_auth_error = f"http_{status_code}"
+                print(f"Authentication failed: {status_code}")
+                return False
 
-            response_snippet = str(response.text or '').strip().replace('\n', ' ')[:200]
-            self.last_auth_error = f"http_{response.status_code}:{response_snippet}" if response_snippet else f"http_{response.status_code}"
-            print(f"Authentication failed: {response.status_code} {response_snippet}")
-            return False
+            token = data.get('accessToken') or data.get('access_token')
+            if not token:
+                self.last_auth_error = "missing_access_token_in_response"
+                self.access_token = None
+                self.token_expires_at = None
+                print("Authentication failed: token not present in response")
+                return False
+
+            self.access_token = token
+            expires_in_raw = data.get('expiresIn', data.get('expires_in', 3600))
+            try:
+                expires_in = int(expires_in_raw)
+            except Exception:
+                expires_in = 3600
+            self.token_expires_at = datetime.now() + timedelta(seconds=max(60, expires_in - 60))
+
+            self.session.headers.update({'Authorization': f'Bearer {self.access_token}'})
+            self.last_auth_error = None
+            print("iFood API authenticated successfully")
+            return True
 
         except RecursionError:
             self.last_auth_error = "recursion_error_during_auth_request"
@@ -319,6 +350,51 @@ class IFoodAPI:
         elif result and isinstance(result, dict):
             return result.get('merchants', [])
         return []
+
+    def _request_via_urllib(self, method: str, endpoint: str, params: Dict = None, data: Dict = None) -> Optional[Dict]:
+        """Fallback HTTP path used when requests stack is unstable."""
+        timeout_seconds = float(os.environ.get('IFOOD_HTTP_TIMEOUT', 20))
+        params = params or {}
+        query = urlencode(params, doseq=True) if params else ''
+        url = f"{self.BASE_URL}{endpoint}"
+        if query:
+            url = f"{url}?{query}"
+
+        headers = {'Accept': 'application/json'}
+        if self.access_token:
+            headers['Authorization'] = f'Bearer {self.access_token}'
+        body = None
+        method_upper = str(method or '').upper()
+        if method_upper in ('POST', 'PUT'):
+            body = json.dumps(data or {}).encode('utf-8')
+            headers['Content-Type'] = 'application/json'
+
+        req = Request(url, data=body, method=method_upper, headers=headers)
+        try:
+            with self._urllib_opener.open(req, timeout=timeout_seconds) as resp:
+                status = int(getattr(resp, 'status', 200) or 200)
+                raw = resp.read()
+                if status not in (200, 201, 202):
+                    print(f"API Error (urllib): {status} - {endpoint}")
+                    return None
+                if not raw:
+                    return {}
+                text = raw.decode('utf-8', errors='replace').strip()
+                return json.loads(text) if text else {}
+        except HTTPError as http_err:
+            if int(getattr(http_err, 'code', 0) or 0) == 401:
+                # Signal caller to trigger one token refresh attempt.
+                return {'__unauthorized__': True}
+            detail = ''
+            try:
+                detail = http_err.read().decode('utf-8', errors='replace')
+            except Exception:
+                pass
+            print(f"API Error (urllib): {getattr(http_err, 'code', '?')} - {detail}")
+            return None
+        except Exception as err:
+            print(f"Request error (urllib): {err}")
+            return None
     
     def _request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None) -> Optional[Dict]:
         """Make API request with bounded retries (no recursion)."""
@@ -332,6 +408,16 @@ class IFoodAPI:
         for attempt in range(max_attempts):
             if not self.access_token and not self.authenticate():
                 return None
+
+            if self._http_client == 'urllib':
+                fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data)
+                if isinstance(fallback_result, dict) and fallback_result.get('__unauthorized__'):
+                    self.access_token = None
+                    self.token_expires_at = None
+                    if attempt < (max_attempts - 1):
+                        continue
+                    return None
+                return fallback_result
 
             try:
                 if method == 'GET':
@@ -360,11 +446,25 @@ class IFoodAPI:
                 return None
 
             except RecursionError:
-                print(f"Request error: recursion detected for {endpoint}")
-                return None
+                print(f"Request error: recursion detected for {endpoint}; switching to urllib fallback")
+                fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data)
+                if isinstance(fallback_result, dict) and fallback_result.get('__unauthorized__'):
+                    self.access_token = None
+                    self.token_expires_at = None
+                    if attempt < (max_attempts - 1):
+                        continue
+                    return None
+                return fallback_result
             except Exception as e:
-                print(f"Request error: {e}")
-                return None
+                print(f"Request error: {e}; trying urllib fallback")
+                fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data)
+                if isinstance(fallback_result, dict) and fallback_result.get('__unauthorized__'):
+                    self.access_token = None
+                    self.token_expires_at = None
+                    if attempt < (max_attempts - 1):
+                        continue
+                    return None
+                return fallback_result
 
         return None
 
