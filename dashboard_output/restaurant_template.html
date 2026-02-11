@@ -571,7 +571,6 @@ function renderMainChart() {
     const fcLabels = fc && Array.isArray(fc.labels) ? fc.labels : [];
     const fcValuesCandidate = fc ? (activeChartType === 'orders' ? fc.orders : fc.revenue) : [];
     const hasForecast = fcLabels.length > 0 && Array.isArray(fcValuesCandidate) && fcValuesCandidate.length === fcLabels.length;
-    const forecastQualityRaw = fc && fc.quality && fc.quality.rating ? String(fc.quality.rating).toLowerCase() : 'unknown';
     const histLen = histLabels.length;
     const fcValuesRaw = hasForecast ? fcValuesCandidate : [];
     const hasInterval = hasForecast && (
@@ -592,7 +591,7 @@ function renderMainChart() {
         avgBandWidth = widths.length > 0 ? widths.reduce((acc, w) => acc + w, 0) / widths.length : 0;
     }
     const bandRatio = avgForecastValue > 0 ? (avgBandWidth / avgForecastValue) : 1;
-    const canShowBand = hasInterval && forecastQualityRaw === 'high' && bandRatio <= 0.6;
+    const canShowBand = hasInterval && bandRatio <= 1.5;
 
     let allLabels = histLabels;
     let datasets = [];
@@ -607,7 +606,8 @@ function renderMainChart() {
         const fcValues = fcValuesRaw;
 
         const histData = [...histValues, ...fcValues.map(() => null)];
-        const fcData = [...histValues.map(() => null), ...fcValues];
+        // Overlap at boundary: set the last historical value as the first forecast point for visual connection
+        const fcData = [...histValues.map((v, i) => i === boundaryIndex ? v : null), ...fcValues];
 
         datasets.push(
             { data: histData, borderColor: '#f97015', backgroundColor: 'rgba(249,112,21,0.1)', borderWidth: 2, fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: '#f97015', pointBorderColor: isDark ? '#0a0a0a' : '#fff', pointBorderWidth: 2, label: 'Dados' }
@@ -616,8 +616,10 @@ function renderMainChart() {
         if (canShowBand) {
             fcLower = activeChartType === 'orders' ? fc.orders_lower : fc.revenue_lower;
             fcUpper = activeChartType === 'orders' ? fc.orders_upper : fc.revenue_upper;
-            const lowerBandData = [...histValues.map(() => null), ...fcLower];
-            const upperBandData = [...histValues.map(() => null), ...fcUpper];
+            // Start band from the last historical value so it visually grows from the connection point
+            const lastHistVal = histValues[boundaryIndex];
+            const lowerBandData = [...histValues.map((v, i) => i === boundaryIndex ? lastHistVal : null), ...fcLower];
+            const upperBandData = [...histValues.map((v, i) => i === boundaryIndex ? lastHistVal : null), ...fcUpper];
 
             datasets.push({
                 data: lowerBandData,
@@ -656,7 +658,7 @@ function renderMainChart() {
             pointBorderColor: isDark ? '#0a0a0a' : '#fff',
             pointBorderWidth: 2,
             pointStyle: 'circle',
-            label: 'Previsao'
+            label: 'Previsão'
         });
         forecastLineDatasetIndex = datasets.length - 1;
     } else {
@@ -672,7 +674,7 @@ function renderMainChart() {
             const { ctx: c, chartArea: { top, bottom }, scales: { x } } = chart;
             const xHist = x.getPixelForValue(boundaryIndex);
             const xForecast = x.getPixelForValue(boundaryIndex + 1);
-            const xPos = Number.isFinite(xForecast) ? xForecast : xHist;
+            const xPos = Number.isFinite(xForecast) ? (xHist + xForecast) / 2 : xHist;
             c.save();
             c.beginPath();
             c.setLineDash([4, 4]);
@@ -685,7 +687,7 @@ function renderMainChart() {
             c.font = '600 10px Outfit, sans-serif';
             c.fillStyle = isDark ? '#737373' : '#a3a3a3';
             c.textAlign = 'left';
-            c.fillText('Previsao', xPos + 6, top + 12);
+            c.fillText('Previsão', xPos + 6, top + 12);
             c.restore();
         }
     };
@@ -710,7 +712,7 @@ function renderMainChart() {
                     callbacks: {
                         label: c => {
                             const isForecastPoint = hasForecast && c.datasetIndex === forecastLineDatasetIndex && c.dataIndex >= histLen;
-                            const prefix = isForecastPoint ? '(Previsao) ' : '';
+                            const prefix = isForecastPoint ? '(Previsão) ' : '';
                             if (activeChartType === 'orders') return `${prefix}${Math.round(c.parsed.y)} pedidos`;
                             return `${prefix}${formatCurrency(c.parsed.y)}`;
                         },
@@ -724,9 +726,9 @@ function renderMainChart() {
                             const high = fcUpper[i];
                             if (low === undefined || high === undefined) return;
                             if (activeChartType === 'orders') {
-                                return [`Faixa provavel: ${Math.round(low)}-${Math.round(high)} pedidos`];
+                                return [`Faixa provável: ${Math.round(low)}-${Math.round(high)} pedidos`];
                             }
-                            return [`Faixa provavel: ${formatCurrency(low)} a ${formatCurrency(high)}`];
+                            return [`Faixa provável: ${formatCurrency(low)} a ${formatCurrency(high)}`];
                         }
                     }
                 }
@@ -749,8 +751,8 @@ function renderMainChart() {
             const horizon = fc.horizon_days || (fc.labels ? fc.labels.length : 7);
             const confidence = fc.confidence_level || 80;
             const quality = fc.quality && fc.quality.rating ? String(fc.quality.rating).toLowerCase() : 'unknown';
-            fcBadge.textContent = `Previsao ${horizon}d`;
-            fcBadge.title = `Confianca ${confidence}% | Qualidade ${quality}`;
+            fcBadge.textContent = `Previsão ${horizon}d`;
+            fcBadge.title = `Confiança ${confidence}% | Qualidade ${quality}`;
             fcBadge.style.display = 'inline-flex';
         } else {
             fcBadge.style.display = 'none';
@@ -780,7 +782,7 @@ function renderForecastSummary(fc, hasForecast, chartType) {
 
     const horizon = fc.horizon_days || (Array.isArray(fc.labels) ? fc.labels.length : 7);
     const qualityRaw = fc.quality && fc.quality.rating ? String(fc.quality.rating).toLowerCase() : 'unknown';
-    const qualityMap = { high: 'alta', medium: 'media', low: 'baixa', unknown: 'indefinida' };
+    const qualityMap = { high: 'alta', medium: 'média', low: 'baixa', unknown: 'indefinida' };
     const quality = qualityMap[qualityRaw] || qualityRaw;
     const mape = (fc.quality && fc.quality.mape_pct !== null && fc.quality.mape_pct !== undefined)
         ? `${fc.quality.mape_pct}% MAPE`
@@ -800,7 +802,7 @@ function renderForecastSummary(fc, hasForecast, chartType) {
     }
 
     node.style.display = '';
-    node.innerHTML = `Previsao ${horizon}d: <strong>${totalText}</strong> | Qualidade: <strong>${quality}</strong> | ${mape}`;
+    node.innerHTML = `Previsão ${horizon}d: <strong>${totalText}</strong> | Qualidade: <strong>${quality}</strong> | ${mape}`;
 }
 
 function renderHourlyChart() {
