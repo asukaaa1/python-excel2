@@ -17,7 +17,7 @@ try:
     MOCK_AVAILABLE = True
 except ImportError:
     MOCK_AVAILABLE = False
-    print("⚠️  Mock data generator not available")
+    print("âš ï¸  Mock data generator not available")
 
 
 class IFoodAPI:
@@ -40,7 +40,9 @@ class IFoodAPI:
         self.use_mock_data = use_mock_data or client_id == "MOCK_DATA_MODE"
         self.access_token = None
         self.token_expires_at = None
+        self.last_auth_error = None
         self.session = requests.Session()
+        self.session.trust_env = str(os.environ.get('IFOOD_TRUST_ENV', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
         self.session.headers.update({
             'Content-Type': 'application/json',
             'Accept': 'application/json'
@@ -50,56 +52,80 @@ class IFoodAPI:
         self._mock_merchants = {}
         
         if self.use_mock_data:
-            print("🎭 Running in MOCK DATA mode - using sample data for testing")
+            print("ðŸŽ­ Running in MOCK DATA mode - using sample data for testing")
     
     def authenticate(self) -> bool:
         """Authenticate with iFood API (or fake it for mock mode)"""
         if self.use_mock_data:
-            print("✅ Mock authentication successful")
+            print("Mock authentication successful")
             self.access_token = "MOCK_TOKEN"
             self.token_expires_at = datetime.now() + timedelta(hours=24)
+            self.last_auth_error = None
             return True
-        
+
         try:
-            # Real authentication code
-            if self.access_token and self.token_expires_at:
-                if datetime.now() < self.token_expires_at:
-                    return True
-            
+            if self.access_token and self.token_expires_at and datetime.now() < self.token_expires_at:
+                self.last_auth_error = None
+                return True
+
+            if not str(self.client_id or '').strip() or not str(self.client_secret or '').strip():
+                self.last_auth_error = "missing_client_credentials"
+                print("Authentication failed: missing client credentials")
+                return False
+
             payload = {
                 'grantType': 'client_credentials',
                 'clientId': self.client_id,
                 'clientSecret': self.client_secret
             }
             timeout_seconds = float(os.environ.get('IFOOD_HTTP_TIMEOUT', 20))
-            
-            response = requests.post(
+
+            response = self.session.post(
                 self.AUTH_URL,
                 data=payload,
                 headers={'Content-Type': 'application/x-www-form-urlencoded'},
                 timeout=timeout_seconds
             )
-            
+
             if response.status_code == 200:
-                data = response.json()
-                self.access_token = data.get('accessToken')
-                expires_in = data.get('expiresIn', 3600)
-                self.token_expires_at = datetime.now() + timedelta(seconds=expires_in - 60)
-                
-                self.session.headers.update({
-                    'Authorization': f'Bearer {self.access_token}'
-                })
-                
-                print(f"✅ iFood API authenticated successfully")
+                data = response.json() if response.content else {}
+                token = data.get('accessToken') or data.get('access_token')
+                if not token:
+                    self.last_auth_error = "missing_access_token_in_response"
+                    self.access_token = None
+                    self.token_expires_at = None
+                    print("Authentication failed: token not present in response")
+                    return False
+
+                self.access_token = token
+                expires_in_raw = data.get('expiresIn', data.get('expires_in', 3600))
+                try:
+                    expires_in = int(expires_in_raw)
+                except Exception:
+                    expires_in = 3600
+                self.token_expires_at = datetime.now() + timedelta(seconds=max(60, expires_in - 60))
+
+                self.session.headers.update({'Authorization': f'Bearer {self.access_token}'})
+                self.last_auth_error = None
+                print("iFood API authenticated successfully")
                 return True
-            else:
-                print(f"❌ Authentication failed: {response.status_code}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Authentication error: {e}")
+
+            response_snippet = str(response.text or '').strip().replace('\n', ' ')[:200]
+            self.last_auth_error = f"http_{response.status_code}:{response_snippet}" if response_snippet else f"http_{response.status_code}"
+            print(f"Authentication failed: {response.status_code} {response_snippet}")
             return False
-    
+
+        except RecursionError:
+            self.last_auth_error = "recursion_error_during_auth_request"
+            self.access_token = None
+            self.token_expires_at = None
+            print("Authentication error: recursion detected while requesting token")
+            return False
+        except Exception as e:
+            self.last_auth_error = str(e)
+            print(f"Authentication error: {e}")
+            return False
+
     def get_merchant_details(self, merchant_id: str) -> Optional[Dict]:
         """Get merchant details (real or mock)
         
@@ -216,9 +242,9 @@ class IFoodAPI:
                     end_hour = min(start_hour + duration, 23)
                     
                     reasons = [
-                        "Pausa para manutenção",
+                        "Pausa para manutenÃ§Ã£o",
                         "Falta de energia",
-                        "Problema técnico",
+                        "Problema tÃ©cnico",
                         "Pausa para reabastecimento",
                         "Treinamento de equipe",
                         "Limpeza programada",
@@ -295,41 +321,52 @@ class IFoodAPI:
         return []
     
     def _request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None) -> Optional[Dict]:
-        """Make API request with error handling"""
+        """Make API request with bounded retries (no recursion)."""
         if self.use_mock_data:
             return None
-        
-        if not self.access_token:
-            if not self.authenticate():
-                return None
-        
+
         url = f"{self.BASE_URL}{endpoint}"
         timeout_seconds = float(os.environ.get('IFOOD_HTTP_TIMEOUT', 20))
-        
-        try:
-            if method == 'GET':
-                response = self.session.get(url, params=params, timeout=timeout_seconds)
-            elif method == 'POST':
-                response = self.session.post(url, json=data, params=params, timeout=timeout_seconds)
-            elif method == 'PUT':
-                response = self.session.put(url, json=data, params=params, timeout=timeout_seconds)
-            elif method == 'DELETE':
-                response = self.session.delete(url, params=params, timeout=timeout_seconds)
-            else:
+        max_attempts = 2  # initial request + one re-auth retry
+
+        for attempt in range(max_attempts):
+            if not self.access_token and not self.authenticate():
                 return None
-            
-            if response.status_code in [200, 201, 202]:
-                return response.json() if response.content else {}
-            elif response.status_code == 401:
-                if self.authenticate():
-                    return self._request(method, endpoint, params, data)
-            else:
+
+            try:
+                if method == 'GET':
+                    response = self.session.get(url, params=params, timeout=timeout_seconds)
+                elif method == 'POST':
+                    response = self.session.post(url, json=data, params=params, timeout=timeout_seconds)
+                elif method == 'PUT':
+                    response = self.session.put(url, json=data, params=params, timeout=timeout_seconds)
+                elif method == 'DELETE':
+                    response = self.session.delete(url, params=params, timeout=timeout_seconds)
+                else:
+                    return None
+
+                if response.status_code in (200, 201, 202):
+                    return response.json() if response.content else {}
+
+                if response.status_code == 401:
+                    self.access_token = None
+                    self.token_expires_at = None
+                    if attempt < (max_attempts - 1):
+                        continue
+                    print(f"API Error: 401 unauthorized after retry - {endpoint}")
+                    return None
+
                 print(f"API Error: {response.status_code} - {response.text}")
                 return None
-                
-        except Exception as e:
-            print(f"Request error: {e}")
-            return None
+
+            except RecursionError:
+                print(f"Request error: recursion detected for {endpoint}")
+                return None
+            except Exception as e:
+                print(f"Request error: {e}")
+                return None
+
+        return None
 
 
 class IFoodConfig:
@@ -376,6 +413,6 @@ if __name__ == "__main__":
     print("iFood API Module - FIXED VERSION")
     print("=" * 60)
     print("\nThis version properly handles mock data structure")
-    print("✓ get_merchant_details() returns only merchant details")
-    print("✓ get_orders() returns orders from cached data")
-    print("✓ Consistent data across both calls")
+    print("âœ“ get_merchant_details() returns only merchant details")
+    print("âœ“ get_orders() returns orders from cached data")
+    print("âœ“ Consistent data across both calls")

@@ -1444,7 +1444,11 @@ def _init_org_ifood(org_id):
             print(f"Ã¢Å“â€¦ Org {org_id}: iFood API authenticated")
             return api
         else:
-            print(f"Ã¢Å¡Â Ã¯Â¸Â Org {org_id}: iFood auth failed")
+            auth_error = getattr(api, 'last_auth_error', None)
+            if auth_error:
+                print(f"Ã¢Å¡Â Ã¯Â¸Â Org {org_id}: iFood auth failed ({auth_error})")
+            else:
+                print(f"Ã¢Å¡Â Ã¯Â¸Â Org {org_id}: iFood auth failed")
     except Exception as e:
         print(f"Ã¢ÂÅ’ Org {org_id}: iFood init error: {e}")
     return None
