@@ -313,73 +313,200 @@ class IFoodDataProcessor:
     
     @staticmethod
     def generate_forecast(daily_data, num_days=7):
-        """Generate 7-day forecast using day-of-week weighted averages.
+        """Generate forecast with trend + weekday seasonality and confidence bands."""
+        try:
+            num_days = int(num_days or 7)
+        except Exception:
+            num_days = 7
+        num_days = max(1, min(num_days, 30))
 
-        Args:
-            daily_data: dict from generate_charts_data with keys like '15/02' and
-                        values containing 'date_sort' (YYYY-MM-DD), 'revenue', 'orders'
-            num_days: number of days to forecast (default 7)
-        Returns:
-            dict with labels, dates, revenue, orders arrays — or empty dict if insufficient data
-        """
-        if len(daily_data) < 3:
+        if not isinstance(daily_data, dict) or len(daily_data) < 4:
             return {}
 
-        # Parse historical days and group by weekday
-        sorted_entries = sorted(daily_data.values(), key=lambda x: x['date_sort'])
-        last_date = datetime.strptime(sorted_entries[-1]['date_sort'], '%Y-%m-%d')
+        # Keep only valid historical rows
+        sorted_entries = sorted(
+            [v for v in daily_data.values() if isinstance(v, dict) and v.get('date_sort')],
+            key=lambda x: x.get('date_sort')
+        )
+        if len(sorted_entries) < 4:
+            return {}
 
-        # Build per-weekday buckets: {0: [(revenue, orders, age_weeks), ...], ...}
-        weekday_buckets = {d: [] for d in range(7)}
+        points = []
         for entry in sorted_entries:
-            d = datetime.strptime(entry['date_sort'], '%Y-%m-%d')
-            age_weeks = max((last_date - d).days / 7, 0)
-            weekday_buckets[d.weekday()].append((
-                entry['revenue'], entry['orders'], age_weeks
-            ))
-
-        # Compute weighted average per weekday (decay = 0.9^age_weeks)
-        weekday_avg = {}
-        # Global fallback for weekdays with no data
-        all_rev = [e['revenue'] for e in sorted_entries]
-        all_ord = [e['orders'] for e in sorted_entries]
-        global_rev = sum(all_rev) / len(all_rev) if all_rev else 0
-        global_ord = sum(all_ord) / len(all_ord) if all_ord else 0
-
-        for wd, bucket in weekday_buckets.items():
-            if not bucket:
-                weekday_avg[wd] = (global_rev, global_ord)
+            try:
+                dt = datetime.strptime(entry['date_sort'], '%Y-%m-%d')
+            except Exception:
                 continue
-            total_w = 0
-            w_rev = 0
-            w_ord = 0
-            for rev, orders, age in bucket:
-                w = 0.9 ** age
-                w_rev += rev * w
-                w_ord += orders * w
-                total_w += w
-            weekday_avg[wd] = (w_rev / total_w, w_ord / total_w)
+            try:
+                rev = float(entry.get('revenue', 0) or 0)
+            except Exception:
+                rev = 0.0
+            try:
+                ords = float(entry.get('orders', 0) or 0)
+            except Exception:
+                ords = 0.0
+            points.append({
+                'date': dt,
+                'weekday': dt.weekday(),
+                'revenue': max(rev, 0.0),
+                'orders': max(ords, 0.0),
+            })
 
-        # Generate forecast points
+        if len(points) < 4:
+            return {}
+
+        recent_window = min(len(points), 42)
+        recent_points = points[-recent_window:]
+        n = len(recent_points)
+        x_vals = list(range(n))
+        # Exponential recency weights (newer points matter more)
+        weights = [0.92 ** (n - 1 - i) for i in x_vals]
+
+        def weighted_regression(values):
+            if not values:
+                return 0.0, 0.0, 0.0
+            w_sum = sum(weights) or 1.0
+            wx = sum(w * x for w, x in zip(weights, x_vals)) / w_sum
+            wy = sum(w * y for w, y in zip(weights, values)) / w_sum
+            var_x = sum(w * ((x - wx) ** 2) for w, x in zip(weights, x_vals))
+            if var_x <= 0:
+                slope = 0.0
+            else:
+                cov_xy = sum(w * (x - wx) * (y - wy) for w, x, y in zip(weights, x_vals, values))
+                slope = cov_xy / var_x
+            intercept = wy - (slope * wx)
+            current = intercept + slope * (n - 1)
+            # Clamp extreme slopes to avoid runaway forecasts
+            avg_abs = (sum(abs(v) for v in values) / len(values)) if values else 0.0
+            max_slope = max(0.05 * avg_abs, 0.5)
+            slope = max(-max_slope, min(max_slope, slope))
+            intercept = current - slope * (n - 1)
+            return intercept, slope, max(current, 0.0)
+
+        rev_series = [p['revenue'] for p in recent_points]
+        ord_series = [p['orders'] for p in recent_points]
+        rev_intercept, rev_slope, _ = weighted_regression(rev_series)
+        ord_intercept, ord_slope, _ = weighted_regression(ord_series)
+
+        def weekday_factors(series):
+            global_avg = (sum(series) / len(series)) if series else 0.0
+            if global_avg <= 0:
+                return {d: 1.0 for d in range(7)}
+            buckets = {d: [] for d in range(7)}
+            for p, value in zip(recent_points, series):
+                buckets[p['weekday']].append(value)
+            factors = {}
+            for wd in range(7):
+                bucket = buckets.get(wd) or []
+                if not bucket:
+                    factors[wd] = 1.0
+                    continue
+                raw = (sum(bucket) / len(bucket)) / global_avg
+                # Shrink factors toward 1.0 when there is little data for that weekday
+                coverage = min(len(bucket) / 3.0, 1.0)
+                smoothed = 1.0 + ((raw - 1.0) * coverage)
+                factors[wd] = max(0.55, min(1.8, smoothed))
+            return factors
+
+        rev_wd = weekday_factors(rev_series)
+        ord_wd = weekday_factors(ord_series)
+
+        # Residual-based uncertainty estimate
+        def residual_std(series, intercept, slope, factors):
+            if not series:
+                return 0.0, None
+            residuals = []
+            ape = []
+            for i, p in enumerate(recent_points):
+                fitted_base = intercept + slope * i
+                fitted = max(fitted_base * factors.get(p['weekday'], 1.0), 0.0)
+                actual = float(series[i] or 0.0)
+                residuals.append(actual - fitted)
+                if actual > 0:
+                    ape.append(abs(actual - fitted) / actual)
+            variance = (sum(r * r for r in residuals) / len(residuals)) if residuals else 0.0
+            std = variance ** 0.5
+            mape = (sum(ape) / len(ape)) if ape else None
+            return std, mape
+
+        rev_std, rev_mape = residual_std(rev_series, rev_intercept, rev_slope, rev_wd)
+        ord_std, ord_mape = residual_std(ord_series, ord_intercept, ord_slope, ord_wd)
+
+        last_date = recent_points[-1]['date']
         labels = []
         dates = []
         revenue = []
         orders_fc = []
-        for i in range(1, num_days + 1):
-            fc_date = last_date + timedelta(days=i)
-            avg_rev, avg_ord = weekday_avg[fc_date.weekday()]
+        revenue_lower = []
+        revenue_upper = []
+        orders_lower = []
+        orders_upper = []
+        z_score_80 = 1.2816
+
+        for day_ahead in range(1, num_days + 1):
+            fc_date = last_date + timedelta(days=day_ahead)
+            wd = fc_date.weekday()
+            # Trend baseline
+            rev_base = rev_intercept + rev_slope * (n - 1 + day_ahead)
+            ord_base = ord_intercept + ord_slope * (n - 1 + day_ahead)
+            # Weekday-adjusted
+            rev_pred = max(rev_base * rev_wd.get(wd, 1.0), 0.0)
+            ord_pred = max(ord_base * ord_wd.get(wd, 1.0), 0.0)
+            # Uncertainty grows with horizon
+            scale = (1.0 + (day_ahead - 1) * 0.18) ** 0.5
+            rev_margin = z_score_80 * rev_std * scale
+            ord_margin = z_score_80 * ord_std * scale
+
             labels.append(fc_date.strftime('%d/%m'))
             dates.append(fc_date.strftime('%Y-%m-%d'))
-            revenue.append(round(avg_rev, 2))
-            orders_fc.append(max(round(avg_ord), 0))
+
+            revenue.append(round(rev_pred, 2))
+            orders_fc.append(max(int(round(ord_pred)), 0))
+            revenue_lower.append(round(max(rev_pred - rev_margin, 0.0), 2))
+            revenue_upper.append(round(max(rev_pred + rev_margin, 0.0), 2))
+            orders_lower.append(max(int(round(ord_pred - ord_margin)), 0))
+            orders_upper.append(max(int(round(ord_pred + ord_margin)), 0))
+
+        # Basic forecast quality label from in-sample MAPE
+        avg_mape = None
+        if rev_mape is not None and ord_mape is not None:
+            avg_mape = (rev_mape + ord_mape) / 2
+        elif rev_mape is not None:
+            avg_mape = rev_mape
+        elif ord_mape is not None:
+            avg_mape = ord_mape
+
+        if avg_mape is None:
+            quality = 'unknown'
+        elif avg_mape < 0.20 and n >= 14:
+            quality = 'high'
+        elif avg_mape < 0.35:
+            quality = 'medium'
+        else:
+            quality = 'low'
 
         return {
             'labels': labels,
             'dates': dates,
             'revenue': revenue,
-            'orders': orders_fc
+            'orders': orders_fc,
+            'revenue_lower': revenue_lower,
+            'revenue_upper': revenue_upper,
+            'orders_lower': orders_lower,
+            'orders_upper': orders_upper,
+            'confidence_level': 80,
+            'horizon_days': num_days,
+            'model': 'trend_weekday_v2',
+            'expected_totals': {
+                'revenue': round(sum(revenue), 2),
+                'orders': int(sum(orders_fc))
+            },
+            'quality': {
+                'sample_size': n,
+                'mape_pct': round((avg_mape * 100), 1) if avg_mape is not None else None,
+                'rating': quality
+            }
         }
-
     @staticmethod
     def generate_charts_data(orders: List[Dict]) -> Dict:
         """Generate chart data from orders with full date information for filtering"""
@@ -506,7 +633,7 @@ class IFoodDataProcessor:
                 },
                 # Available months for filtering
                 'available_months': available_months,
-                # 7-day forecast based on day-of-week weighted averages
+                # Forecast generated with trend + weekday seasonality model
                 'forecast': IFoodDataProcessor.generate_forecast(daily_data),
                 # Include all orders data for feedback processing
                 'orders_data': orders
@@ -699,12 +826,12 @@ if __name__ == "__main__":
     print("=" * 60)
     print("\nThis module processes iFood API data with complete financial metrics")
     print("\nFeatures:")
-    print("✓ Process merchant details and orders")
-    print("✓ Calculate gross and net revenue")
-    print("✓ Track discounts and benefits")
-    print("✓ Count new customers")
-    print("✓ Calculate via loja (cash) orders")
-    print("✓ Estimate support tickets (chamados)")
-    print("✓ Calculate open hours (tempo aberto)")
-    print("✓ Generate chart data (daily, hourly)")
-    print("✓ Support for interruptions/closures")
+    print("- Process merchant details and orders")
+    print("- Calculate gross and net revenue")
+    print("- Track discounts and benefits")
+    print("- Count new customers")
+    print("- Calculate via loja (cash) orders")
+    print("- Estimate support tickets (chamados)")
+    print("- Calculate open hours (tempo aberto)")
+    print("- Generate chart data (daily, hourly)")
+    print("- Support for interruptions/closures")

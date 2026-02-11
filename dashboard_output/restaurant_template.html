@@ -549,7 +549,9 @@ function formatCurrency(v) {
 function renderMainChart() {
     if (!chartsData || !chartsData.daily) return;
 
-    const ctx = document.getElementById('mainChart').getContext('2d');
+    const canvas = document.getElementById('mainChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
     if (mainChart) mainChart.destroy();
 
     const data = chartsData.daily;
@@ -562,35 +564,94 @@ function renderMainChart() {
     const histValues = activeChartType === 'revenue' ? data.map(d => d.revenue || d.vendas || 0) :
                  activeChartType === 'orders' ? data.map(d => d.orders || d.pedidos || 0) :
                  data.map(d => d.revenue || d.vendas || 0);
+    if (histValues.length === 0) return;
 
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    const fc = chartsData.forecast;
-    const hasForecast = fc && fc.labels && fc.labels.length > 0;
+    const fc = chartsData.forecast || null;
+    const fcLabels = fc && Array.isArray(fc.labels) ? fc.labels : [];
+    const fcValuesCandidate = fc ? (activeChartType === 'orders' ? fc.orders : fc.revenue) : [];
+    const hasForecast = fcLabels.length > 0 && Array.isArray(fcValuesCandidate) && fcValuesCandidate.length === fcLabels.length;
+    const histLen = histLabels.length;
+    const fcValuesRaw = hasForecast ? fcValuesCandidate : [];
+    const hasInterval = hasForecast && (
+        activeChartType === 'orders'
+            ? Array.isArray(fc.orders_lower) && Array.isArray(fc.orders_upper) &&
+              fc.orders_lower.length === fcValuesRaw.length && fc.orders_upper.length === fcValuesRaw.length
+            : Array.isArray(fc.revenue_lower) && Array.isArray(fc.revenue_upper) &&
+              fc.revenue_lower.length === fcValuesRaw.length && fc.revenue_upper.length === fcValuesRaw.length
+    );
 
-    let allLabels, datasets, boundaryIndex;
+    let allLabels = histLabels;
+    let datasets = [];
+    let boundaryIndex = -1;
+    let fcLower = [];
+    let fcUpper = [];
+    let forecastLineDatasetIndex = -1;
 
     if (hasForecast) {
         boundaryIndex = histLabels.length - 1;
-        const fcLabels = fc.labels;
         allLabels = [...histLabels, ...fcLabels];
-        const fcValues = activeChartType === 'orders' ? fc.orders : fc.revenue;
+        const fcValues = fcValuesRaw;
 
-        // Historical dataset: values for historical indices, null for forecast
         const histData = [...histValues, ...fcValues.map(() => null)];
-        // Forecast dataset: null for historical, but overlap last historical point for connection
         const fcData = [...histValues.map((_, i) => i === boundaryIndex ? histValues[boundaryIndex] : null), ...fcValues];
 
-        datasets = [
-            { data: histData, borderColor: '#f97015', backgroundColor: 'rgba(249,112,21,0.1)', borderWidth: 2, fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: '#f97015', pointBorderColor: isDark ? '#0a0a0a' : '#fff', pointBorderWidth: 2, label: 'Dados' },
-            { data: fcData, borderColor: 'rgba(249,112,21,0.5)', backgroundColor: 'rgba(249,112,21,0.05)', borderWidth: 2, borderDash: [6, 4], fill: true, tension: 0.4, pointRadius: 3, pointHoverRadius: 5, pointBackgroundColor: 'rgba(249,112,21,0.5)', pointBorderColor: isDark ? '#0a0a0a' : '#fff', pointBorderWidth: 2, pointStyle: 'circle', label: 'Previsão' }
-        ];
+        datasets.push(
+            { data: histData, borderColor: '#f97015', backgroundColor: 'rgba(249,112,21,0.1)', borderWidth: 2, fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: '#f97015', pointBorderColor: isDark ? '#0a0a0a' : '#fff', pointBorderWidth: 2, label: 'Dados' }
+        );
+
+        if (hasInterval) {
+            fcLower = activeChartType === 'orders' ? fc.orders_lower : fc.revenue_lower;
+            fcUpper = activeChartType === 'orders' ? fc.orders_upper : fc.revenue_upper;
+            const lowerBandData = [...histValues.map((_, i) => i === boundaryIndex ? histValues[boundaryIndex] : null), ...fcLower];
+            const upperBandData = [...histValues.map((_, i) => i === boundaryIndex ? histValues[boundaryIndex] : null), ...fcUpper];
+
+            datasets.push({
+                data: lowerBandData,
+                borderColor: 'rgba(249,112,21,0)',
+                backgroundColor: 'rgba(249,112,21,0)',
+                borderWidth: 0,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                fill: false,
+                label: 'Forecast Lower'
+            });
+            datasets.push({
+                data: upperBandData,
+                borderColor: 'rgba(249,112,21,0)',
+                backgroundColor: isDark ? 'rgba(249,112,21,0.18)' : 'rgba(249,112,21,0.12)',
+                borderWidth: 0,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                fill: '-1',
+                tension: 0.35,
+                label: 'Forecast Upper'
+            });
+        }
+
+        datasets.push({
+            data: fcData,
+            borderColor: 'rgba(249,112,21,0.65)',
+            backgroundColor: 'rgba(249,112,21,0.03)',
+            borderWidth: 2,
+            borderDash: [6, 4],
+            fill: false,
+            tension: 0.4,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: 'rgba(249,112,21,0.7)',
+            pointBorderColor: isDark ? '#0a0a0a' : '#fff',
+            pointBorderWidth: 2,
+            pointStyle: 'circle',
+            label: 'Previsao'
+        });
+        forecastLineDatasetIndex = datasets.length - 1;
     } else {
         boundaryIndex = -1;
         allLabels = histLabels;
-        datasets = [{ data: histValues, borderColor: '#f97015', backgroundColor: 'rgba(249,112,21,0.1)', borderWidth: 2, fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: '#f97015', pointBorderColor: isDark ? '#0a0a0a' : '#fff', pointBorderWidth: 2 }];
+        datasets = [{ data: histValues, borderColor: '#f97015', backgroundColor: 'rgba(249,112,21,0.1)', borderWidth: 2, fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: '#f97015', pointBorderColor: isDark ? '#0a0a0a' : '#fff', pointBorderWidth: 2, label: 'Dados' }];
     }
 
-    // Plugin: vertical separator line between historical and forecast
     const forecastSeparator = {
         id: 'forecastSeparator',
         afterDraw(chart) {
@@ -605,12 +666,11 @@ function renderMainChart() {
             c.moveTo(xPos, top);
             c.lineTo(xPos, bottom);
             c.stroke();
-            // Label
             c.setLineDash([]);
-            c.font = '10px Inter, sans-serif';
+            c.font = '600 10px Outfit, sans-serif';
             c.fillStyle = isDark ? '#737373' : '#a3a3a3';
             c.textAlign = 'left';
-            c.fillText('Previsão', xPos + 6, top + 12);
+            c.fillText('Previsao', xPos + 6, top + 12);
             c.restore();
         }
     };
@@ -620,21 +680,112 @@ function renderMainChart() {
         data: { labels: allLabels, datasets },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false }, tooltip: { backgroundColor: isDark ? '#262626' : '#fff', titleColor: isDark ? '#fff' : '#171717', bodyColor: isDark ? '#a3a3a3' : '#525252', borderColor: isDark ? '#404040' : '#e5e5e5', borderWidth: 1, padding: 12, cornerRadius: 8, displayColors: false, callbacks: { label: c => { const prefix = c.datasetIndex === 1 ? '(Previsão) ' : ''; return activeChartType === 'orders' ? `${prefix}${c.parsed.y} pedidos` : `${prefix}${formatCurrency(c.parsed.y)}`; } } } },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: isDark ? '#262626' : '#fff',
+                    titleColor: isDark ? '#fff' : '#171717',
+                    bodyColor: isDark ? '#a3a3a3' : '#525252',
+                    borderColor: isDark ? '#404040' : '#e5e5e5',
+                    borderWidth: 1,
+                    padding: 12,
+                    cornerRadius: 8,
+                    displayColors: false,
+                    filter: item => item.dataset.label !== 'Forecast Lower' && item.dataset.label !== 'Forecast Upper',
+                    callbacks: {
+                        label: c => {
+                            const isForecastPoint = hasForecast && c.datasetIndex === forecastLineDatasetIndex && c.dataIndex >= histLen;
+                            const prefix = isForecastPoint ? '(Previsao) ' : '';
+                            if (activeChartType === 'orders') return `${prefix}${Math.round(c.parsed.y)} pedidos`;
+                            return `${prefix}${formatCurrency(c.parsed.y)}`;
+                        },
+                        afterBody: items => {
+                            if (!hasForecast || !hasInterval || !items || items.length === 0) return;
+                            const point = items[0];
+                            const isForecastPoint = point.datasetIndex === forecastLineDatasetIndex && point.dataIndex >= histLen;
+                            if (!isForecastPoint) return;
+                            const i = point.dataIndex - histLen;
+                            const low = fcLower[i];
+                            const high = fcUpper[i];
+                            if (low === undefined || high === undefined) return;
+                            if (activeChartType === 'orders') {
+                                return [`Faixa provavel: ${Math.round(low)}-${Math.round(high)} pedidos`];
+                            }
+                            return [`Faixa provavel: ${formatCurrency(low)} a ${formatCurrency(high)}`];
+                        }
+                    }
+                }
+            },
             scales: { x: { grid: { color: isDark ? '#262626' : '#f5f5f5' }, ticks: { color: isDark ? '#737373' : '#a3a3a3' } }, y: { grid: { color: isDark ? '#262626' : '#f5f5f5' }, ticks: { color: isDark ? '#737373' : '#a3a3a3', callback: v => activeChartType === 'orders' ? v : 'R$ ' + (v / 1000).toFixed(0) + 'k' } } }
         },
         plugins: [forecastSeparator]
     });
 
-    // Stats use only historical values
-    const avg = histValues.reduce((a, b) => a + b, 0) / histValues.length, max = Math.max(...histValues), min = Math.min(...histValues);
+    const avg = histValues.reduce((a, b) => a + b, 0) / histValues.length;
+    const max = Math.max(...histValues);
+    const min = Math.min(...histValues);
     document.getElementById('chartAvg').textContent = activeChartType === 'orders' ? avg.toFixed(0) + ' pedidos' : formatCurrency(avg);
     document.getElementById('chartMax').textContent = activeChartType === 'orders' ? max + ' pedidos' : formatCurrency(max);
     document.getElementById('chartMin').textContent = activeChartType === 'orders' ? min + ' pedidos' : formatCurrency(min);
 
-    // Toggle forecast badge visibility
     const fcBadge = document.getElementById('forecastBadge');
-    if (fcBadge) fcBadge.style.display = hasForecast ? 'inline-flex' : 'none';
+    if (fcBadge) {
+        if (hasForecast) {
+            const horizon = fc.horizon_days || (fc.labels ? fc.labels.length : 7);
+            const confidence = fc.confidence_level || 80;
+            const quality = fc.quality && fc.quality.rating ? String(fc.quality.rating).toLowerCase() : 'unknown';
+            fcBadge.textContent = `Previsao ${horizon}d`;
+            fcBadge.title = `Confianca ${confidence}% | Qualidade ${quality}`;
+            fcBadge.style.display = 'inline-flex';
+        } else {
+            fcBadge.style.display = 'none';
+        }
+    }
+
+    renderForecastSummary(fc, hasForecast, activeChartType);
+}
+
+function renderForecastSummary(fc, hasForecast, chartType) {
+    const stats = document.querySelector('.chart-stats');
+    if (!stats) return;
+
+    let node = document.getElementById('forecastSummary');
+    if (!node) {
+        node = document.createElement('div');
+        node.id = 'forecastSummary';
+        node.className = 'chart-stat';
+        stats.appendChild(node);
+    }
+
+    if (!hasForecast || !fc) {
+        node.style.display = 'none';
+        node.innerHTML = '';
+        return;
+    }
+
+    const horizon = fc.horizon_days || (Array.isArray(fc.labels) ? fc.labels.length : 7);
+    const qualityRaw = fc.quality && fc.quality.rating ? String(fc.quality.rating).toLowerCase() : 'unknown';
+    const qualityMap = { high: 'alta', medium: 'media', low: 'baixa', unknown: 'indefinida' };
+    const quality = qualityMap[qualityRaw] || qualityRaw;
+    const mape = (fc.quality && fc.quality.mape_pct !== null && fc.quality.mape_pct !== undefined)
+        ? `${fc.quality.mape_pct}% MAPE`
+        : 'MAPE n/d';
+
+    let totalText = '-';
+    if (chartType === 'orders') {
+        const totalOrders = (fc.expected_totals && fc.expected_totals.orders !== undefined)
+            ? Number(fc.expected_totals.orders || 0)
+            : (Array.isArray(fc.orders) ? fc.orders.reduce((acc, v) => acc + (Number(v) || 0), 0) : 0);
+        totalText = `${Math.round(totalOrders)} pedidos`;
+    } else {
+        const totalRevenue = (fc.expected_totals && fc.expected_totals.revenue !== undefined)
+            ? Number(fc.expected_totals.revenue || 0)
+            : (Array.isArray(fc.revenue) ? fc.revenue.reduce((acc, v) => acc + (Number(v) || 0), 0) : 0);
+        totalText = formatCurrency(totalRevenue);
+    }
+
+    node.style.display = '';
+    node.innerHTML = `Previsao ${horizon}d: <strong>${totalText}</strong> | Qualidade: <strong>${quality}</strong> | ${mape}`;
 }
 
 function renderHourlyChart() {
