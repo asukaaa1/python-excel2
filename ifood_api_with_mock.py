@@ -179,7 +179,7 @@ class IFoodAPI:
         # Real API call
         return self._request('GET', f'/merchant/v1.0/merchants/{merchant_id}')
     
-    def get_orders(self, merchant_id: str, start_date: str = None, 
+    def get_orders(self, merchant_id: str, start_date: str = None,
                    end_date: str = None, status: str = None) -> List[Dict]:
         """Get orders (real or mock)
         
@@ -205,50 +205,170 @@ class IFoodAPI:
             
             return orders
         
-        # Real API call
-        params = {'merchantId': merchant_id}
-        
+        # Real API flow:
+        # 1) poll order events, 2) resolve order details by order id.
+        polling_headers = {'x-polling-merchants': str(merchant_id)}
+        polling_result = self._request('GET', '/order/v1.0/events:polling', headers=polling_headers)
+        events = self._extract_polling_events(polling_result)
+
+        # Some providers return order-like payloads directly; keep them too.
+        direct_orders = []
+        for item in events:
+            if isinstance(item, dict) and ('orderStatus' in item or 'totalPrice' in item):
+                direct_orders.append(item)
+
+        order_ids = []
+        for event in events:
+            order_id = self._extract_order_id_from_event(event)
+            if order_id:
+                order_ids.append(order_id)
+        # Preserve ordering while deduplicating.
+        dedup_order_ids = list(dict.fromkeys([str(oid) for oid in order_ids if oid]))
+
+        resolved_orders = []
+        for order_id in dedup_order_ids:
+            details = self.get_order_details(order_id)
+            if isinstance(details, dict) and details:
+                resolved_orders.append(details)
+
+        candidate_orders = resolved_orders + direct_orders
+
+        # Fallback attempt: some tenants expose list/search endpoint.
+        if not candidate_orders:
+            fallback_params = {'merchantId': merchant_id}
+            if start_date:
+                fallback_params['createdAtStart'] = f"{start_date}T00:00:00Z"
+            if end_date:
+                fallback_params['createdAtEnd'] = f"{end_date}T23:59:59Z"
+            if status:
+                fallback_params['status'] = status
+            fallback_result = self._request('GET', '/order/v1.0/orders', params=fallback_params)
+            candidate_orders = self._extract_order_payload_list(fallback_result)
+
+        return self._filter_orders(candidate_orders, merchant_id, start_date, end_date, status)
+
+    def get_order_details(self, order_id: str) -> Optional[Dict]:
+        """Resolve full order payload by order id."""
+        if not order_id:
+            return None
+
+        for endpoint in (
+            f'/order/v1.0/orders/{order_id}',
+            f'/orders/{order_id}',
+        ):
+            payload = self._request('GET', endpoint)
+            if isinstance(payload, dict) and payload:
+                if not payload.get('id'):
+                    payload['id'] = order_id
+                return payload
+        return None
+
+    def _extract_polling_events(self, payload) -> List[Dict]:
+        if not payload:
+            return []
+        if isinstance(payload, list):
+            return [p for p in payload if isinstance(p, dict)]
+        if isinstance(payload, dict):
+            for key in ('events', 'data', 'items', 'orders'):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    return [p for p in value if isinstance(p, dict)]
+            return [payload]
+        return []
+
+    def _extract_order_payload_list(self, payload) -> List[Dict]:
+        if not payload:
+            return []
+        if isinstance(payload, list):
+            return [p for p in payload if isinstance(p, dict)]
+        if isinstance(payload, dict):
+            for key in ('orders', 'data', 'items'):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    return [p for p in value if isinstance(p, dict)]
+            return [payload]
+        return []
+
+    def _extract_order_id_from_event(self, event: Dict) -> Optional[str]:
+        if not isinstance(event, dict):
+            return None
+        for key in ('orderId', 'order_id'):
+            value = event.get(key)
+            if value:
+                return str(value)
+        metadata = event.get('metadata')
+        if isinstance(metadata, dict):
+            for key in ('orderId', 'order_id'):
+                value = metadata.get(key)
+                if value:
+                    return str(value)
+        return None
+
+    def _parse_order_datetime(self, raw_value):
+        if not raw_value:
+            return None
+        try:
+            return datetime.fromisoformat(str(raw_value).replace('Z', '+00:00'))
+        except Exception:
+            return None
+
+    def _order_matches_merchant(self, order: Dict, merchant_id: str) -> bool:
+        if not isinstance(order, dict):
+            return False
+        merchant_candidates = [
+            order.get('merchantId'),
+            order.get('merchant_id'),
+            (order.get('merchant') or {}).get('id') if isinstance(order.get('merchant'), dict) else None,
+            (order.get('merchant') or {}).get('merchantId') if isinstance(order.get('merchant'), dict) else None,
+        ]
+        merchant_candidates = [str(c) for c in merchant_candidates if c]
+        if not merchant_candidates:
+            return True  # keep when API omits merchant id in payload
+        return str(merchant_id) in merchant_candidates
+
+    def _filter_orders(self, orders: List[Dict], merchant_id: str, start_date: str = None,
+                       end_date: str = None, status: str = None) -> List[Dict]:
+        start_dt = None
+        end_dt = None
         if start_date:
-            params['createdAtStart'] = f"{start_date}T00:00:00Z"
+            try:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+            except Exception:
+                start_dt = None
         if end_date:
-            params['createdAtEnd'] = f"{end_date}T23:59:59Z"
-        if status:
-            params['status'] = status
-        
-        all_orders = []
-        page = 1
-        per_page = 100
-        
-        while True:
-            params['page'] = page
-            params['size'] = per_page
-            
-            result = self._request('GET', '/order/v1.0/events:polling', params=params)
-            
-            if not result:
-                break
-            
-            orders = []
-            if isinstance(result, list):
-                orders = result
-            elif isinstance(result, dict):
-                if 'data' in result:
-                    orders = result['data']
-                elif 'orders' in result:
-                    orders = result['orders']
-            
-            if not orders:
-                break
-            
-            all_orders.extend(orders)
-            
-            if len(orders) < per_page:
-                break
-            
-            page += 1
-            time.sleep(0.5)
-        
-        return all_orders
+            try:
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+            except Exception:
+                end_dt = None
+
+        filtered = []
+        for order in (orders or []):
+            if not isinstance(order, dict):
+                continue
+            if not self._order_matches_merchant(order, merchant_id):
+                continue
+            if status and str(order.get('orderStatus') or '').upper() != str(status).upper():
+                continue
+            created_at = self._parse_order_datetime(order.get('createdAt') or order.get('created_at'))
+            if created_at:
+                created_date = created_at.date()
+                if start_dt and created_date < start_dt:
+                    continue
+                if end_dt and created_date > end_dt:
+                    continue
+            filtered.append(order)
+
+        # De-duplicate by order id when possible.
+        dedup = {}
+        for order in filtered:
+            key = str(
+                order.get('id')
+                or order.get('orderId')
+                or order.get('displayId')
+                or f"{order.get('createdAt')}:{order.get('orderStatus')}"
+            )
+            dedup[key] = order
+        return list(dedup.values())
     
     def get_interruptions(self, merchant_id: str) -> List[Dict]:
         """Get store interruptions/temporary closures"""
@@ -351,7 +471,7 @@ class IFoodAPI:
             return result.get('merchants', [])
         return []
 
-    def _request_via_urllib(self, method: str, endpoint: str, params: Dict = None, data: Dict = None) -> Optional[Dict]:
+    def _request_via_urllib(self, method: str, endpoint: str, params: Dict = None, data: Dict = None, headers: Dict = None) -> Optional[Dict]:
         """Fallback HTTP path used when requests stack is unstable."""
         timeout_seconds = float(os.environ.get('IFOOD_HTTP_TIMEOUT', 20))
         params = params or {}
@@ -360,16 +480,19 @@ class IFoodAPI:
         if query:
             url = f"{url}?{query}"
 
-        headers = {'Accept': 'application/json'}
-        if self.access_token:
-            headers['Authorization'] = f'Bearer {self.access_token}'
+        request_headers = {'Accept': 'application/json'}
+        if isinstance(headers, dict):
+            request_headers.update(headers)
+        if self.access_token and 'Authorization' not in request_headers:
+            request_headers['Authorization'] = f'Bearer {self.access_token}'
         body = None
         method_upper = str(method or '').upper()
         if method_upper in ('POST', 'PUT'):
             body = json.dumps(data or {}).encode('utf-8')
-            headers['Content-Type'] = 'application/json'
+            if 'Content-Type' not in request_headers:
+                request_headers['Content-Type'] = 'application/json'
 
-        req = Request(url, data=body, method=method_upper, headers=headers)
+        req = Request(url, data=body, method=method_upper, headers=request_headers)
         try:
             with self._urllib_opener.open(req, timeout=timeout_seconds) as resp:
                 status = int(getattr(resp, 'status', 200) or 200)
@@ -396,7 +519,7 @@ class IFoodAPI:
             print(f"Request error (urllib): {err}")
             return None
     
-    def _request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None) -> Optional[Dict]:
+    def _request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None, headers: Dict = None) -> Optional[Dict]:
         """Make API request with bounded retries (no recursion)."""
         if self.use_mock_data:
             return None
@@ -410,7 +533,7 @@ class IFoodAPI:
                 return None
 
             if self._http_client == 'urllib':
-                fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data)
+                fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data, headers=headers)
                 if isinstance(fallback_result, dict) and fallback_result.get('__unauthorized__'):
                     self.access_token = None
                     self.token_expires_at = None
@@ -421,13 +544,13 @@ class IFoodAPI:
 
             try:
                 if method == 'GET':
-                    response = self.session.get(url, params=params, timeout=timeout_seconds)
+                    response = self.session.get(url, params=params, timeout=timeout_seconds, headers=headers)
                 elif method == 'POST':
-                    response = self.session.post(url, json=data, params=params, timeout=timeout_seconds)
+                    response = self.session.post(url, json=data, params=params, timeout=timeout_seconds, headers=headers)
                 elif method == 'PUT':
-                    response = self.session.put(url, json=data, params=params, timeout=timeout_seconds)
+                    response = self.session.put(url, json=data, params=params, timeout=timeout_seconds, headers=headers)
                 elif method == 'DELETE':
-                    response = self.session.delete(url, params=params, timeout=timeout_seconds)
+                    response = self.session.delete(url, params=params, timeout=timeout_seconds, headers=headers)
                 else:
                     return None
 
@@ -447,7 +570,7 @@ class IFoodAPI:
 
             except RecursionError:
                 print(f"Request error: recursion detected for {endpoint}; switching to urllib fallback")
-                fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data)
+                fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data, headers=headers)
                 if isinstance(fallback_result, dict) and fallback_result.get('__unauthorized__'):
                     self.access_token = None
                     self.token_expires_at = None
@@ -457,7 +580,7 @@ class IFoodAPI:
                 return fallback_result
             except Exception as e:
                 print(f"Request error: {e}; trying urllib fallback")
-                fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data)
+                fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data, headers=headers)
                 if isinstance(fallback_result, dict) and fallback_result.get('__unauthorized__'):
                     self.access_token = None
                     self.token_expires_at = None

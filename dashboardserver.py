@@ -1476,6 +1476,16 @@ def _load_org_restaurants(org_id):
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     new_data = []
+    existing_orders_by_store = {}
+    for existing_store in (org.get('restaurants') or []):
+        if not isinstance(existing_store, dict):
+            continue
+        existing_id = existing_store.get('id')
+        if not existing_id:
+            continue
+        existing_orders = existing_store.get('_orders_cache') or []
+        if isinstance(existing_orders, list) and existing_orders:
+            existing_orders_by_store[str(existing_id)] = existing_orders
 
     def _fallback_restaurant(merchant_id_value, merchant_name_value, merchant_manager_value, neighborhood_value='Centro'):
         return {
@@ -1547,6 +1557,24 @@ def _load_org_restaurants(org_id):
             orders = api.get_orders(merchant_id, start_date, end_date) or []
         except Exception as e:
             print(f"  WARN Org {org_id}, merchant {merchant_id}: orders fetch failed: {e}")
+
+        previous_orders = existing_orders_by_store.get(str(merchant_id)) or []
+        if previous_orders:
+            if orders:
+                merged = {}
+                for order in previous_orders + orders:
+                    if not isinstance(order, dict):
+                        continue
+                    order_key = str(
+                        order.get('id')
+                        or order.get('orderId')
+                        or order.get('displayId')
+                        or f"{order.get('createdAt')}:{order.get('orderStatus')}"
+                    )
+                    merged[order_key] = order
+                orders = list(merged.values())
+            else:
+                orders = previous_orders
 
         try:
             restaurant_data = IFoodDataProcessor.process_restaurant_data(details, orders, None)
