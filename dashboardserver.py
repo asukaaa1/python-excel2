@@ -180,6 +180,16 @@ REDIS_REFRESH_QUEUE = 'timo:jobs:refresh'
 REDIS_REFRESH_STATUS_KEY = 'timo:refresh:status'
 REDIS_REFRESH_LOCK_KEY = 'timo:refresh:lock'
 REDIS_CACHE_PREFIX = 'timo:cache:restaurants'
+try:
+    REDIS_SOCKET_TIMEOUT_SECONDS = float(os.environ.get('REDIS_SOCKET_TIMEOUT_SECONDS', '35') or 35)
+except Exception:
+    REDIS_SOCKET_TIMEOUT_SECONDS = 35.0
+REDIS_SOCKET_TIMEOUT_SECONDS = max(5.0, REDIS_SOCKET_TIMEOUT_SECONDS)
+try:
+    REDIS_CONNECT_TIMEOUT_SECONDS = float(os.environ.get('REDIS_CONNECT_TIMEOUT_SECONDS', '5') or 5)
+except Exception:
+    REDIS_CONNECT_TIMEOUT_SECONDS = 5.0
+REDIS_CONNECT_TIMEOUT_SECONDS = max(1.0, REDIS_CONNECT_TIMEOUT_SECONDS)
 
 
 def get_redis_client():
@@ -190,7 +200,12 @@ def get_redis_client():
     if not (_HAS_REDIS and REDIS_URL):
         return None
     try:
-        _REDIS_CLIENT = redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=3, socket_connect_timeout=3)
+        _REDIS_CLIENT = redis.Redis.from_url(
+            REDIS_URL,
+            decode_responses=True,
+            socket_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
+            socket_connect_timeout=REDIS_CONNECT_TIMEOUT_SECONDS
+        )
         _REDIS_CLIENT.ping()
         return _REDIS_CLIENT
     except Exception as e:
