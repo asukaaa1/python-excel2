@@ -1,6 +1,6 @@
 {
-  "client_id": "your_ifood_client_id_here",
-  "client_secret": "your_ifood_client_secret_here",
+  "client_id": "e9a8b9ad-87af-4e34-a3b6-b6d05c97ee21",
+  "client_secret": "zfytk0q9r1q8q8z82kyr6i17nrfrv0jnfs9hntyhdim31xstvlmr4rsl1k3c9ho5lt4n236t5btsss442u7rr6dcxall8dcd081",
   "data_fetch_days": 30,
   "refresh_interval_minutes": 30,
   "merchants": []
