@@ -10,6 +10,99 @@ import random
 
 class IFoodDataProcessor:
     """Process iFood API data for dashboard display with complete metrics"""
+
+    @staticmethod
+    def _safe_float(value, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return float(default)
+
+    @staticmethod
+    def _normalize_status_value(status_value) -> str:
+        if isinstance(status_value, dict):
+            status_value = (
+                status_value.get('orderStatus')
+                or status_value.get('status')
+                or status_value.get('state')
+                or status_value.get('fullCode')
+                or status_value.get('code')
+            )
+
+        status = str(status_value or '').strip().upper()
+        if not status:
+            return 'UNKNOWN'
+
+        status = status.replace('-', '_').replace(' ', '_')
+        if status == 'CANCELED':
+            status = 'CANCELLED'
+
+        if 'CANCEL' in status or status in {'CAN', 'REJECTED', 'DECLINED'}:
+            return 'CANCELLED'
+        if status in {'CONCLUDED', 'COMPLETED', 'DELIVERED', 'FINISHED'}:
+            return 'CONCLUDED'
+        if status in {'CONFIRMED', 'PLACED', 'CREATED', 'PREPARING', 'READY', 'HANDOFF', 'IN_TRANSIT', 'DISPATCHED', 'PICKED_UP'}:
+            return 'CONFIRMED'
+
+        return status
+
+    @staticmethod
+    def _get_order_status(order: Dict) -> str:
+        if not isinstance(order, dict):
+            return 'UNKNOWN'
+
+        for key in ('orderStatus', 'status', 'state', 'fullCode', 'code'):
+            normalized = IFoodDataProcessor._normalize_status_value(order.get(key))
+            if normalized != 'UNKNOWN':
+                return normalized
+
+        metadata = order.get('metadata')
+        if isinstance(metadata, dict):
+            for key in ('orderStatus', 'status', 'state', 'fullCode', 'code'):
+                normalized = IFoodDataProcessor._normalize_status_value(metadata.get(key))
+                if normalized != 'UNKNOWN':
+                    return normalized
+
+        return 'UNKNOWN'
+
+    @staticmethod
+    def _order_amount(order: Dict) -> float:
+        if not isinstance(order, dict):
+            return 0.0
+
+        total_price = order.get('totalPrice')
+        if total_price is not None:
+            return IFoodDataProcessor._safe_float(total_price, 0.0)
+
+        total = order.get('total')
+        if isinstance(total, dict):
+            for key in ('orderAmount', 'totalPrice'):
+                if total.get(key) is not None:
+                    return IFoodDataProcessor._safe_float(total.get(key), 0.0)
+            subtotal = IFoodDataProcessor._safe_float(total.get('subTotal', 0), 0.0)
+            delivery_fee = IFoodDataProcessor._safe_float(total.get('deliveryFee', 0), 0.0)
+            combined = subtotal + delivery_fee
+            if combined > 0:
+                return combined
+        return 0.0
+
+    @staticmethod
+    def _gross_amount(order: Dict) -> float:
+        total = order.get('total') if isinstance(order, dict) else None
+        if isinstance(total, dict):
+            subtotal = IFoodDataProcessor._safe_float(total.get('subTotal', 0), 0.0)
+            delivery_fee = IFoodDataProcessor._safe_float(total.get('deliveryFee', 0), 0.0)
+            gross = subtotal + delivery_fee
+            if gross > 0:
+                return gross
+        return IFoodDataProcessor._order_amount(order)
+
+    @staticmethod
+    def _discount_amount(order: Dict) -> float:
+        total = order.get('total') if isinstance(order, dict) else None
+        if isinstance(total, dict):
+            return IFoodDataProcessor._safe_float(total.get('benefits', 0), 0.0)
+        return 0.0
     
     @staticmethod
     def process_restaurant_data(merchant_details: Dict, orders: List[Dict], 
@@ -38,30 +131,25 @@ class IFoodDataProcessor:
                 manager = 'Gerente'
             
             
-            # Filter concluded orders
-            concluded_orders = [o for o in orders if o.get('orderStatus') == 'CONCLUDED']
-            all_orders_count = len(orders)
-            cancelled_orders = [o for o in orders if o.get('orderStatus') == 'CANCELLED']
+            valid_orders = [o for o in (orders or []) if isinstance(o, dict)]
+
+            # Filter by normalized status so test/sandbox payload variants are counted.
+            concluded_orders = [o for o in valid_orders if IFoodDataProcessor._get_order_status(o) == 'CONCLUDED']
+            all_orders_count = len(valid_orders)
+            cancelled_orders = [o for o in valid_orders if IFoodDataProcessor._get_order_status(o) == 'CANCELLED']
             
             # Calculate gross revenue (valor bruto)
-            gross_revenue = sum(
-                float(o.get('total', {}).get('subTotal', 0) or 0) +
-                float(o.get('total', {}).get('deliveryFee', 0) or 0)
-                for o in concluded_orders
-            )
+            gross_revenue = sum(IFoodDataProcessor._gross_amount(o) for o in concluded_orders)
             
             # Calculate total discounts/benefits
-            total_discounts = sum(
-                float(o.get('total', {}).get('benefits', 0) or 0)
-                for o in concluded_orders
-            )
+            total_discounts = sum(IFoodDataProcessor._discount_amount(o) for o in concluded_orders)
             
             # Calculate net revenue (líquido = gross - discounts)
             net_revenue = gross_revenue - total_discounts
             
             # Calculate "Via Loja" (cash/merchant liability payments)
             via_loja = sum(
-                float(o.get('totalPrice', 0) or 0)
+                IFoodDataProcessor._order_amount(o)
                 for o in concluded_orders
                 if o.get('payment', {}).get('liability') == 'MERCHANT'
             )
@@ -81,8 +169,9 @@ class IFoodDataProcessor:
             average_rating = sum(ratings) / len(ratings) if ratings else 0
             
             # Calculate metrics
-            total_orders = len(concluded_orders)
-            average_ticket = net_revenue / total_orders if total_orders > 0 else 0
+            concluded_orders_count = len(concluded_orders)
+            total_orders = all_orders_count
+            average_ticket = net_revenue / concluded_orders_count if concluded_orders_count > 0 else 0
             discount_percentage = (total_discounts / gross_revenue * 100) if gross_revenue > 0 else 0
             cancellation_rate = (len(cancelled_orders) / all_orders_count * 100) if all_orders_count > 0 else 0
             
@@ -127,19 +216,15 @@ class IFoodDataProcessor:
                 
                 # Calculate metrics for first half
                 fh_orders = len(first_half)
-                fh_gross = sum(
-                    float(o.get('total', {}).get('subTotal', 0) or 0) +
-                    float(o.get('total', {}).get('deliveryFee', 0) or 0)
-                    for o in first_half
-                )
+                fh_gross = sum(IFoodDataProcessor._gross_amount(o) for o in first_half)
                 fh_discounts = sum(
-                    float(o.get('total', {}).get('benefits', 0) or 0)
+                    IFoodDataProcessor._discount_amount(o)
                     for o in first_half
                 )
                 fh_net = fh_gross - fh_discounts
                 fh_ticket = fh_net / fh_orders if fh_orders > 0 else 0
                 fh_via_loja = sum(
-                    float(o.get('totalPrice', 0) or 0)
+                    IFoodDataProcessor._order_amount(o)
                     for o in first_half
                     if o.get('payment', {}).get('liability') == 'MERCHANT'
                 )
@@ -150,19 +235,15 @@ class IFoodDataProcessor:
                 
                 # Calculate metrics for second half
                 sh_orders = len(second_half)
-                sh_gross = sum(
-                    float(o.get('total', {}).get('subTotal', 0) or 0) +
-                    float(o.get('total', {}).get('deliveryFee', 0) or 0)
-                    for o in second_half
-                )
+                sh_gross = sum(IFoodDataProcessor._gross_amount(o) for o in second_half)
                 sh_discounts = sum(
-                    float(o.get('total', {}).get('benefits', 0) or 0)
+                    IFoodDataProcessor._discount_amount(o)
                     for o in second_half
                 )
                 sh_net = sh_gross - sh_discounts
                 sh_ticket = sh_net / sh_orders if sh_orders > 0 else 0
                 sh_via_loja = sum(
-                    float(o.get('totalPrice', 0) or 0)
+                    IFoodDataProcessor._order_amount(o)
                     for o in second_half
                     if o.get('payment', {}).get('liability') == 'MERCHANT'
                 )
@@ -172,9 +253,9 @@ class IFoodDataProcessor:
                 )
                 
                 # Calculate cancelled orders trend
-                mid_all = len(orders) // 2
-                fh_cancelled = len([o for o in orders[:mid_all] if o.get('orderStatus') == 'CANCELLED'])
-                sh_cancelled = len([o for o in orders[mid_all:] if o.get('orderStatus') == 'CANCELLED'])
+                mid_all = len(valid_orders) // 2
+                fh_cancelled = len([o for o in valid_orders[:mid_all] if IFoodDataProcessor._get_order_status(o) == 'CANCELLED'])
+                sh_cancelled = len([o for o in valid_orders[mid_all:] if IFoodDataProcessor._get_order_status(o) == 'CANCELLED'])
                 
                 # Calculate percentage changes
                 def calc_trend(old_val, new_val):
@@ -233,14 +314,14 @@ class IFoodDataProcessor:
                 'orders': total_orders,
                 'ticket': average_ticket,
                 'trend': trend,
-                'approval_rate': ((total_orders / all_orders_count * 100) if all_orders_count > 0 else 95.0),
+                'approval_rate': ((concluded_orders_count / all_orders_count * 100) if all_orders_count > 0 else 95.0),
                 'avatar_color': IFoodDataProcessor._generate_color(name),
                 'rating': round(average_rating, 1),  # Average rating from feedback
                 'isSuper': is_super,  # iFood Super restaurant status
                 # Complete metrics structure for frontend
                 'metrics': {
-                    'vendas': total_orders,
-                    'total_pedidos': total_orders,  # Backward compatibility alias
+                    'vendas': concluded_orders_count,
+                    'total_pedidos': total_orders,
                     'ticket_medio': average_ticket,
                     'valor_bruto': gross_revenue,
                     'liquido': net_revenue,
@@ -319,9 +400,7 @@ class IFoodDataProcessor:
             monthly_data = {}
             hourly_data = {str(h).zfill(2): {'orders': 0, 'revenue': 0} for h in range(24)}
             
-            concluded_orders = [o for o in orders if o.get('orderStatus') == 'CONCLUDED']
-            
-            for order in concluded_orders:
+            for order in (orders or []):
                 created_at = order.get('createdAt', '') or order.get('created_at', '')
                 if not created_at:
                     continue
@@ -338,8 +417,8 @@ class IFoodDataProcessor:
                     month_key = order_date.strftime('%Y-%m')
                     month_label = order_date.strftime('%m/%Y')
                     
-                    amount = order.get('totalPrice', 0) or order.get('total', {}).get('orderAmount', 0)
-                    amount = float(amount) if amount else 0
+                    amount = IFoodDataProcessor._order_amount(order)
+                    status = IFoodDataProcessor._get_order_status(order)
                     
                     # Daily data with full date for filtering
                     if date_key not in daily_data:
@@ -351,7 +430,8 @@ class IFoodDataProcessor:
                             'month': month_key
                         }
                     daily_data[date_key]['orders'] += 1
-                    daily_data[date_key]['revenue'] += amount
+                    if status == 'CONCLUDED':
+                        daily_data[date_key]['revenue'] += amount
                     
                     # Monthly aggregated data
                     if month_key not in monthly_data:
@@ -362,10 +442,12 @@ class IFoodDataProcessor:
                             'month_sort': month_key
                         }
                     monthly_data[month_key]['orders'] += 1
-                    monthly_data[month_key]['revenue'] += amount
+                    if status == 'CONCLUDED':
+                        monthly_data[month_key]['revenue'] += amount
                     
                     hourly_data[hour_key]['orders'] += 1
-                    hourly_data[hour_key]['revenue'] += amount
+                    if status == 'CONCLUDED':
+                        hourly_data[hour_key]['revenue'] += amount
                     
                 except Exception as e:
                     continue
@@ -501,7 +583,7 @@ class IFoodDataProcessor:
         item_map = {}
 
         for order in orders or []:
-            status = str(order.get('orderStatus', '')).upper()
+            status = IFoodDataProcessor._get_order_status(order)
             is_concluded = status == 'CONCLUDED'
             is_cancelled = status == 'CANCELLED'
             rating = order.get('feedback', {}).get('rating')

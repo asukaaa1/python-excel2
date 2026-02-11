@@ -201,7 +201,8 @@ class IFoodAPI:
             
             # Filter by status if requested
             if status:
-                orders = [o for o in orders if o.get('orderStatus') == status]
+                wanted_status = self._normalize_order_status(status)
+                orders = [o for o in orders if self._normalize_order_status(o.get('orderStatus')) == wanted_status]
             
             return orders
         
@@ -312,6 +313,76 @@ class IFoodAPI:
         except Exception:
             return None
 
+    def _normalize_order_status(self, status_value) -> str:
+        if isinstance(status_value, dict):
+            status_value = (
+                status_value.get('orderStatus')
+                or status_value.get('status')
+                or status_value.get('state')
+                or status_value.get('fullCode')
+                or status_value.get('code')
+            )
+
+        status = str(status_value or '').strip().upper()
+        if not status:
+            return 'UNKNOWN'
+
+        status = status.replace('-', '_').replace(' ', '_')
+        if status == 'CANCELED':
+            status = 'CANCELLED'
+        if 'CANCEL' in status or status in ('CAN', 'DECLINED', 'REJECTED'):
+            return 'CANCELLED'
+        if status in ('CONCLUDED', 'COMPLETED', 'DELIVERED', 'FINISHED'):
+            return 'CONCLUDED'
+        if status in ('CONFIRMED', 'PLACED', 'CREATED', 'PREPARING', 'READY', 'HANDOFF', 'IN_TRANSIT', 'DISPATCHED', 'PICKED_UP'):
+            return 'CONFIRMED'
+        return status
+
+    def _get_order_status(self, order: Dict) -> str:
+        if not isinstance(order, dict):
+            return 'UNKNOWN'
+
+        for key in ('orderStatus', 'status', 'state', 'fullCode', 'code'):
+            normalized = self._normalize_order_status(order.get(key))
+            if normalized != 'UNKNOWN':
+                return normalized
+
+        metadata = order.get('metadata')
+        if isinstance(metadata, dict):
+            for key in ('orderStatus', 'status', 'state', 'fullCode', 'code'):
+                normalized = self._normalize_order_status(metadata.get(key))
+                if normalized != 'UNKNOWN':
+                    return normalized
+        return 'UNKNOWN'
+
+    def _normalize_order_payload(self, order: Dict) -> Dict:
+        if not isinstance(order, dict):
+            return order
+
+        order['orderStatus'] = self._get_order_status(order)
+        if not order.get('createdAt'):
+            created_candidate = (
+                order.get('created_at')
+                or order.get('created')
+                or order.get('createdDate')
+                or order.get('creationDate')
+            )
+            if created_candidate:
+                order['createdAt'] = created_candidate
+
+        if not order.get('totalPrice'):
+            total = order.get('total')
+            if isinstance(total, dict):
+                amount = total.get('orderAmount')
+                if amount is None:
+                    try:
+                        amount = float(total.get('subTotal', 0) or 0) + float(total.get('deliveryFee', 0) or 0)
+                    except Exception:
+                        amount = None
+                if amount is not None:
+                    order['totalPrice'] = amount
+        return order
+
     def _order_matches_merchant(self, order: Dict, merchant_id: str) -> bool:
         if not isinstance(order, dict):
             return False
@@ -345,9 +416,10 @@ class IFoodAPI:
         for order in (orders or []):
             if not isinstance(order, dict):
                 continue
+            order = self._normalize_order_payload(order)
             if not self._order_matches_merchant(order, merchant_id):
                 continue
-            if status and str(order.get('orderStatus') or '').upper() != str(status).upper():
+            if status and self._normalize_order_status(order.get('orderStatus')) != self._normalize_order_status(status):
                 continue
             created_at = self._parse_order_datetime(order.get('createdAt') or order.get('created_at'))
             if created_at:

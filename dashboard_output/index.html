@@ -2040,7 +2040,7 @@ let sharedViewToken = null;
         function updateOverviewKPIs() {
             const data = restaurantsData.filter(r => !hiddenStores.includes(r.id));
             const totalRev = data.reduce((s, r) => s + (r.metrics?.liquido ?? r.metrics?.valor_bruto ?? r.revenue ?? 0), 0);
-            const totalOrd = data.reduce((s, r) => s + (r.metrics?.vendas ?? r.orders ?? 0), 0);
+            const totalOrd = data.reduce((s, r) => s + (r.metrics?.total_pedidos ?? r.metrics?.vendas ?? r.orders ?? 0), 0);
             const avgTrend = data.length ? data.reduce((s, r) => s + (r.metrics?.trends?.vendas ?? 0), 0) / data.length : 0;
             document.getElementById('overviewRevenue').textContent = formatCurrency(totalRev);
             document.getElementById('overviewOrders').textContent = formatNumber(totalOrd);
@@ -2066,7 +2066,7 @@ let sharedViewToken = null;
                 switch(currentSortOrder) {
                     case 'name-asc': return a.name.localeCompare(b.name);
                     case 'name-desc': return b.name.localeCompare(a.name);
-                    case 'vendas': return (b.metrics?.totals?.vendas ?? b.metrics?.vendas ?? b.orders ?? 0) - (a.metrics?.totals?.vendas ?? a.metrics?.vendas ?? a.orders ?? 0);
+                    case 'vendas': return (b.metrics?.totals?.vendas ?? b.metrics?.total_pedidos ?? b.metrics?.vendas ?? b.orders ?? 0) - (a.metrics?.totals?.vendas ?? a.metrics?.total_pedidos ?? a.metrics?.vendas ?? a.orders ?? 0);
                     case 'valor-bruto': return (b.metrics?.totals?.valorBruto ?? b.metrics?.valor_bruto ?? b.revenue ?? 0) - (a.metrics?.totals?.valorBruto ?? a.metrics?.valor_bruto ?? a.revenue ?? 0);
                     case 'liquido': return (b.metrics?.totals?.liquido ?? b.metrics?.liquido ?? b.revenue ?? 0) - (a.metrics?.totals?.liquido ?? a.metrics?.liquido ?? a.revenue ?? 0);
                     default: return 0;
@@ -2095,7 +2095,7 @@ let sharedViewToken = null;
                 const trends = m.trends || {};
                 
                 // Use metrics values, fallback to top-level values if needed
-                const vendas = totals.vendas ?? m.vendas ?? r.orders ?? 0;
+                const vendas = totals.vendas ?? m.total_pedidos ?? m.vendas ?? r.orders ?? 0;
                 const ticketMedio = totals.ticket_medio ?? m.ticket_medio ?? r.ticket ?? 0;
                 const valorBruto = totals.valorBruto ?? m.valor_bruto ?? r.revenue ?? 0;
                 const liquido = totals.liquido ?? m.liquido ?? r.revenue ?? 0;

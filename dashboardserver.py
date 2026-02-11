@@ -640,6 +640,89 @@ def sanitize_restaurant_payload(restaurant):
     return {k: v for k, v in restaurant.items() if not k.startswith('_')}
 
 
+def normalize_order_status_value(status_value):
+    """Canonicalize diverse order status payloads into dashboard-friendly values."""
+    if isinstance(status_value, dict):
+        status_value = (
+            status_value.get('orderStatus')
+            or status_value.get('status')
+            or status_value.get('state')
+            or status_value.get('fullCode')
+            or status_value.get('code')
+        )
+
+    status = str(status_value or '').strip().upper()
+    if not status:
+        return 'UNKNOWN'
+
+    status = status.replace('-', '_').replace(' ', '_')
+    if status == 'CANCELED':
+        status = 'CANCELLED'
+
+    if 'CANCEL' in status or status in {'CAN', 'DECLINED', 'REJECTED'}:
+        return 'CANCELLED'
+
+    if status in {'CONCLUDED', 'COMPLETED', 'DELIVERED', 'FINISHED'}:
+        return 'CONCLUDED'
+
+    if status in {'CONFIRMED', 'PLACED', 'CREATED', 'PREPARING', 'READY', 'HANDOFF', 'IN_TRANSIT', 'DISPATCHED', 'PICKED_UP'}:
+        return 'CONFIRMED'
+
+    return status
+
+
+def get_order_status(order):
+    if not isinstance(order, dict):
+        return 'UNKNOWN'
+
+    for key in ('orderStatus', 'status', 'state', 'fullCode', 'code'):
+        normalized = normalize_order_status_value(order.get(key))
+        if normalized != 'UNKNOWN':
+            return normalized
+
+    metadata = order.get('metadata')
+    if isinstance(metadata, dict):
+        for key in ('orderStatus', 'status', 'state', 'fullCode', 'code'):
+            normalized = normalize_order_status_value(metadata.get(key))
+            if normalized != 'UNKNOWN':
+                return normalized
+
+    return 'UNKNOWN'
+
+
+def normalize_order_payload(order):
+    """Best-effort normalization so downstream metrics use consistent fields."""
+    if not isinstance(order, dict):
+        return order
+
+    normalized_status = get_order_status(order)
+    order['orderStatus'] = normalized_status
+
+    if not order.get('createdAt'):
+        created_candidate = (
+            order.get('created_at')
+            or order.get('created')
+            or order.get('createdDate')
+            or order.get('creationDate')
+        )
+        if created_candidate:
+            order['createdAt'] = created_candidate
+
+    if not order.get('totalPrice'):
+        total = order.get('total')
+        if isinstance(total, dict):
+            amount = total.get('orderAmount')
+            if amount is None:
+                try:
+                    amount = float(total.get('subTotal', 0) or 0) + float(total.get('deliveryFee', 0) or 0)
+                except Exception:
+                    amount = None
+            if amount is not None:
+                order['totalPrice'] = amount
+
+    return order
+
+
 def filter_orders_by_month(orders, month_filter):
     if month_filter == 'all':
         return orders
@@ -647,6 +730,7 @@ def filter_orders_by_month(orders, month_filter):
     filtered = []
     for order in orders:
         try:
+            normalize_order_payload(order)
             created_at = order.get('createdAt')
             if not created_at:
                 continue
@@ -668,7 +752,7 @@ def aggregate_dashboard_summary(restaurants):
     for restaurant in restaurants:
         metrics = restaurant.get('metrics', {})
         trends = metrics.get('trends') or {}
-        total_orders += int(metrics.get('vendas') or 0)
+        total_orders += int(metrics.get('total_pedidos') or metrics.get('vendas') or 0)
         gross_revenue += float(metrics.get('valor_bruto') or 0)
         net_revenue += float(metrics.get('liquido') or 0)
         trend_vendas = float(trends.get('vendas') or 0)
@@ -689,7 +773,8 @@ def aggregate_dashboard_summary(restaurants):
 
 
 def _parse_order_datetime(order):
-    created_at = (order or {}).get('createdAt')
+    normalized_order = normalize_order_payload(order or {})
+    created_at = (normalized_order or {}).get('createdAt')
     if not created_at:
         return None
     try:
@@ -1575,6 +1660,13 @@ def _load_org_restaurants(org_id):
                 orders = list(merged.values())
             else:
                 orders = previous_orders
+
+        normalized_orders = []
+        for order in (orders or []):
+            if not isinstance(order, dict):
+                continue
+            normalized_orders.append(normalize_order_payload(order))
+        orders = normalized_orders
 
         try:
             restaurant_data = IFoodDataProcessor.process_restaurant_data(details, orders, None)
@@ -3297,7 +3389,11 @@ def api_restaurant_detail(restaurant_id):
             return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
         
         # Get all orders from cache
-        all_orders = restaurant.get('_orders_cache', [])
+        all_orders = [
+            normalize_order_payload(o)
+            for o in (restaurant.get('_orders_cache', []) or [])
+            if isinstance(o, dict)
+        ]
         
         # Filter orders by date range if provided
         filtered_orders = all_orders
@@ -3305,7 +3401,7 @@ def api_restaurant_detail(restaurant_id):
             filtered_orders = []
             for order in all_orders:
                 try:
-                    order_date_str = order.get('createdAt', '')
+                    order_date_str = normalize_order_payload(order).get('createdAt', '')
                     if order_date_str:
                         # Parse order date
                         order_date = datetime.fromisoformat(order_date_str.replace('Z', '+00:00')).date()
@@ -3451,12 +3547,17 @@ def api_restaurant_orders(restaurant_id):
         page = max(1, page)
         status = request.args.get('status')
         
-        # Get orders from cache
-        orders = restaurant.get('_orders_cache', [])
+        # Get orders from cache (normalized for consistent filtering and display)
+        orders = [
+            normalize_order_payload(o)
+            for o in (restaurant.get('_orders_cache', []) or [])
+            if isinstance(o, dict)
+        ]
         
         # Filter by status if provided
         if status:
-            orders = [o for o in orders if o.get('orderStatus') == status]
+            wanted_status = normalize_order_status_value(status)
+            orders = [o for o in orders if get_order_status(o) == wanted_status]
         
         # Paginate
         start_idx = (page - 1) * per_page
@@ -4079,7 +4180,7 @@ def _filter_orders_by_date(orders, start_dt, end_dt):
     
     for order in orders:
         try:
-            created = order.get('createdAt', '')
+            created = normalize_order_payload(order).get('createdAt', '')
             if created:
                 order_date = datetime.fromisoformat(created.replace('Z', '+00:00')).date()
                 if start_d <= order_date <= end_d:
@@ -4091,8 +4192,8 @@ def _filter_orders_by_date(orders, start_dt, end_dt):
 
 def _calculate_period_metrics(orders):
     """Calculate key metrics for a set of orders"""
-    concluded = [o for o in orders if o.get('orderStatus') == 'CONCLUDED']
-    cancelled = [o for o in orders if o.get('orderStatus') == 'CANCELLED']
+    concluded = [o for o in orders if get_order_status(o) == 'CONCLUDED']
+    cancelled = [o for o in orders if get_order_status(o) == 'CANCELLED']
     
     revenue = sum(float(o.get('totalPrice', 0) or 0) for o in concluded)
     order_count = len(concluded)
@@ -4131,14 +4232,15 @@ def _aggregate_daily(orders, start_dt, end_dt):
     
     for order in orders:
         try:
-            created = order.get('createdAt', '')
+            created = normalize_order_payload(order).get('createdAt', '')
             if created:
                 d = datetime.fromisoformat(created.replace('Z', '+00:00')).date().isoformat()
                 if d in days:
-                    if order.get('orderStatus') == 'CONCLUDED':
+                    status = get_order_status(order)
+                    if status == 'CONCLUDED':
                         days[d]['revenue'] += float(order.get('totalPrice', 0) or 0)
                         days[d]['orders'] += 1
-                    elif order.get('orderStatus') == 'CANCELLED':
+                    elif status == 'CANCELLED':
                         days[d]['cancelled'] += 1
         except:
             continue
