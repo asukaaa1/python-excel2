@@ -1123,17 +1123,26 @@ def detect_restaurant_closure(api_client, merchant_id):
     if not closed_by_state:
         validations = status_payload.get('validations') or []
         if isinstance(validations, list):
+            open_validation_statuses = {'OK', 'OPEN', 'AVAILABLE', 'TRUE', 'SUCCESS'}
+            closed_validation_statuses = {'CLOSED', 'OFFLINE', 'UNAVAILABLE', 'PAUSED', 'STOPPED', 'FALSE', 'NOK', 'NOT_OK', 'FAIL', 'FAILED', 'ERROR'}
             for validation in validations:
                 if not isinstance(validation, dict):
                     continue
                 code = str(validation.get('code') or '').strip().lower()
                 validation_status = str(validation.get('status') or '').strip().upper()
                 if code in ('opening-hours', 'opening_hours', 'is-open', 'is_open'):
-                    if validation_status not in ('OK', 'OPEN', 'AVAILABLE', 'TRUE'):
+                    validation_message = str(validation.get('message') or validation.get('description') or '').strip()
+                    validation_message_lower = validation_message.lower()
+                    message_suggests_closed = any(
+                        token in validation_message_lower for token in ('fechad', 'closed', 'indispon', 'offline')
+                    )
+                    if validation_status in closed_validation_statuses or message_suggests_closed:
                         closed_by_state = True
                         if not active_reason:
-                            active_reason = str(validation.get('message') or validation.get('description') or '').strip() or 'Fora do horario de funcionamento'
+                            active_reason = validation_message or 'Fora do horario de funcionamento'
                         break
+                    if validation_status in open_validation_statuses:
+                        continue
 
     if not closed_by_state and message:
         msg_lower = message.lower()
@@ -3546,28 +3555,6 @@ def api_restaurants():
             except Exception:
                 active_interruptions = 0
 
-            status_field = record.get('status')
-            state_candidates = [record.get('state'), record.get('operational_status')]
-            if isinstance(status_field, dict):
-                state_candidates.append(status_field.get('state') or status_field.get('status'))
-                if not reason:
-                    reason = status_field.get('message') or status_field.get('description')
-            elif isinstance(status_field, str):
-                state_candidates.append(status_field)
-
-            state_raw = ' '.join(str(v or '') for v in state_candidates).strip().lower()
-            if not is_closed and state_raw:
-                if any(token in state_raw for token in ('closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
-                    is_closed = True
-
-            reason_text = str(reason or '').strip().lower()
-            if not is_closed and reason_text:
-                if any(token in reason_text for token in ('closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
-                    is_closed = True
-
-            if active_interruptions > 0:
-                is_closed = True
-
             has_explicit_closure_fields = any(
                 key in record
                 for key in (
@@ -3581,6 +3568,28 @@ def api_restaurants():
                     'activeInterruptionsCount'
                 )
             )
+
+            status_field = record.get('status')
+            state_candidates = [record.get('state'), record.get('operational_status')]
+            if isinstance(status_field, dict):
+                state_candidates.append(status_field.get('state') or status_field.get('status'))
+                if not reason:
+                    reason = status_field.get('message') or status_field.get('description')
+            elif isinstance(status_field, str):
+                state_candidates.append(status_field)
+
+            state_raw = ' '.join(str(v or '') for v in state_candidates).strip().lower()
+            if not has_explicit_closure_fields and not is_closed and state_raw:
+                if any(token in state_raw for token in ('closed', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
+                    is_closed = True
+
+            reason_text = str(reason or '').strip().lower()
+            if not has_explicit_closure_fields and not is_closed and reason_text:
+                if any(token in reason_text for token in ('closed', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
+                    is_closed = True
+
+            if active_interruptions > 0:
+                is_closed = True
 
             # Backfill stale cached records that predate closure fields.
             if not has_explicit_closure_fields and api_client and record.get('id'):

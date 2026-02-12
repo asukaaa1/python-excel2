@@ -44,6 +44,9 @@ class IFoodAPI:
         self.access_token = None
         self.token_expires_at = None
         self.last_auth_error = None
+        self._last_http_error = None
+        self._order_list_fallback_supported = True
+        self._order_list_fallback_disabled_logged = False
         self._http_client = str(os.environ.get('IFOOD_HTTP_CLIENT', 'requests')).strip().lower()
         self._trust_env = str(os.environ.get('IFOOD_TRUST_ENV', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
         self.session = requests.Session()
@@ -265,7 +268,7 @@ class IFoodAPI:
         candidate_orders = resolved_orders + direct_orders
 
         # Fallback attempt: some tenants expose list/search endpoint.
-        if not candidate_orders:
+        if not candidate_orders and self._order_list_fallback_supported:
             fallback_params = {'merchantId': merchant_id}
             if start_date:
                 fallback_params['createdAtStart'] = f"{start_date}T00:00:00Z"
@@ -275,6 +278,18 @@ class IFoodAPI:
                 fallback_params['status'] = status
             fallback_result = self._request('GET', '/order/v1.0/orders', params=fallback_params)
             candidate_orders = self._extract_order_payload_list(fallback_result)
+            last_error = self._last_http_error if isinstance(self._last_http_error, dict) else {}
+            if (
+                fallback_result is None
+                and str(last_error.get('endpoint') or '') == '/order/v1.0/orders'
+            ):
+                status_code = int(last_error.get('status') or 0)
+                if status_code in (404, 405):
+                    # Avoid noisy repeated 404 logs for tenants that do not expose this route.
+                    self._order_list_fallback_supported = False
+                    if not self._order_list_fallback_disabled_logged:
+                        print("Order list fallback disabled: /order/v1.0/orders not supported for this credential scope")
+                        self._order_list_fallback_disabled_logged = True
 
         return self._filter_orders(candidate_orders, merchant_id, start_date, end_date, status)
 
@@ -627,15 +642,19 @@ class IFoodAPI:
             with self._urllib_opener.open(req, timeout=timeout_seconds) as resp:
                 status = int(getattr(resp, 'status', 200) or 200)
                 raw = resp.read()
-                if status not in (200, 201, 202):
+                if status not in (200, 201, 202, 204):
+                    self._last_http_error = {'status': status, 'endpoint': endpoint, 'detail': ''}
                     print(f"API Error (urllib): {status} - {endpoint}")
                     return None
+                self._last_http_error = None
                 if not raw:
                     return {}
                 text = raw.decode('utf-8', errors='replace').strip()
                 return json.loads(text) if text else {}
         except HTTPError as http_err:
-            if int(getattr(http_err, 'code', 0) or 0) == 401:
+            status_code = int(getattr(http_err, 'code', 0) or 0)
+            self._last_http_error = {'status': status_code, 'endpoint': endpoint, 'detail': ''}
+            if status_code == 401:
                 # Signal caller to trigger one token refresh attempt.
                 return {'__unauthorized__': True}
             detail = ''
@@ -643,9 +662,11 @@ class IFoodAPI:
                 detail = http_err.read().decode('utf-8', errors='replace')
             except Exception:
                 pass
+            self._last_http_error = {'status': status_code, 'endpoint': endpoint, 'detail': detail or ''}
             print(f"API Error (urllib): {getattr(http_err, 'code', '?')} - {detail}")
             return None
         except Exception as err:
+            self._last_http_error = {'status': 0, 'endpoint': endpoint, 'detail': str(err)}
             print(f"Request error (urllib): {err}")
             return None
     
@@ -684,10 +705,17 @@ class IFoodAPI:
                 else:
                     return None
 
-                if response.status_code in (200, 201, 202):
-                    return response.json() if response.content else {}
+                if response.status_code in (200, 201, 202, 204):
+                    self._last_http_error = None
+                    if not response.content:
+                        return {}
+                    try:
+                        return response.json()
+                    except Exception:
+                        return {}
 
                 if response.status_code == 401:
+                    self._last_http_error = {'status': 401, 'endpoint': endpoint, 'detail': response.text}
                     self.access_token = None
                     self.token_expires_at = None
                     if attempt < (max_attempts - 1):
@@ -695,10 +723,12 @@ class IFoodAPI:
                     print(f"API Error: 401 unauthorized after retry - {endpoint}")
                     return None
 
+                self._last_http_error = {'status': int(response.status_code or 0), 'endpoint': endpoint, 'detail': response.text}
                 print(f"API Error: {response.status_code} - {response.text}")
                 return None
 
             except RecursionError:
+                self._last_http_error = {'status': 0, 'endpoint': endpoint, 'detail': 'recursion_error'}
                 print(f"Request error: recursion detected for {endpoint}; switching to urllib fallback")
                 fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data, headers=headers)
                 if isinstance(fallback_result, dict) and fallback_result.get('__unauthorized__'):
@@ -709,6 +739,7 @@ class IFoodAPI:
                     return None
                 return fallback_result
             except Exception as e:
+                self._last_http_error = {'status': 0, 'endpoint': endpoint, 'detail': str(e)}
                 print(f"Request error: {e}; trying urllib fallback")
                 fallback_result = self._request_via_urllib(method, endpoint, params=params, data=data, headers=headers)
                 if isinstance(fallback_result, dict) and fallback_result.get('__unauthorized__'):

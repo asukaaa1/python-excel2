@@ -2107,9 +2107,12 @@ let sharedViewToken = null;
                 const stateRaw = String(r.state ?? r.operational_status ?? rawStatus?.state ?? rawStatus?.status ?? (typeof r.status === 'string' ? r.status : '') ?? '').trim().toLowerCase();
                 const closureText = String(r.closure_reason ?? rawStatus?.message ?? rawStatus?.description ?? '').trim().toLowerCase();
                 const interruptions = Number(r.active_interruptions_count ?? r.activeInterruptionsCount ?? 0);
-                const stateSuggestsClosed = ['closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon'].some(token => stateRaw.includes(token));
-                const messageSuggestsClosed = ['closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon'].some(token => closureText.includes(token));
-                const isClosed = toBoolFlag(r.is_closed) || toBoolFlag(r.isClosed) || interruptions > 0 || stateSuggestsClosed || messageSuggestsClosed;
+                const closePattern = /\b(closed|offline|unavailable|paused|stopped|fechad[oa]s?|indispon(?:ivel|ível|iveis|íveis)?)\b/i;
+                const hasExplicitClosure = ['is_closed', 'isClosed', 'closure_reason', 'closureReason', 'closed_until', 'closedUntil', 'active_interruptions_count', 'activeInterruptionsCount']
+                    .some((key) => Object.prototype.hasOwnProperty.call(r, key));
+                const stateSuggestsClosed = closePattern.test(stateRaw);
+                const messageSuggestsClosed = closePattern.test(closureText);
+                const isClosed = toBoolFlag(r.is_closed) || toBoolFlag(r.isClosed) || interruptions > 0 || (!hasExplicitClosure && (stateSuggestsClosed || messageSuggestsClosed));
                 const isSuper = toBoolFlag(r.isSuperRestaurant) || toBoolFlag(r.isSuper) || toBoolFlag(r.super);
                 const ratingValue = Number(r.rating);
                 const hasRating = Number.isFinite(ratingValue) && ratingValue > 0;
