@@ -420,6 +420,68 @@ def get_current_org_last_refresh():
     return LAST_DATA_REFRESH
 
 
+def get_resilient_api_client():
+    """
+    Return the best available iFood API client for this request context.
+    Falls back to org init and global init when org-scoped client is absent.
+    """
+    api = get_current_org_api()
+    if api:
+        return api
+
+    org_id = get_current_org_id()
+    if org_id:
+        try:
+            org = get_org_data(org_id)
+            org_api = org.get('api')
+            if org_api:
+                return org_api
+            org_api = _init_org_ifood(org_id)
+            if org_api:
+                org['api'] = org_api
+                return org_api
+        except Exception:
+            pass
+
+    global IFOOD_API
+    try:
+        if not IFOOD_API:
+            initialize_ifood_api()
+    except Exception:
+        pass
+    return IFOOD_API
+
+
+def _restaurant_id_candidates(restaurant: dict):
+    candidates = set()
+    if not isinstance(restaurant, dict):
+        return candidates
+    for key in ('id', 'merchant_id', 'merchantId', 'ifood_merchant_id', '_resolved_merchant_id'):
+        value = restaurant.get(key)
+        if value is not None:
+            text = str(value).strip()
+            if text:
+                candidates.add(text)
+                candidates.add(text.lower())
+    return candidates
+
+
+def find_restaurant_by_identifier(restaurant_id: str, restaurants: Optional[List[Dict]] = None):
+    """Find restaurant by any known identifier alias."""
+    target = str(restaurant_id or '').strip()
+    if not target:
+        return None
+    target_lower = target.lower()
+    pool = restaurants if isinstance(restaurants, list) else get_current_org_restaurants()
+    for restaurant in pool:
+        if not isinstance(restaurant, dict):
+            continue
+        candidates = _restaurant_id_candidates(restaurant)
+        if target in candidates or target_lower in candidates:
+            return restaurant
+    return None
+
+
 def enrich_plan_payload(plan_row):
     """Attach plan marketing metadata used by admin UI."""
     name = (plan_row.get('name') or '').lower()
@@ -802,7 +864,7 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str):
         restaurant['_orders_cache'] = normalized_existing
         return normalized_existing
 
-    api = get_current_org_api()
+    api = get_resilient_api_client()
     if not api or not restaurant_id:
         restaurant['_orders_cache'] = []
         return []
@@ -811,17 +873,110 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str):
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
-    fetched_orders = []
+    def _add_candidate(candidate_list, seen_set, value):
+        candidate = str(value or '').strip()
+        if candidate and candidate not in seen_set:
+            candidate_list.append(candidate)
+            seen_set.add(candidate)
+
+    candidate_ids = []
+    seen_ids = set()
+    _add_candidate(candidate_ids, seen_ids, restaurant_id)
+    _add_candidate(candidate_ids, seen_ids, restaurant.get('merchant_id'))
+    _add_candidate(candidate_ids, seen_ids, restaurant.get('merchantId'))
+    _add_candidate(candidate_ids, seen_ids, restaurant.get('ifood_merchant_id'))
+    _add_candidate(candidate_ids, seen_ids, restaurant.get('_resolved_merchant_id'))
+
+    restaurant_name = str(restaurant.get('name') or '').strip().lower()
+
+    # Try to infer merchant id from configured merchants (org/local config).
     try:
-        fetched_orders = api.get_orders(restaurant_id, start_date, end_date) or []
-    except Exception as e:
-        print(f"WARN merchant {restaurant_id}: on-demand orders hydration failed: {e}")
+        org_id = get_current_org_id()
+        config = {}
+        if org_id:
+            org = get_org_data(org_id)
+            config = org.get('config') or db.get_org_ifood_config(org_id) or {}
+        elif isinstance(IFOOD_CONFIG, dict):
+            config = IFOOD_CONFIG
+
+        configured_merchants = config.get('merchants') if isinstance(config, dict) else []
+        if isinstance(configured_merchants, str):
+            try:
+                configured_merchants = json.loads(configured_merchants)
+            except Exception:
+                configured_merchants = []
+        if isinstance(configured_merchants, list):
+            if len(configured_merchants) == 1 and isinstance(configured_merchants[0], dict):
+                _add_candidate(
+                    candidate_ids,
+                    seen_ids,
+                    configured_merchants[0].get('merchant_id') or configured_merchants[0].get('id')
+                )
+            for merchant in configured_merchants:
+                if not isinstance(merchant, dict):
+                    continue
+                merchant_id_value = merchant.get('merchant_id') or merchant.get('id')
+                merchant_name = str(merchant.get('name') or '').strip().lower()
+                if merchant_name and restaurant_name and (
+                    merchant_name == restaurant_name
+                    or merchant_name in restaurant_name
+                    or restaurant_name in merchant_name
+                ):
+                    _add_candidate(candidate_ids, seen_ids, merchant_id_value)
+    except Exception:
+        pass
+
+    # Last resort: infer from live merchant list.
+    merchants_from_api = []
+    if hasattr(api, 'get_merchants'):
+        try:
+            merchants_from_api = api.get_merchants() or []
+        except Exception:
+            merchants_from_api = []
+    if isinstance(merchants_from_api, list):
+        if len(merchants_from_api) == 1 and isinstance(merchants_from_api[0], dict):
+            _add_candidate(
+                candidate_ids,
+                seen_ids,
+                merchants_from_api[0].get('id') or merchants_from_api[0].get('merchantId')
+            )
+        for merchant in merchants_from_api:
+            if not isinstance(merchant, dict):
+                continue
+            merchant_id_value = merchant.get('id') or merchant.get('merchantId')
+            merchant_name = str(merchant.get('name') or '').strip().lower()
+            if merchant_name and restaurant_name and (
+                merchant_name == restaurant_name
+                or merchant_name in restaurant_name
+                or restaurant_name in merchant_name
+            ):
+                _add_candidate(candidate_ids, seen_ids, merchant_id_value)
+
+    fetched_orders = []
+    resolved_merchant_id = str(restaurant_id)
+    for candidate_id in candidate_ids:
+        try:
+            candidate_orders = api.get_orders(candidate_id, start_date, end_date) or []
+        except Exception as e:
+            print(f"WARN merchant {candidate_id}: on-demand orders hydration failed: {e}")
+            candidate_orders = []
+        if candidate_orders:
+            fetched_orders = candidate_orders
+            resolved_merchant_id = str(candidate_id)
+            break
+
+    if not fetched_orders and candidate_ids:
+        resolved_merchant_id = str(candidate_ids[0])
 
     normalized_fetched = [
         normalize_order_payload(o)
         for o in (fetched_orders or [])
         if isinstance(o, dict)
     ]
+    if resolved_merchant_id:
+        restaurant['_resolved_merchant_id'] = resolved_merchant_id
+        if not restaurant.get('merchant_id'):
+            restaurant['merchant_id'] = resolved_merchant_id
     restaurant['_orders_cache'] = normalized_fetched
     return normalized_fetched
 
@@ -1571,6 +1726,7 @@ def _do_data_refresh():
                 restaurant_data['name'] = merchant_config['name']
             if merchant_config.get('manager'):
                 restaurant_data['manager'] = merchant_config['manager']
+            restaurant_data['merchant_id'] = merchant_id
             
             restaurant_data['_orders_cache'] = orders
             restaurant_data['is_closed'] = bool(closure.get('is_closed'))
@@ -1786,6 +1942,7 @@ def _load_org_restaurants(org_id):
     def _fallback_restaurant(merchant_id_value, merchant_name_value, merchant_manager_value, neighborhood_value='Centro'):
         return {
             'id': merchant_id_value,
+            'merchant_id': merchant_id_value,
             'name': merchant_name_value,
             'manager': merchant_manager_value,
             'neighborhood': neighborhood_value or 'Centro',
@@ -1890,6 +2047,7 @@ def _load_org_restaurants(org_id):
             restaurant_data['name'] = merchant_name
         if merchant_manager:
             restaurant_data['manager'] = merchant_manager
+        restaurant_data['merchant_id'] = merchant_id
 
         closure = {
             'is_closed': False,
@@ -2071,6 +2229,7 @@ def load_restaurants_from_ifood():
                 restaurant_data['name'] = merchant_config['name']
             if merchant_config.get('manager'):
                 restaurant_data['manager'] = merchant_config['manager']
+            restaurant_data['merchant_id'] = merchant_id
             
             # Store raw orders for charts
             restaurant_data['_orders_cache'] = orders
@@ -2334,15 +2493,20 @@ def squads_page():
 @login_required
 def restaurant_page(restaurant_id):
     """Serve individual restaurant dashboard"""
-    # Find restaurant in org data
-    restaurant = None
-    for r in get_current_org_restaurants():
-        if r['id'] == restaurant_id:
-            restaurant = r
-            break
+    # Find restaurant in org data (supports alias IDs).
+    restaurant = find_restaurant_by_identifier(restaurant_id)
     
     if not restaurant:
         return "Restaurant not found", 404
+
+    # Ensure canonical merchant id is resolved before rendering template JS.
+    try:
+        ensure_restaurant_orders_cache(
+            restaurant,
+            restaurant.get('merchant_id') or restaurant.get('merchantId') or restaurant_id
+        )
+    except Exception:
+        pass
     
     # Check if we have a template
     template_file = DASHBOARD_OUTPUT / 'restaurant_template.html'
@@ -2350,9 +2514,16 @@ def restaurant_page(restaurant_id):
         with open(template_file, 'r', encoding='utf-8') as f:
             template = f.read()
         
+        resolved_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or restaurant.get('id')
+            or restaurant_id
+        )
         # Replace placeholders with actual data
         rendered = template.replace('{{restaurant_name}}', escape_html_text(restaurant.get('name', 'Restaurante')))
-        rendered = rendered.replace('{{restaurant_id}}', escape_html_text(restaurant.get('id', restaurant_id)))
+        rendered = rendered.replace('{{restaurant_id}}', escape_html_text(resolved_id))
         rendered = rendered.replace('{{restaurant_manager}}', escape_html_text(restaurant.get('manager', 'Gerente')))
         rendered = rendered.replace('{{restaurant_data}}', safe_json_for_script(restaurant))
         
@@ -3459,6 +3630,72 @@ def api_restaurants():
             # Skip if user doesn't have access to this restaurant (squad filtering)
             if allowed_ids is not None and r['id'] not in allowed_ids:
                 continue
+            merchant_lookup_id = (
+                r.get('_resolved_merchant_id')
+                or r.get('merchant_id')
+                or r.get('merchantId')
+                or r.get('id')
+            )
+
+            # Opportunistic recovery for stale cached records that have zeroed metrics
+            # and no raw orders cache (common after DB cache restore).
+            metrics_snapshot = r.get('metrics') if isinstance(r.get('metrics'), dict) else {}
+            try:
+                snapshot_orders = int(
+                    (metrics_snapshot or {}).get('total_pedidos')
+                    or (metrics_snapshot or {}).get('vendas')
+                    or r.get('orders')
+                    or 0
+                )
+            except Exception:
+                snapshot_orders = 0
+            try:
+                snapshot_revenue = float(
+                    (metrics_snapshot or {}).get('liquido')
+                    or (metrics_snapshot or {}).get('valor_bruto')
+                    or r.get('revenue')
+                    or 0
+                )
+            except Exception:
+                snapshot_revenue = 0.0
+
+            if not (r.get('_orders_cache') or []):
+                if snapshot_orders <= 0 or snapshot_revenue <= 0:
+                    hydrated_orders = ensure_restaurant_orders_cache(r, merchant_lookup_id)
+                    if hydrated_orders:
+                        resolved_lookup_id = (
+                            r.get('_resolved_merchant_id')
+                            or r.get('merchant_id')
+                            or r.get('merchantId')
+                            or merchant_lookup_id
+                        )
+                        try:
+                            merchant_details = {
+                                'id': resolved_lookup_id,
+                                'name': r.get('name', 'Unknown Restaurant'),
+                                'merchantManager': {'name': r.get('manager', 'Gerente')},
+                                'address': {'neighborhood': r.get('neighborhood', 'Centro')},
+                                'isSuperRestaurant': get_super_flag(r),
+                            }
+                            refreshed = IFoodDataProcessor.process_restaurant_data(
+                                merchant_details,
+                                hydrated_orders,
+                                None
+                            )
+                            refreshed['name'] = r.get('name', refreshed.get('name'))
+                            refreshed['manager'] = r.get('manager', refreshed.get('manager'))
+                            refreshed['merchant_id'] = resolved_lookup_id
+                            for key, value in (refreshed or {}).items():
+                                if not str(key).startswith('_'):
+                                    r[key] = value
+                        except Exception:
+                            pass
+            merchant_lookup_id = (
+                r.get('_resolved_merchant_id')
+                or r.get('merchant_id')
+                or r.get('merchantId')
+                or merchant_lookup_id
+            )
             is_super = get_super_flag(r)
             closure = normalize_closure(r, api_client=org_api)
             # Persist normalized closure fields in-memory for subsequent requests.
@@ -3470,7 +3707,10 @@ def api_restaurants():
             # If month filter is specified, reprocess with filtered orders
             if month_filter != 'all':
                 # Get cached orders
-                orders = r.get('_orders_cache', [])
+                orders = ensure_restaurant_orders_cache(
+                    r,
+                    merchant_lookup_id
+                )
                 
                 # Filter orders by month
                 filtered_orders = filter_orders_by_month(orders, month_filter)
@@ -3489,7 +3729,6 @@ def api_restaurants():
                     }
                     
                     # Reprocess with filtered orders
-                    from ifood_data_processor import IFoodDataProcessor
                     restaurant_data = IFoodDataProcessor.process_restaurant_data(
                         merchant_details,
                         filtered_orders,
@@ -3589,18 +3828,27 @@ def api_restaurant_detail(restaurant_id):
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        # Find restaurant in org data
-        restaurant = None
-        for r in get_current_org_restaurants():
-            if r['id'] == restaurant_id:
-                restaurant = r
-                break
+        # Find restaurant in org data (supports alias IDs).
+        restaurant = find_restaurant_by_identifier(restaurant_id)
         
         if not restaurant:
             return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
+
+        merchant_lookup_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or restaurant_id
+        )
         
         # Ensure orders cache is present even when loaded from DB snapshots.
-        all_orders = ensure_restaurant_orders_cache(restaurant, restaurant_id)
+        all_orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id)
+        merchant_lookup_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or merchant_lookup_id
+        )
         
         # Filter orders by date range if provided
         filtered_orders = all_orders
@@ -3634,7 +3882,7 @@ def api_restaurant_detail(restaurant_id):
         if start_date or end_date:
             # Get merchant details
             merchant_details = {
-                'id': restaurant_id,
+                'id': merchant_lookup_id,
                 'name': restaurant.get('name', 'Unknown'),
                 'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
             }
@@ -3653,7 +3901,7 @@ def api_restaurant_detail(restaurant_id):
             # No explicit filter: prefer recalculating from cached orders when available.
             if all_orders:
                 merchant_details = {
-                    'id': restaurant_id,
+                    'id': merchant_lookup_id,
                     'name': restaurant.get('name', 'Unknown'),
                     'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
                 }
@@ -3675,11 +3923,11 @@ def api_restaurant_detail(restaurant_id):
         chart_data = {}
         interruptions = []
         
-        api = get_current_org_api()
+        api = get_resilient_api_client()
         if api:
             # Get interruptions
             try:
-                interruptions = api.get_interruptions(restaurant_id) or []
+                interruptions = api.get_interruptions(merchant_lookup_id) or []
             except:
                 pass
         
@@ -3752,15 +4000,18 @@ def api_restaurant_detail(restaurant_id):
 def api_restaurant_orders(restaurant_id):
     """Get orders for a specific restaurant"""
     try:
-        # Find restaurant
-        restaurant = None
-        for r in get_current_org_restaurants():
-            if r['id'] == restaurant_id:
-                restaurant = r
-                break
+        # Find restaurant (supports alias IDs).
+        restaurant = find_restaurant_by_identifier(restaurant_id)
         
         if not restaurant:
             return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
+
+        merchant_lookup_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or restaurant_id
+        )
         
         # Get parameters
         try:
@@ -3774,7 +4025,13 @@ def api_restaurant_orders(restaurant_id):
         status = request.args.get('status')
         
         # Ensure order cache is present (DB cache snapshots may not include raw orders).
-        orders = ensure_restaurant_orders_cache(restaurant, restaurant_id)
+        orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id)
+        merchant_lookup_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or merchant_lookup_id
+        )
         
         # Filter by status if provided
         if status:
@@ -3806,21 +4063,30 @@ def api_restaurant_orders(restaurant_id):
 def api_restaurant_menu_performance(restaurant_id):
     """Get menu item performance for a specific restaurant."""
     try:
-        restaurant = None
-        for r in get_current_org_restaurants():
-            if r['id'] == restaurant_id:
-                restaurant = r
-                break
+        restaurant = find_restaurant_by_identifier(restaurant_id)
 
         if not restaurant:
             return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
+
+        merchant_lookup_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or restaurant_id
+        )
 
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         top_n = request.args.get('top_n', default=10, type=int)
         top_n = max(1, min(top_n or 10, 50))
 
-        orders = ensure_restaurant_orders_cache(restaurant, restaurant_id)
+        orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id)
+        merchant_lookup_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or merchant_lookup_id
+        )
         if start_date or end_date:
             filtered = []
             for order in orders:
@@ -3845,7 +4111,7 @@ def api_restaurant_menu_performance(restaurant_id):
         performance = IFoodDataProcessor.calculate_menu_item_performance(orders, top_n=top_n)
         return jsonify({
             'success': True,
-            'restaurant_id': restaurant_id,
+            'restaurant_id': merchant_lookup_id,
             'menu_performance': performance,
             'filter': {
                 'start_date': start_date,
@@ -3872,12 +4138,20 @@ def api_restaurant_menu_performance(restaurant_id):
 def api_restaurant_interruptions(restaurant_id):
     """Get interruptions for a specific restaurant"""
     try:
-        api = get_current_org_api()
+        api = get_resilient_api_client()
         if not api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+        restaurant = find_restaurant_by_identifier(restaurant_id)
+        merchant_lookup_id = (
+            (restaurant or {}).get('_resolved_merchant_id')
+            or (restaurant or {}).get('merchant_id')
+            or (restaurant or {}).get('merchantId')
+            or restaurant_id
+        )
         
         # Get interruptions
-        interruptions = api.get_interruptions(restaurant_id)
+        interruptions = api.get_interruptions(merchant_lookup_id)
         
         return jsonify({
             'success': True,
@@ -3895,12 +4169,20 @@ def api_restaurant_interruptions(restaurant_id):
 def api_restaurant_status(restaurant_id):
     """Get operational status for a specific restaurant"""
     try:
-        api = get_current_org_api()
+        api = get_resilient_api_client()
         if not api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+        restaurant = find_restaurant_by_identifier(restaurant_id)
+        merchant_lookup_id = (
+            (restaurant or {}).get('_resolved_merchant_id')
+            or (restaurant or {}).get('merchant_id')
+            or (restaurant or {}).get('merchantId')
+            or restaurant_id
+        )
         
         # Get status
-        status = api.get_merchant_status(restaurant_id)
+        status = api.get_merchant_status(merchant_lookup_id)
         
         return jsonify({
             'success': True,
@@ -3918,9 +4200,17 @@ def api_restaurant_status(restaurant_id):
 def api_create_interruption(restaurant_id):
     """Create a new interruption (close store temporarily)"""
     try:
-        api = get_current_org_api()
+        api = get_resilient_api_client()
         if not api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+        restaurant = find_restaurant_by_identifier(restaurant_id)
+        merchant_lookup_id = (
+            (restaurant or {}).get('_resolved_merchant_id')
+            or (restaurant or {}).get('merchant_id')
+            or (restaurant or {}).get('merchantId')
+            or restaurant_id
+        )
         
         data = get_json_payload()
         start = data.get('start')
@@ -3931,7 +4221,7 @@ def api_create_interruption(restaurant_id):
             return jsonify({'success': False, 'error': 'Start and end times required'}), 400
         
         # Create interruption
-        result = api.create_interruption(restaurant_id, start, end, description)
+        result = api.create_interruption(merchant_lookup_id, start, end, description)
         
         if result:
             return jsonify({
@@ -3953,12 +4243,20 @@ def api_create_interruption(restaurant_id):
 def api_delete_interruption(restaurant_id, interruption_id):
     """Delete an interruption (reopen store)"""
     try:
-        api = get_current_org_api()
+        api = get_resilient_api_client()
         if not api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+        restaurant = find_restaurant_by_identifier(restaurant_id)
+        merchant_lookup_id = (
+            (restaurant or {}).get('_resolved_merchant_id')
+            or (restaurant or {}).get('merchant_id')
+            or (restaurant or {}).get('merchantId')
+            or restaurant_id
+        )
         
         # Delete interruption
-        success = api.delete_interruption(restaurant_id, interruption_id)
+        success = api.delete_interruption(merchant_lookup_id, interruption_id)
         
         if success:
             return jsonify({

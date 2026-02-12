@@ -3,5 +3,10 @@
   "client_secret": "zfytk0q9r1q8q8z82kyr6i17nrfrv0jnfs9hntyhdim31xstvlmr4rsl1k3c9ho5lt4n236t5btsss442u7rr6dcxall8dcd081",
   "data_fetch_days": 30,
   "refresh_interval_minutes": 30,
-  "merchants": []
+  "merchants": [
+    {
+      "merchant_id": "d91ad16e-0abc-4149-8e86-b10a477659b8",
+      "name": "Teste - PRODUTORA DUO LTDA"
+    }
+  ]
 }

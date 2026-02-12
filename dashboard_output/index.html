@@ -2108,7 +2108,9 @@ let sharedViewToken = null;
                 const safeName = escapeHtml(r.name || 'Restaurante');
                 const safeManager = escapeHtml(r.manager || 'Sem gerente');
                 const safeNeighborhood = escapeHtml(r.neighborhood || 'Sem bairro');
-                const safeRestaurantId = encodeURIComponent(String(r.id || ''));
+                const safeRestaurantId = encodeURIComponent(String(
+                    r._resolved_merchant_id || r.merchant_id || r.merchantId || r.id || ''
+                ));
                 const initial = (r.name || 'R').charAt(0).toUpperCase();
                 const rawStatus = (r.status && typeof r.status === 'object') ? r.status : null;
                 const stateRaw = String(r.state ?? r.operational_status ?? rawStatus?.state ?? rawStatus?.status ?? (typeof r.status === 'string' ? r.status : '') ?? '').trim().toLowerCase();
