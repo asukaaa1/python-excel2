@@ -1453,12 +1453,6 @@
                     </svg>
                 </button>
 
-                <button class="icon-btn" id="exportCsvBtn" onclick="exportCSV()" title="Exportar CSV">
-                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v10m0 0l-4-4m4 4l4-4M5 19h14"/>
-                    </svg>
-                </button>
-                
                 <button class="icon-btn" onclick="toggleTheme()" title="Alternar tema">
                     <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
@@ -2015,14 +2009,12 @@ let sharedViewToken = null;
             const badgeEl = document.getElementById('planBadge');
             const storeCountEl = document.getElementById('orgStoreCount');
             const comparativoLink = document.getElementById('comparativoNavLink');
-            const exportBtn = document.getElementById('exportCsvBtn');
 
             const plan = orgCapabilities.plan_display || orgCapabilities.plan || 'Free';
             const r = orgCapabilities.limits?.restaurants || {};
             const u = orgCapabilities.limits?.users || {};
             const near = !!orgCapabilities.health?.near_limit;
             const canComparativo = (orgCapabilities.features || []).includes('comparativo');
-            const canExport = (orgCapabilities.features || []).includes('export');
 
             if (planEl) planEl.textContent = plan;
             if (restEl) restEl.textContent = `Lojas: ${r.current ?? 0}/${r.max ?? 0}`;
@@ -2034,7 +2026,6 @@ let sharedViewToken = null;
             if (badgeEl) badgeEl.textContent = String(plan).toUpperCase();
             if (storeCountEl) storeCountEl.textContent = `${r.current ?? 0} lojas`;
             if (comparativoLink) comparativoLink.style.display = canComparativo ? '' : 'none';
-            if (exportBtn) exportBtn.style.display = canExport ? '' : 'none';
         }
 
         function updateOverviewKPIs() {
@@ -2269,18 +2260,6 @@ let sharedViewToken = null;
             } catch (e) {
                 showToast('Erro de conexão', 'error');
             }
-        }
-
-        function exportCSV() {
-            const btn = document.getElementById('exportCsvBtn');
-            if (orgCapabilities && Array.isArray(orgCapabilities.features) && !orgCapabilities.features.includes('export')) {
-                showToast('Exportação não disponível no seu plano', 'error');
-                return;
-            }
-            if (btn) btn.disabled = true;
-            const monthParam = encodeURIComponent(currentMonthFilter || 'all');
-            window.location.href = `/api/restaurants/export.csv?month=${monthParam}&all_orgs=true`;
-            setTimeout(() => { if (btn) btn.disabled = false; }, 1500);
         }
 
         function openModal(type) {

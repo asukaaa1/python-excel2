@@ -23,8 +23,6 @@ import threading
 import time
 import queue
 import copy
-import csv
-import io
 import sys
 import signal
 import logging
@@ -4423,39 +4421,6 @@ def api_dashboard_summary():
     summary = aggregate_dashboard_summary(restaurants)
     summary['last_refresh'] = get_current_org_last_refresh().isoformat() if get_current_org_last_refresh() else None
     return jsonify({'success': True, 'summary': summary, 'month_filter': month_filter})
-
-
-@app.route('/api/restaurants/export.csv')
-@login_required
-@require_feature('export')
-def api_restaurants_export_csv():
-    """Export visible restaurants as CSV."""
-    month_filter = parse_month_filter(request.args.get('month', 'all'))
-    if month_filter is None:
-        return jsonify({'success': False, 'error': 'Invalid month filter'}), 400
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(['restaurant_id', 'restaurant_name', 'manager', 'orders', 'ticket_medio', 'valor_bruto', 'liquido'])
-
-    for r in get_current_org_restaurants():
-        metrics = r.get('metrics', {})
-        writer.writerow([
-            r.get('id', ''),
-            r.get('name', ''),
-            r.get('manager', ''),
-            metrics.get('vendas', 0),
-            metrics.get('ticket_medio', 0),
-            metrics.get('valor_bruto', 0),
-            metrics.get('liquido', 0)
-        ])
-
-    filename = f"restaurants-{month_filter}.csv"
-    return Response(
-        output.getvalue(),
-        mimetype='text/csv',
-        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
-    )
 
 
 @app.route('/api/health')
