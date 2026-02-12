@@ -861,11 +861,19 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str):
         if isinstance(o, dict)
     ]
     if normalized_existing:
-        restaurant['_orders_cache'] = normalized_existing
-        return normalized_existing
+        has_known_status = any(
+            str(o.get('orderStatus') or '').strip().upper() not in ('', 'UNKNOWN')
+            for o in normalized_existing
+        )
+        if has_known_status:
+            restaurant['_orders_cache'] = normalized_existing
+            return normalized_existing
 
     api = get_resilient_api_client()
     if not api or not restaurant_id:
+        if normalized_existing:
+            restaurant['_orders_cache'] = normalized_existing
+            return normalized_existing
         restaurant['_orders_cache'] = []
         return []
 
@@ -977,6 +985,14 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str):
         restaurant['_resolved_merchant_id'] = resolved_merchant_id
         if not restaurant.get('merchant_id'):
             restaurant['merchant_id'] = resolved_merchant_id
+    if normalized_fetched:
+        restaurant['_orders_cache'] = normalized_fetched
+        return normalized_fetched
+
+    if normalized_existing:
+        restaurant['_orders_cache'] = normalized_existing
+        return normalized_existing
+
     restaurant['_orders_cache'] = normalized_fetched
     return normalized_fetched
 

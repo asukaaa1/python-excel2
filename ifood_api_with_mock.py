@@ -211,6 +211,31 @@ class IFoodAPI:
         polling_headers = {'x-polling-merchants': str(merchant_id)}
         polling_result = self._request('GET', '/order/v1.0/events:polling', headers=polling_headers)
         events = self._extract_polling_events(polling_result)
+        latest_event_status_by_order = {}
+        for event in events:
+            order_id = self._extract_order_id_from_event(event)
+            if not order_id:
+                continue
+            event_status = self._extract_order_status_from_event(event)
+            normalized_event_status = self._normalize_order_status(event_status)
+            if normalized_event_status == 'UNKNOWN':
+                continue
+            event_created_at = self._parse_order_datetime(
+                event.get('createdAt') if isinstance(event, dict) else None
+            )
+            existing = latest_event_status_by_order.get(str(order_id))
+            if not existing:
+                latest_event_status_by_order[str(order_id)] = {
+                    'status': normalized_event_status,
+                    'created_at': event_created_at
+                }
+                continue
+            existing_created = existing.get('created_at')
+            if existing_created is None or (event_created_at and event_created_at >= existing_created):
+                latest_event_status_by_order[str(order_id)] = {
+                    'status': normalized_event_status,
+                    'created_at': event_created_at
+                }
 
         # Some providers return order-like payloads directly; keep them too.
         direct_orders = []
@@ -230,6 +255,11 @@ class IFoodAPI:
         for order_id in dedup_order_ids:
             details = self.get_order_details(order_id)
             if isinstance(details, dict) and details:
+                normalized_current_status = self._normalize_order_status(details.get('orderStatus'))
+                if normalized_current_status == 'UNKNOWN':
+                    event_info = latest_event_status_by_order.get(str(order_id))
+                    if event_info and event_info.get('status'):
+                        details['orderStatus'] = event_info['status']
                 resolved_orders.append(details)
 
         candidate_orders = resolved_orders + direct_orders
@@ -316,6 +346,21 @@ class IFoodAPI:
                 value = metadata.get(key)
                 if value:
                     return str(value)
+        return None
+
+    def _extract_order_status_from_event(self, event: Dict):
+        if not isinstance(event, dict):
+            return None
+        for key in ('orderStatus', 'status', 'state', 'fullCode', 'code'):
+            value = event.get(key)
+            if value:
+                return value
+        metadata = event.get('metadata')
+        if isinstance(metadata, dict):
+            for key in ('orderStatus', 'status', 'state', 'fullCode', 'code'):
+                value = metadata.get(key)
+                if value:
+                    return value
         return None
 
     def _parse_order_datetime(self, raw_value):
