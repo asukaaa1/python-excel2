@@ -103,6 +103,15 @@ class IFoodDataProcessor:
         if isinstance(total, dict):
             return IFoodDataProcessor._safe_float(total.get('benefits', 0), 0.0)
         return 0.0
+
+    @staticmethod
+    def _is_revenue_status(status: str, has_concluded_orders: bool) -> bool:
+        """Allow fallback revenue counting when integrations do not classify CONCLUDED explicitly."""
+        if status == 'CONCLUDED':
+            return True
+        if status == 'CANCELLED':
+            return False
+        return not has_concluded_orders
     
     @staticmethod
     def process_restaurant_data(merchant_details: Dict, orders: List[Dict], 
@@ -132,17 +141,24 @@ class IFoodDataProcessor:
             
             
             valid_orders = [o for o in (orders or []) if isinstance(o, dict)]
+            order_status_pairs = [(o, IFoodDataProcessor._get_order_status(o)) for o in valid_orders]
 
-            # Filter by normalized status so test/sandbox payload variants are counted.
-            concluded_orders = [o for o in valid_orders if IFoodDataProcessor._get_order_status(o) == 'CONCLUDED']
+            # Fallback: if provider never marks orders as CONCLUDED, consider non-cancelled paid orders.
+            concluded_orders = [o for o, status in order_status_pairs if status == 'CONCLUDED']
+            has_concluded_orders = len(concluded_orders) > 0
             all_orders_count = len(valid_orders)
-            cancelled_orders = [o for o in valid_orders if IFoodDataProcessor._get_order_status(o) == 'CANCELLED']
+            cancelled_orders = [o for o, status in order_status_pairs if status == 'CANCELLED']
+            revenue_orders = concluded_orders if has_concluded_orders else [
+                o for o, status in order_status_pairs
+                if IFoodDataProcessor._is_revenue_status(status, has_concluded_orders)
+                and IFoodDataProcessor._order_amount(o) > 0
+            ]
             
             # Calculate gross revenue (valor bruto)
-            gross_revenue = sum(IFoodDataProcessor._gross_amount(o) for o in concluded_orders)
+            gross_revenue = sum(IFoodDataProcessor._gross_amount(o) for o in revenue_orders)
             
             # Calculate total discounts/benefits
-            total_discounts = sum(IFoodDataProcessor._discount_amount(o) for o in concluded_orders)
+            total_discounts = sum(IFoodDataProcessor._discount_amount(o) for o in revenue_orders)
             
             # Calculate net revenue (líquido = gross - discounts)
             net_revenue = gross_revenue - total_discounts
@@ -150,26 +166,26 @@ class IFoodDataProcessor:
             # Calculate "Via Loja" (cash/merchant liability payments)
             via_loja = sum(
                 IFoodDataProcessor._order_amount(o)
-                for o in concluded_orders
+                for o in revenue_orders
                 if o.get('payment', {}).get('liability') == 'MERCHANT'
             )
             
             # Count new customers
             new_customers = sum(
-                1 for o in concluded_orders
+                1 for o in revenue_orders
                 if o.get('customer', {}).get('isNewCustomer', False)
             )
             
             # Calculate average rating from feedback
             ratings = []
-            for order in concluded_orders:
+            for order in revenue_orders:
                 if order.get('feedback') and order['feedback'].get('rating'):
                     ratings.append(order['feedback']['rating'])
             
             average_rating = sum(ratings) / len(ratings) if ratings else 0
             
             # Calculate metrics
-            concluded_orders_count = len(concluded_orders)
+            concluded_orders_count = len(revenue_orders)
             total_orders = all_orders_count
             average_ticket = net_revenue / concluded_orders_count if concluded_orders_count > 0 else 0
             discount_percentage = (total_discounts / gross_revenue * 100) if gross_revenue > 0 else 0
@@ -182,7 +198,7 @@ class IFoodDataProcessor:
             # Calculate "Tempo Aberto" (hours open) - simulate based on order distribution
             # Count unique hours when orders were placed
             hours_with_orders = set()
-            for order in concluded_orders:
+            for order in revenue_orders:
                 try:
                     created_at = order.get('createdAt', '')
                     if created_at:
@@ -209,10 +225,10 @@ class IFoodDataProcessor:
                 'chamados': 0
             }
             
-            if len(concluded_orders) >= 10:
-                mid = len(concluded_orders) // 2
-                first_half = concluded_orders[:mid]
-                second_half = concluded_orders[mid:]
+            if len(revenue_orders) >= 10:
+                mid = len(revenue_orders) // 2
+                first_half = revenue_orders[:mid]
+                second_half = revenue_orders[mid:]
                 
                 # Calculate metrics for first half
                 fh_orders = len(first_half)
@@ -287,7 +303,7 @@ class IFoodDataProcessor:
             
             # Extract platforms
             platforms = set()
-            for order in concluded_orders[:50]:
+            for order in revenue_orders[:50]:
                 platform = order.get('platform', 'iFood')
                 platforms.add(platform)
             
@@ -399,8 +415,13 @@ class IFoodDataProcessor:
             daily_data = {}
             monthly_data = {}
             hourly_data = {str(h).zfill(2): {'orders': 0, 'revenue': 0} for h in range(24)}
+            valid_orders = [o for o in (orders or []) if isinstance(o, dict)]
+            has_concluded_orders = any(
+                IFoodDataProcessor._get_order_status(o) == 'CONCLUDED'
+                for o in valid_orders
+            )
             
-            for order in (orders or []):
+            for order in valid_orders:
                 created_at = order.get('createdAt', '') or order.get('created_at', '')
                 if not created_at:
                     continue
@@ -419,6 +440,7 @@ class IFoodDataProcessor:
                     
                     amount = IFoodDataProcessor._order_amount(order)
                     status = IFoodDataProcessor._get_order_status(order)
+                    is_revenue_order = IFoodDataProcessor._is_revenue_status(status, has_concluded_orders)
                     
                     # Daily data with full date for filtering
                     if date_key not in daily_data:
@@ -430,7 +452,7 @@ class IFoodDataProcessor:
                             'month': month_key
                         }
                     daily_data[date_key]['orders'] += 1
-                    if status == 'CONCLUDED':
+                    if is_revenue_order:
                         daily_data[date_key]['revenue'] += amount
                     
                     # Monthly aggregated data
@@ -442,11 +464,11 @@ class IFoodDataProcessor:
                             'month_sort': month_key
                         }
                     monthly_data[month_key]['orders'] += 1
-                    if status == 'CONCLUDED':
+                    if is_revenue_order:
                         monthly_data[month_key]['revenue'] += amount
                     
                     hourly_data[hour_key]['orders'] += 1
-                    if status == 'CONCLUDED':
+                    if is_revenue_order:
                         hourly_data[hour_key]['revenue'] += amount
                     
                 except Exception as e:
@@ -581,11 +603,16 @@ class IFoodDataProcessor:
         """Aggregate item-level performance from iFood orders."""
         top_n = max(1, min(int(top_n or 10), 50))
         item_map = {}
+        valid_orders = [o for o in (orders or []) if isinstance(o, dict)]
+        has_concluded_orders = any(
+            IFoodDataProcessor._get_order_status(o) == 'CONCLUDED'
+            for o in valid_orders
+        )
 
-        for order in orders or []:
+        for order in valid_orders:
             status = IFoodDataProcessor._get_order_status(order)
-            is_concluded = status == 'CONCLUDED'
             is_cancelled = status == 'CANCELLED'
+            is_revenue_order = IFoodDataProcessor._is_revenue_status(status, has_concluded_orders)
             rating = order.get('feedback', {}).get('rating')
 
             for item in order.get('items') or []:
@@ -624,7 +651,7 @@ class IFoodDataProcessor:
                 data['orders_with_item'] += 1
                 data['quantity_total'] += quantity
 
-                if is_concluded:
+                if is_revenue_order:
                     data['quantity_sold'] += quantity
                     data['revenue'] += total_price
                     if rating is not None:
