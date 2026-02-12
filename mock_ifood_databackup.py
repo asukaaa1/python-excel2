@@ -7,6 +7,15 @@ Based on actual iFood API structure
 import random
 from datetime import datetime, timedelta
 from typing import Dict, List
+import sys
+
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="backslashreplace")
+except Exception:
+    pass
 
 
 class MockIFoodDataGenerator:

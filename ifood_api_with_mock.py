@@ -47,6 +47,10 @@ class IFoodAPI:
         self._last_http_error = None
         self._order_list_fallback_supported = True
         self._order_list_fallback_disabled_logged = False
+        self._mock_orders_per_restaurant = max(
+            1,
+            int(str(os.environ.get('IFOOD_MOCK_ORDERS_PER_RESTAURANT', '150')).strip() or '150')
+        )
         self._http_client = str(os.environ.get('IFOOD_HTTP_CLIENT', 'requests')).strip().lower()
         self._trust_env = str(os.environ.get('IFOOD_TRUST_ENV', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
         self.session = requests.Session()
@@ -63,9 +67,23 @@ class IFoodAPI:
         
         # Mock data cache - FIXED: Store complete merchant data
         self._mock_merchants = {}
+        self._interruptions_cache = {}
         
         if self.use_mock_data:
             print("ðŸŽ­ Running in MOCK DATA mode - using sample data for testing")
+
+    def _ensure_mock_merchant(self, merchant_id: str):
+        """Create deterministic mock merchant payload when absent."""
+        key = str(merchant_id or '').strip()
+        if not key:
+            return None
+        if key not in self._mock_merchants:
+            self._mock_merchants[key] = MockIFoodDataGenerator.generate_merchant_data(
+                merchant_id=key,
+                num_orders=self._mock_orders_per_restaurant,
+                days=30
+            )
+        return self._mock_merchants.get(key)
     
     def authenticate(self) -> bool:
         """Authenticate with iFood API (or fake it for mock mode)"""
@@ -166,18 +184,8 @@ class IFoodAPI:
         FIXED: Returns only the merchant details, not the full structure
         """
         if self.use_mock_data:
-            # Generate mock data if not cached
-            if merchant_id not in self._mock_merchants:
-                full_data = MockIFoodDataGenerator.generate_merchant_data(
-                    merchant_id=merchant_id,
-                    num_orders=150,
-                    days=30
-                )
-                # Cache the complete data
-                self._mock_merchants[merchant_id] = full_data
-            
-            # Return ONLY the details part
-            return self._mock_merchants[merchant_id]['details']
+            full_data = self._ensure_mock_merchant(merchant_id)
+            return (full_data or {}).get('details')
         
         # Real API call
         return self._request('GET', f'/merchant/v1.0/merchants/{merchant_id}')
@@ -189,25 +197,9 @@ class IFoodAPI:
         FIXED: Returns the orders from cached mock data
         """
         if self.use_mock_data:
-            # Get orders from cache (they were generated with merchant details)
-            if merchant_id not in self._mock_merchants:
-                # Generate if not cached yet
-                full_data = MockIFoodDataGenerator.generate_merchant_data(
-                    merchant_id=merchant_id,
-                    num_orders=150,
-                    days=30
-                )
-                self._mock_merchants[merchant_id] = full_data
-            
-            # Get orders from the cached data
-            orders = self._mock_merchants[merchant_id]['orders']
-            
-            # Filter by status if requested
-            if status:
-                wanted_status = self._normalize_order_status(status)
-                orders = [o for o in orders if self._normalize_order_status(o.get('orderStatus')) == wanted_status]
-            
-            return orders
+            full_data = self._ensure_mock_merchant(merchant_id) or {}
+            orders = full_data.get('orders') or []
+            return self._filter_orders(orders, merchant_id, start_date, end_date, status)
         
         # Real API flow:
         # 1) poll order events, 2) resolve order details by order id.
@@ -518,45 +510,26 @@ class IFoodAPI:
     def get_interruptions(self, merchant_id: str) -> List[Dict]:
         """Get store interruptions/temporary closures"""
         if self.use_mock_data:
-            # Generate random interruptions for variety
-            # Cache them per merchant so they're consistent
-            if not hasattr(self, '_interruptions_cache'):
-                self._interruptions_cache = {}
-            
-            if merchant_id not in self._interruptions_cache:
-                import random
-                interruptions = []
-                today = datetime.now()
-                
-                # 60% chance of having an interruption
-                if random.random() < 0.6:
-                    # Random interruption during the day
-                    # Pick a random hour between 0-23
-                    start_hour = random.randint(0, 22)
-                    # Duration between 1-4 hours
-                    duration = random.randint(1, 4)
-                    end_hour = min(start_hour + duration, 23)
-                    
-                    reasons = [
-                        "Pausa para manutenÃ§Ã£o",
-                        "Falta de energia",
-                        "Problema tÃ©cnico",
-                        "Pausa para reabastecimento",
-                        "Treinamento de equipe",
-                        "Limpeza programada",
-                        "Pausa do sistema"
-                    ]
-                    
-                    interruptions.append({
-                        "id": f"mock-interruption-{merchant_id}-1",
-                        "description": random.choice(reasons),
-                        "start": today.replace(hour=start_hour, minute=0, second=0).isoformat(),
-                        "end": today.replace(hour=end_hour, minute=0, second=0).isoformat()
-                    })
-                
-                self._interruptions_cache[merchant_id] = interruptions
-            
-            return self._interruptions_cache[merchant_id]
+            key = str(merchant_id or '').strip()
+            current = self._interruptions_cache.get(key, [])
+            now = datetime.now()
+            still_active = []
+            for interruption in current:
+                if not isinstance(interruption, dict):
+                    continue
+                end_raw = interruption.get('end')
+                if end_raw:
+                    try:
+                        end_dt = datetime.fromisoformat(str(end_raw).replace('Z', '+00:00'))
+                        if end_dt.tzinfo is not None:
+                            end_dt = end_dt.replace(tzinfo=None)
+                        if end_dt < now:
+                            continue
+                    except Exception:
+                        pass
+                still_active.append(interruption)
+            self._interruptions_cache[key] = still_active
+            return list(still_active)
         
         # Real API call
         return self._request('GET', f'/merchant/v1.0/merchants/{merchant_id}/interruptions')
@@ -564,12 +537,15 @@ class IFoodAPI:
     def create_interruption(self, merchant_id: str, start: str, end: str, description: str = "") -> Optional[Dict]:
         """Create a temporary store closure"""
         if self.use_mock_data:
-            return {
-                "id": f"mock-interruption-{int(time.time())}",
+            key = str(merchant_id or '').strip()
+            interruption = {
+                "id": f"mock-interruption-{key}-{int(time.time())}",
                 "description": description,
                 "start": start,
                 "end": end
             }
+            self._interruptions_cache.setdefault(key, []).append(interruption)
+            return interruption
         
         payload = {
             "start": start,
@@ -581,7 +557,11 @@ class IFoodAPI:
     def delete_interruption(self, merchant_id: str, interruption_id: str) -> bool:
         """Remove an interruption/reopen the store"""
         if self.use_mock_data:
-            return True
+            key = str(merchant_id or '').strip()
+            existing = self._interruptions_cache.get(key, [])
+            kept = [i for i in existing if str(i.get('id')) != str(interruption_id)]
+            self._interruptions_cache[key] = kept
+            return len(kept) < len(existing)
         
         result = self._request('DELETE', f'/merchant/v1.0/merchants/{merchant_id}/interruptions/{interruption_id}')
         return result is not None
@@ -589,6 +569,44 @@ class IFoodAPI:
     def get_merchant_status(self, merchant_id: str) -> Optional[Dict]:
         """Get merchant operational status"""
         if self.use_mock_data:
+            interruptions = self.get_interruptions(merchant_id)
+            now = datetime.now()
+            has_active_interruption = False
+            for interruption in interruptions:
+                if not isinstance(interruption, dict):
+                    continue
+                start_raw = interruption.get('start')
+                end_raw = interruption.get('end')
+                try:
+                    start_dt = datetime.fromisoformat(str(start_raw).replace('Z', '+00:00')) if start_raw else None
+                    end_dt = datetime.fromisoformat(str(end_raw).replace('Z', '+00:00')) if end_raw else None
+                    if start_dt and start_dt.tzinfo is not None:
+                        start_dt = start_dt.replace(tzinfo=None)
+                    if end_dt and end_dt.tzinfo is not None:
+                        end_dt = end_dt.replace(tzinfo=None)
+                    is_active = False
+                    if start_dt and end_dt:
+                        is_active = start_dt <= now <= end_dt
+                    elif start_dt and not end_dt:
+                        is_active = start_dt <= now
+                    elif end_dt and not start_dt:
+                        is_active = now <= end_dt
+                    if is_active:
+                        has_active_interruption = True
+                        break
+                except Exception:
+                    continue
+
+            if has_active_interruption:
+                return {
+                    "state": "CLOSED",
+                    "message": "Loja temporariamente fechada",
+                    "validations": [
+                        {"code": "is-connected", "status": "OK"},
+                        {"code": "opening-hours", "status": "CLOSED"}
+                    ],
+                    "reopenable": {"reopenable": True}
+                }
             return {
                 "state": "OK",
                 "message": "Loja online e operacional",

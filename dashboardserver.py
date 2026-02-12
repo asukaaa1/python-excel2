@@ -995,6 +995,31 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str):
     return normalized_fetched
 
 
+def build_restaurant_cache_record(restaurant: Dict, max_orders: int = 300):
+    """Build storage payload while preserving enough raw orders for future hydration."""
+    if not isinstance(restaurant, dict):
+        return {}
+    clean = {k: v for k, v in restaurant.items() if not k.startswith('_')}
+    orders = [
+        normalize_order_payload(o)
+        for o in (restaurant.get('_orders_cache') or [])
+        if isinstance(o, dict)
+    ]
+    if max_orders > 0 and len(orders) > max_orders:
+        orders = orders[-max_orders:]
+    if orders:
+        clean['_orders_cache'] = orders
+    resolved_id = (
+        restaurant.get('_resolved_merchant_id')
+        or restaurant.get('merchant_id')
+        or restaurant.get('merchantId')
+        or restaurant.get('id')
+    )
+    if resolved_id:
+        clean['_resolved_merchant_id'] = str(resolved_id)
+    return clean
+
+
 def aggregate_dashboard_summary(restaurants):
     total_orders = 0
     gross_revenue = 0.0
@@ -1047,6 +1072,20 @@ def _parse_generic_datetime(raw_value):
         return parsed
     except Exception:
         return None
+
+
+def _extract_status_message_text(raw_message) -> str:
+    """Normalize status/validation message payloads into readable text."""
+    if isinstance(raw_message, dict):
+        parts = []
+        for key in ('title', 'subtitle', 'description', 'message'):
+            value = str(raw_message.get(key) or '').strip()
+            if value:
+                parts.append(value)
+        if parts:
+            return " - ".join(parts)
+        return str(raw_message).strip()
+    return str(raw_message or '').strip()
 
 
 def detect_restaurant_closure(api_client, merchant_id):
@@ -1116,7 +1155,7 @@ def detect_restaurant_closure(api_client, merchant_id):
         status_payload = {'state': str(status_payload)}
 
     state_raw = str(status_payload.get('state') or status_payload.get('status') or '').strip().upper()
-    message = str(status_payload.get('message') or '').strip()
+    message = _extract_status_message_text(status_payload.get('message'))
 
     closed_by_state = state_raw in {'CLOSED', 'CLOSE', 'OFFLINE', 'UNAVAILABLE', 'PAUSED', 'STOPPED'}
 
@@ -1129,9 +1168,11 @@ def detect_restaurant_closure(api_client, merchant_id):
                 if not isinstance(validation, dict):
                     continue
                 code = str(validation.get('code') or '').strip().lower()
-                validation_status = str(validation.get('status') or '').strip().upper()
+                validation_status = str(validation.get('status') or validation.get('state') or '').strip().upper()
                 if code in ('opening-hours', 'opening_hours', 'is-open', 'is_open'):
-                    validation_message = str(validation.get('message') or validation.get('description') or '').strip()
+                    validation_message = _extract_status_message_text(
+                        validation.get('message') or validation.get('description')
+                    )
                     validation_message_lower = validation_message.lower()
                     message_suggests_closed = any(
                         token in validation_message_lower for token in ('fechad', 'closed', 'indispon', 'offline')
@@ -1719,6 +1760,22 @@ def _do_data_refresh():
     days = IFOOD_CONFIG.get('data_fetch_days', 30)
     end_date = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    existing_orders_by_merchant = {}
+    for existing in RESTAURANTS_DATA:
+        if not isinstance(existing, dict):
+            continue
+        existing_mid = (
+            existing.get('merchant_id')
+            or existing.get('_resolved_merchant_id')
+            or existing.get('id')
+        )
+        existing_orders = [
+            normalize_order_payload(o)
+            for o in (existing.get('_orders_cache') or [])
+            if isinstance(o, dict)
+        ]
+        if existing_mid and existing_orders:
+            existing_orders_by_merchant[str(existing_mid)] = existing_orders
     
     for merchant_config in merchants_config:
         merchant_id = merchant_config.get('merchant_id')
@@ -1733,7 +1790,31 @@ def _do_data_refresh():
                     'merchantManager': {'name': merchant_config.get('manager', 'Gerente')}
                 }
             
-            orders = IFOOD_API.get_orders(merchant_id, start_date, end_date)
+            fetched_orders = IFOOD_API.get_orders(merchant_id, start_date, end_date) or []
+            previous_orders = existing_orders_by_merchant.get(str(merchant_id), [])
+            if previous_orders:
+                if fetched_orders:
+                    merged = {}
+                    for order in previous_orders + fetched_orders:
+                        if not isinstance(order, dict):
+                            continue
+                        normalized = normalize_order_payload(order)
+                        order_key = str(
+                            normalized.get('id')
+                            or normalized.get('orderId')
+                            or normalized.get('displayId')
+                            or f"{normalized.get('createdAt')}:{normalized.get('orderStatus')}"
+                        )
+                        merged[order_key] = normalized
+                    orders = list(merged.values())
+                else:
+                    orders = previous_orders
+            else:
+                orders = [
+                    normalize_order_payload(order)
+                    for order in fetched_orders
+                    if isinstance(order, dict)
+                ]
             
             financial_data = None
             if hasattr(IFOOD_API, 'get_financial_data'):
@@ -1826,11 +1907,13 @@ def _save_data_snapshot():
             )
         """)
         
-        # Prepare data (strip internal caches for storage)
-        snapshot = []
-        for r in RESTAURANTS_DATA:
-            clean = {k: v for k, v in r.items() if not k.startswith('_')}
-            snapshot.append(clean)
+        # Prepare data. Keep a bounded raw-order cache so polling-only integrations
+        # do not lose historical orders on restart.
+        snapshot_order_limit = max(
+            1,
+            int(str(os.environ.get('ORDERS_SNAPSHOT_LIMIT', '300')).strip() or '300')
+        )
+        snapshot = [build_restaurant_cache_record(r, max_orders=snapshot_order_limit) for r in RESTAURANTS_DATA]
         
         # Upsert: delete old, insert new
         cursor.execute("DELETE FROM data_snapshots WHERE snapshot_type = 'restaurants'")
@@ -1913,7 +1996,8 @@ def _init_org_ifood(org_id):
     org = get_org_data(org_id)
     org['config'] = config
     try:
-        api = IFoodAPI(client_id, client_secret)
+        use_mock_data = bool(config.get('use_mock_data')) or str(client_id).strip().upper() == 'MOCK_DATA_MODE'
+        api = IFoodAPI(client_id, client_secret, use_mock_data=use_mock_data)
         if api.authenticate():
             org['api'] = api
             print(f"Ã¢Å“â€¦ Org {org_id}: iFood API authenticated")
@@ -1947,7 +2031,14 @@ def _load_org_restaurants(org_id):
             pass
     if not merchants_config:
         return
-    days = config.get('settings', {}).get('data_fetch_days', 30)
+    settings = config.get('settings') if isinstance(config, dict) else {}
+    if isinstance(settings, dict) and settings.get('data_fetch_days') is not None:
+        days = int(settings.get('data_fetch_days'))
+    elif isinstance(config, dict) and config.get('data_fetch_days') is not None:
+        days = int(config.get('data_fetch_days'))
+    else:
+        days = 30
+    days = max(1, min(int(days or 30), 365))
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     new_data = []
@@ -2097,7 +2188,15 @@ def _load_org_restaurants(org_id):
         new_data.append(restaurant_data)
     org['restaurants'] = new_data
     org['last_refresh'] = datetime.now()
-    db.save_org_data_cache(org_id, 'restaurants', [{k:v for k,v in r.items() if not k.startswith('_')} for r in new_data])
+    cache_order_limit = max(
+        1,
+        int(str(os.environ.get('ORDERS_CACHE_LIMIT', '300')).strip() or '300')
+    )
+    db.save_org_data_cache(
+        org_id,
+        'restaurants',
+        [build_restaurant_cache_record(r, max_orders=cache_order_limit) for r in new_data]
+    )
     print(f"Ã¢Å“â€¦ Org {org_id}: loaded {len(new_data)} restaurants")
 
 
@@ -2159,7 +2258,8 @@ def initialize_ifood_api():
         return False
     
     # Initialize API
-    IFOOD_API = IFoodAPI(client_id, client_secret)
+    use_mock_data = bool(IFOOD_CONFIG.get('use_mock_data')) or str(client_id).strip().upper() == 'MOCK_DATA_MODE'
+    IFOOD_API = IFoodAPI(client_id, client_secret, use_mock_data=use_mock_data)
     
     # Authenticate
     if IFOOD_API.authenticate():
@@ -2659,18 +2759,18 @@ def api_register():
     try:
         data = get_json_payload()
         if not data:
-            return jsonify({'success': False, 'error': 'Payload invÃ¡lido'}), 400
+            return jsonify({'success': False, 'error': 'Payload invalido'}), 400
         email = (data.get('email') or '').strip().lower()
         password = data.get('password', '')
         full_name = (data.get('full_name') or '').strip()
         org_name = (data.get('org_name') or '').strip()
         if not all([email, password, full_name, org_name]):
-            return jsonify({'success': False, 'error': 'Todos os campos sÃƒÂ£o obrigatÃƒÂ³rios'}), 400
+            return jsonify({'success': False, 'error': 'Todos os campos sao obrigatorios'}), 400
         if len(password) < 8:
-            return jsonify({'success': False, 'error': 'Senha deve ter no mÃƒÂ­nimo 8 caracteres'}), 400
+            return jsonify({'success': False, 'error': 'Senha deve ter no minimo 8 caracteres'}), 400
         result = db.register_user_and_org(email, password, full_name, org_name)
         if not result:
-            return jsonify({'success': False, 'error': 'Email jÃƒÂ¡ cadastrado'}), 409
+            return jsonify({'success': False, 'error': 'Email ja cadastrado'}), 409
         session['user'] = {
             'id': result['user_id'],
             'username': result['username'],
@@ -2800,7 +2900,7 @@ def api_switch_org():
     """Switch active organization"""
     data = get_json_payload()
     if not data:
-        return jsonify({'success': False, 'error': 'Payload invÃ¡lido'}), 400
+        return jsonify({'success': False, 'error': 'Payload invalido'}), 400
     org_id = data.get('org_id')
     # Normalize org_id to int if it's a numeric string
     if isinstance(org_id, str):
@@ -2907,7 +3007,7 @@ def api_org_ifood_config():
     # POST
     data = get_json_payload()
     if not data:
-        return jsonify({'success': False, 'error': 'Payload invÃ¡lido'}), 400
+        return jsonify({'success': False, 'error': 'Payload invalido'}), 400
     client_id_payload = data.get('client_id') if 'client_id' in data else None
     client_secret_payload = data.get('client_secret') if 'client_secret' in data else None
     merchants_payload = data.get('merchants') if 'merchants' in data else None
@@ -2941,12 +3041,12 @@ def api_create_invite():
     if not org_id: return jsonify({'success': False}), 403
     data = get_json_payload()
     if not data:
-        return jsonify({'success': False, 'error': 'Payload invÃ¡lido'}), 400
+        return jsonify({'success': False, 'error': 'Payload invalido'}), 400
     email = (data.get('email') or '').strip().lower()
     role = (data.get('role') or 'viewer').strip().lower()
     if role not in ('viewer', 'admin'):
         return jsonify({'success': False, 'error': 'Invalid role'}), 400
-    if not email: return jsonify({'success': False, 'error': 'Email obrigatÃƒÂ³rio'}), 400
+    if not email: return jsonify({'success': False, 'error': 'Email obrigatorio'}), 400
     token = db.create_invite(org_id, email, role, session['user']['id'])
     if not token: return jsonify({'success': False, 'error': 'Limite de membros atingido'}), 400
     invite_url = f"{get_public_base_url()}/invite/{token}"
@@ -6595,7 +6695,7 @@ def api_group_comparison(group_id):
         if not group_row:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Grupo nÃƒÂ£o encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Grupo nao encontrado'}), 404
 
         cursor.execute("""
             SELECT store_id, store_name
@@ -6727,7 +6827,7 @@ def api_create_group():
         store_ids = data.get('store_ids', [])
         
         if not name:
-            return jsonify({'success': False, 'error': 'Nome ÃƒÂ© obrigatÃƒÂ³rio'}), 400
+            return jsonify({'success': False, 'error': 'Nome e obrigatorio'}), 400
         
         # Generate slug if not provided
         if not slug:
@@ -6816,7 +6916,7 @@ def api_update_group(group_id):
         active = data.get('active', True)
         
         if not name:
-            return jsonify({'success': False, 'error': 'Nome ÃƒÂ© obrigatÃƒÂ³rio'}), 400
+            return jsonify({'success': False, 'error': 'Nome e obrigatorio'}), 400
         
         conn = db.get_connection()
         cursor = conn.cursor()
@@ -6831,7 +6931,7 @@ def api_update_group(group_id):
         if not existing:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Grupo nÃƒÂ£o encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Grupo nao encontrado'}), 404
         
         # If slug changed, validate it
         if slug and slug != existing[1]:
@@ -6848,7 +6948,7 @@ def api_update_group(group_id):
             if cursor.fetchone():
                 cursor.close()
                 conn.close()
-                return jsonify({'success': False, 'error': 'Slug jÃƒÂ¡ existe'}), 400
+                return jsonify({'success': False, 'error': 'Slug ja existe'}), 400
         else:
             slug = existing[1]
         
@@ -6919,7 +7019,7 @@ def api_delete_group(group_id):
         if not result:
             cursor.close()
             conn.close()
-            return jsonify({'success': False, 'error': 'Grupo nÃƒÂ£o encontrado'}), 404
+            return jsonify({'success': False, 'error': 'Grupo nao encontrado'}), 404
         
         group_name = result[0]
         
@@ -6935,7 +7035,7 @@ def api_delete_group(group_id):
         
         return jsonify({
             'success': True,
-            'message': f'Grupo "{group_name}" excluÃƒÂ­do com sucesso'
+            'message': f'Grupo "{group_name}" excluido com sucesso'
         })
         
     except Exception as e:
@@ -7110,11 +7210,18 @@ def check_setup():
 def initialize_database():
     """Initialize database tables and create default users if needed"""
     print("\nInitializing database...")
+    conn = None
+    cursor = None
     try:
-        db.setup_tables()
+        if not db.setup_tables():
+            print("Database setup_tables() failed.")
+            return False
         
         # Create hidden stores table
         conn = db.get_connection()
+        if not conn:
+            print("Database connection unavailable during initialization.")
+            return False
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS hidden_stores (
@@ -7186,7 +7293,9 @@ def initialize_database():
         
         conn.commit()
         cursor.close()
+        cursor = None
         conn.close()
+        conn = None
         
         users = db.get_all_users()
         if not users:
@@ -7203,6 +7312,17 @@ def initialize_database():
     except Exception as e:
         log_exception("database_initialization_failed", e)
         return False
+    finally:
+        try:
+            if cursor:
+                cursor.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
 
 
 def initialize_app():

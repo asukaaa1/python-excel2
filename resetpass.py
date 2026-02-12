@@ -5,6 +5,15 @@ This will reset the passwords for your existing users using bcrypt
 
 import psycopg2
 import bcrypt
+import sys
+
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="backslashreplace")
+except Exception:
+    pass
 
 def reset_passwords():
     """Reset passwords for all admin users"""

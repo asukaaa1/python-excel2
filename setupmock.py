@@ -6,7 +6,16 @@ Run this to set up your dashboard with realistic sample data
 
 import json
 import sys
+import hashlib
 from pathlib import Path
+
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="backslashreplace")
+except Exception:
+    pass
 
 # Add current directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -46,17 +55,25 @@ def setup_mock_dashboard(num_restaurants=5, orders_per_restaurant=200, output_di
     
     # Generate mock restaurants
     print("🏪 Generating restaurant data...")
-    restaurants = MockIFoodDataGenerator.RESTAURANTS[:num_restaurants]
-    
+    restaurant_names = list(getattr(MockIFoodDataGenerator, 'RESTAURANT_NAMES', []))
+    manager_names = list(getattr(MockIFoodDataGenerator, 'MANAGER_NAMES', []))
+    if not restaurant_names:
+        raise RuntimeError("MockIFoodDataGenerator.RESTAURANT_NAMES is empty")
+    if not manager_names:
+        manager_names = ['Gerente']
+
     merchants_config = []
-    for i, restaurant in enumerate(restaurants, 1):
-        merchant_id = MockIFoodDataGenerator.generate_merchant_id(restaurant['name'])
+    for i in range(num_restaurants):
+        name = restaurant_names[i % len(restaurant_names)]
+        manager = manager_names[i % len(manager_names)]
+        digest = hashlib.sha1(name.encode('utf-8')).hexdigest()[:10]
+        merchant_id = f"mock-{digest}"
         merchants_config.append({
             "merchant_id": merchant_id,
-            "name": restaurant['name'],
-            "manager": restaurant['manager']
+            "name": name,
+            "manager": manager
         })
-        print(f"   {i}. {restaurant['name']} (Manager: {restaurant['manager']})")
+        print(f"   {i + 1}. {name} (Manager: {manager})")
     
     print()
     
@@ -101,15 +118,18 @@ def setup_mock_dashboard(num_restaurants=5, orders_per_restaurant=200, output_di
     for merchant_config in merchants_config:
         # Generate sample data to show statistics
         sample_data = MockIFoodDataGenerator.generate_merchant_data(
-            restaurant_info={
-                'name': merchant_config['name'],
-                'manager': merchant_config['manager']
-            },
+            merchant_id=merchant_config['merchant_id'],
             num_orders=orders_per_restaurant,
             days=30
         )
-        
-        concluded_orders = sample_data['concluded_orders']
+        sample_data.setdefault('details', {})
+        sample_data['details']['name'] = merchant_config['name']
+        sample_data['details']['merchantManager'] = {'name': merchant_config['manager']}
+
+        concluded_orders = [
+            order for order in (sample_data.get('orders') or [])
+            if isinstance(order, dict) and str(order.get('orderStatus') or '').upper() == 'CONCLUDED'
+        ]
         restaurant_revenue = sum(o['totalPrice'] for o in concluded_orders)
         
         total_orders += len(concluded_orders)
@@ -170,7 +190,7 @@ def create_test_data_file(output_dir=".", filename="test_data_sample.json"):
     print("📄 Creating sample data file for inspection...")
     
     sample_restaurant = MockIFoodDataGenerator.generate_merchant_data(
-        restaurant_info={"name": "Pizzaria Bella Napoli", "manager": "Marco Rossi"},
+        merchant_id="mock-sample-pizzaria",
         num_orders=50,
         days=7
     )

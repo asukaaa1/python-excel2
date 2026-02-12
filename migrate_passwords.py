@@ -12,7 +12,16 @@ Usage:
 import psycopg2
 import bcrypt
 import os
+import sys
 from getpass import getpass
+
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="backslashreplace")
+except Exception:
+    pass
 
 
 def migrate_passwords():

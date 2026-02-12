@@ -4,7 +4,16 @@ Quick diagnostic to check restaurant ID mismatch
 """
 
 import json
+import sys
 from pathlib import Path
+
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="backslashreplace")
+except Exception:
+    pass
 
 print("=" * 70)
 print("RESTAURANT ID DIAGNOSTIC")

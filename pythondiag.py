@@ -7,6 +7,14 @@ import hashlib
 import json
 import sys
 
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="backslashreplace")
+except Exception:
+    pass
+
 print("="*70)
 print("COMPLETE LOGIN SYSTEM DIAGNOSTIC")
 print("="*70)

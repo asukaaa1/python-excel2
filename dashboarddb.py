@@ -9,10 +9,19 @@ from psycopg2 import sql
 import bcrypt
 import json
 import os
+import sys
 import secrets
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from typing import Optional, Dict, List
+
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(errors="backslashreplace")
+except Exception:
+    pass
 
 class DashboardDatabase:
     """Handle PostgreSQL database operations for dashboard authentication"""
