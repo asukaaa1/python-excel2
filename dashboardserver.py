@@ -763,6 +763,69 @@ def filter_orders_by_month(orders, month_filter):
     return filtered
 
 
+def resolve_current_org_fetch_days(default_days=30):
+    """Resolve configured fetch window (days) for the current org."""
+    days = default_days
+    try:
+        org_id = get_current_org_id()
+        config = {}
+        if org_id:
+            org = get_org_data(org_id)
+            config = org.get('config') or db.get_org_ifood_config(org_id) or {}
+        elif isinstance(IFOOD_CONFIG, dict):
+            config = IFOOD_CONFIG
+
+        settings = config.get('settings') if isinstance(config, dict) else {}
+        if isinstance(settings, dict) and settings.get('data_fetch_days') is not None:
+            days = int(settings.get('data_fetch_days'))
+        elif isinstance(config, dict) and config.get('data_fetch_days') is not None:
+            days = int(config.get('data_fetch_days'))
+    except Exception:
+        days = default_days
+
+    return max(1, min(int(days or default_days), 365))
+
+
+def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str):
+    """
+    Ensure a store has raw orders cached for detail screens.
+    DB snapshots intentionally strip internal cache fields, so this may need
+    to rehydrate orders on demand from iFood API.
+    """
+    existing = restaurant.get('_orders_cache') if isinstance(restaurant, dict) else []
+    normalized_existing = [
+        normalize_order_payload(o)
+        for o in (existing or [])
+        if isinstance(o, dict)
+    ]
+    if normalized_existing:
+        restaurant['_orders_cache'] = normalized_existing
+        return normalized_existing
+
+    api = get_current_org_api()
+    if not api or not restaurant_id:
+        restaurant['_orders_cache'] = []
+        return []
+
+    days = resolve_current_org_fetch_days(default_days=30)
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+    fetched_orders = []
+    try:
+        fetched_orders = api.get_orders(restaurant_id, start_date, end_date) or []
+    except Exception as e:
+        print(f"WARN merchant {restaurant_id}: on-demand orders hydration failed: {e}")
+
+    normalized_fetched = [
+        normalize_order_payload(o)
+        for o in (fetched_orders or [])
+        if isinstance(o, dict)
+    ]
+    restaurant['_orders_cache'] = normalized_fetched
+    return normalized_fetched
+
+
 def aggregate_dashboard_summary(restaurants):
     total_orders = 0
     gross_revenue = 0.0
@@ -3536,12 +3599,8 @@ def api_restaurant_detail(restaurant_id):
         if not restaurant:
             return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
         
-        # Get all orders from cache
-        all_orders = [
-            normalize_order_payload(o)
-            for o in (restaurant.get('_orders_cache', []) or [])
-            if isinstance(o, dict)
-        ]
+        # Ensure orders cache is present even when loaded from DB snapshots.
+        all_orders = ensure_restaurant_orders_cache(restaurant, restaurant_id)
         
         # Filter orders by date range if provided
         filtered_orders = all_orders
@@ -3570,8 +3629,9 @@ def api_restaurant_detail(restaurant_id):
                 except:
                     continue
         
-        # Reprocess restaurant data with filtered orders if date filtering is applied
-        if (start_date or end_date) and filtered_orders:
+        # Reprocess restaurant data with filtered orders if date filtering is applied.
+        # Important: process even empty filtered sets to keep KPIs consistent with charts/tables.
+        if start_date or end_date:
             # Get merchant details
             merchant_details = {
                 'id': restaurant_id,
@@ -3590,8 +3650,26 @@ def api_restaurant_detail(restaurant_id):
             response_data['name'] = restaurant['name']
             response_data['manager'] = restaurant['manager']
         else:
-            # Clean data for response (no date filtering)
-            response_data = {k: v for k, v in restaurant.items() if not k.startswith('_')}
+            # No explicit filter: prefer recalculating from cached orders when available.
+            if all_orders:
+                merchant_details = {
+                    'id': restaurant_id,
+                    'name': restaurant.get('name', 'Unknown'),
+                    'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
+                }
+                response_data = IFoodDataProcessor.process_restaurant_data(
+                    merchant_details,
+                    all_orders,
+                    None
+                )
+                response_data['name'] = restaurant.get('name', response_data.get('name'))
+                response_data['manager'] = restaurant.get('manager', response_data.get('manager'))
+                for closure_key in ('is_closed', 'closure_reason', 'closed_until', 'active_interruptions_count'):
+                    if closure_key in restaurant:
+                        response_data[closure_key] = restaurant.get(closure_key)
+            else:
+                # Clean data for response (no date filtering)
+                response_data = {k: v for k, v in restaurant.items() if not k.startswith('_')}
         
         # Generate chart data from filtered orders
         chart_data = {}
@@ -3695,12 +3773,8 @@ def api_restaurant_orders(restaurant_id):
         page = max(1, page)
         status = request.args.get('status')
         
-        # Get orders from cache (normalized for consistent filtering and display)
-        orders = [
-            normalize_order_payload(o)
-            for o in (restaurant.get('_orders_cache', []) or [])
-            if isinstance(o, dict)
-        ]
+        # Ensure order cache is present (DB cache snapshots may not include raw orders).
+        orders = ensure_restaurant_orders_cache(restaurant, restaurant_id)
         
         # Filter by status if provided
         if status:
@@ -3746,7 +3820,7 @@ def api_restaurant_menu_performance(restaurant_id):
         top_n = request.args.get('top_n', default=10, type=int)
         top_n = max(1, min(top_n or 10, 50))
 
-        orders = restaurant.get('_orders_cache', [])
+        orders = ensure_restaurant_orders_cache(restaurant, restaurant_id)
         if start_date or end_date:
             filtered = []
             for order in orders:

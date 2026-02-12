@@ -459,26 +459,38 @@ function inferOrderMetricsFromList() {
     let totalOrders = 0;
     let concludedOrders = 0;
     let cancelledOrders = 0;
-    let concludedRevenue = 0;
+    let effectiveRevenueOrders = 0;
+    let effectiveRevenue = 0;
+    const normalizedOrders = [];
 
     ordersData.forEach(order => {
         if (!order || typeof order !== 'object') return;
         totalOrders += 1;
         const status = normalizeOrderStatus(order);
+        const amount = getOrderAmount(order);
+        normalizedOrders.push({ status, amount });
         if (status === 'CONCLUDED') {
             concludedOrders += 1;
-            concludedRevenue += getOrderAmount(order);
         } else if (status === 'CANCELLED') {
             cancelledOrders += 1;
         }
     });
 
+    const hasConcluded = concludedOrders > 0;
+    normalizedOrders.forEach(({ status, amount }) => {
+        const includeAsRevenue = status === 'CONCLUDED' || (!hasConcluded && status !== 'CANCELLED' && amount > 0);
+        if (includeAsRevenue) {
+            effectiveRevenueOrders += 1;
+            effectiveRevenue += amount;
+        }
+    });
+
     return {
         total_orders: totalOrders,
-        concluded_orders: concludedOrders,
+        concluded_orders: hasConcluded ? concludedOrders : effectiveRevenueOrders,
         cancelled_orders: cancelledOrders,
         cancel_rate: totalOrders > 0 ? (cancelledOrders / totalOrders) * 100 : 0,
-        concluded_revenue: concludedRevenue
+        concluded_revenue: effectiveRevenue
     };
 }
 
