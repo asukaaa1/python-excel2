@@ -4516,26 +4516,51 @@ def api_restaurant_detail(restaurant_id):
                 except:
                     continue
         
-        # Reprocess restaurant data with filtered orders if date filtering is applied.
-        # Important: process even empty filtered sets to keep KPIs consistent with charts/tables.
-        if start_date or end_date:
-            # Get merchant details
-            merchant_details = {
-                'id': merchant_lookup_id,
-                'name': restaurant.get('name', 'Unknown'),
-                'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
-            }
-            
-            # Reprocess with filtered orders
-            response_data = IFoodDataProcessor.process_restaurant_data(
-                merchant_details,
-                filtered_orders,
-                None
+        metrics_snapshot = restaurant.get('metrics') if isinstance(restaurant.get('metrics'), dict) else {}
+        try:
+            snapshot_orders_total = int(
+                (metrics_snapshot or {}).get('total_pedidos')
+                or (metrics_snapshot or {}).get('vendas')
+                or restaurant.get('orders')
+                or 0
             )
-            
-            # Keep original name and manager
-            response_data['name'] = restaurant['name']
-            response_data['manager'] = restaurant['manager']
+        except Exception:
+            snapshot_orders_total = 0
+        try:
+            snapshot_revenue_total = float(
+                (metrics_snapshot or {}).get('liquido')
+                or (metrics_snapshot or {}).get('valor_bruto')
+                or restaurant.get('revenue')
+                or 0
+            )
+        except Exception:
+            snapshot_revenue_total = 0.0
+        has_snapshot_totals = (snapshot_orders_total > 0) or (snapshot_revenue_total > 0)
+
+        # Reprocess restaurant data with filtered orders if date filtering is applied.
+        # If raw order cache is unavailable but snapshot metrics exist, keep snapshot metrics
+        # instead of forcing a misleading all-zero payload.
+        if start_date or end_date:
+            if not filtered_orders and not all_orders and has_snapshot_totals:
+                response_data = {k: v for k, v in restaurant.items() if not k.startswith('_')}
+            else:
+                # Get merchant details
+                merchant_details = {
+                    'id': merchant_lookup_id,
+                    'name': restaurant.get('name', 'Unknown'),
+                    'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
+                }
+                
+                # Reprocess with filtered orders
+                response_data = IFoodDataProcessor.process_restaurant_data(
+                    merchant_details,
+                    filtered_orders,
+                    None
+                )
+                
+                # Keep original name and manager
+                response_data['name'] = restaurant['name']
+                response_data['manager'] = restaurant['manager']
         else:
             # No explicit filter: prefer recalculating from cached orders when available.
             if all_orders:

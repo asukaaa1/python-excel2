@@ -158,6 +158,7 @@ let activeChartType = 'revenue';
 let activeHourlyType = 'revenue';
 let activeChartGroupBy = 'day';
 let currentFilter = { type: 'current', period: '7days', month: null, startDate: null, endDate: null };
+let hasActiveDateFilter = false;
 const feedbackCharts = { compliments: null, complaints: null, cancellationReasons: null, cancellationOrigins: null };
 let reviewsData = null;
 let ratingTrendChart = null;
@@ -172,14 +173,17 @@ async function fetchRestaurantData() {
     apiStatus.querySelector('span:last-child').textContent = 'Carregando...';
     
     try {
-        const { startDate, endDate } = getFilterDateRange();
         const params = new URLSearchParams();
-        if (startDate) params.append('start_date', startDate.toISOString().split('T')[0]);
-        if (endDate) params.append('end_date', endDate.toISOString().split('T')[0]);
+        if (hasActiveDateFilter) {
+            const { startDate, endDate } = getFilterDateRange();
+            if (startDate) params.append('start_date', startDate.toISOString().split('T')[0]);
+            if (endDate) params.append('end_date', endDate.toISOString().split('T')[0]);
+        }
+        const query = params.toString();
         
         const apiUrl = window.__PUBLIC_MODE__
-            ? `${window.__PUBLIC_API_BASE__}?${params}`
-            : `/api/restaurant/${restaurantId}?${params}`;
+            ? `${window.__PUBLIC_API_BASE__}${query ? `?${query}` : ''}`
+            : `/api/restaurant/${restaurantId}${query ? `?${query}` : ''}`;
         const response = await fetch(apiUrl);
         if (!window.__PUBLIC_MODE__ && response.status === 401) { window.location.href = '/login'; return; }
         const data = await response.json();
@@ -353,6 +357,7 @@ function applyFilter() {
         currentFilter.startDate = document.getElementById('filterDateStart').value ? new Date(document.getElementById('filterDateStart').value) : null;
         currentFilter.endDate = document.getElementById('filterDateEnd').value ? new Date(document.getElementById('filterDateEnd').value) : null;
     }
+    hasActiveDateFilter = true;
     updateFilterLabel();
     closeFilterModal();
     fetchRestaurantData();
@@ -360,6 +365,10 @@ function applyFilter() {
 
 function updateFilterLabel() {
     const l = document.getElementById('filterPeriodLabel');
+    if (!hasActiveDateFilter) {
+        l.textContent = 'Todo período';
+        return;
+    }
     if (currentFilter.type === 'current') {
         const m = { '7days': 'Últimos 7 dias', '15days': 'Últimos 15 dias', '30days': 'Últimos 30 dias' };
         l.textContent = m[currentFilter.period] || 'Últimos 7 dias';
@@ -373,6 +382,9 @@ function updateFilterLabel() {
 }
 
 function getFilterDateRange() {
+    if (!hasActiveDateFilter) {
+        return { startDate: null, endDate: null };
+    }
     const n = new Date();
     let s, e;
     if (currentFilter.type === 'current') {
