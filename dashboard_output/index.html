@@ -1409,7 +1409,7 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
                     Lojas Ocultas
                 </a>
-                <a href="/ops" class="sidebar-link">
+                <a href="/ops" class="sidebar-link" id="opsNavLink" style="display:none">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h4l3 8 4-16 3 8h4"/></svg>
                     Ops
                 </a>
@@ -1578,7 +1578,7 @@
         <!-- SaaS Footer -->
         <div style="margin-top:48px;padding-top:20px;border-top:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--text-tertiary)">
             <span>TIMO · <span id="footerRefresh">Última atualização: --</span></span>
-            <span id="footerPlan">Plano Pro · 0 restaurantes</span>
+            <span id="footerPlan">Plano -- · -- restaurantes</span>
         </div>
     </div>
 
@@ -1981,9 +1981,11 @@ let sharedViewToken = null;
         }
 
         function updateLastRefresh() {
+            const formatted = formatLastRefresh(lastRefreshAt);
             const lrEl = document.getElementById('overviewLastRefresh');
-            if (!lrEl) return;
-            lrEl.textContent = `Última atualização: ${formatLastRefresh(lastRefreshAt)}`;
+            if (lrEl) lrEl.textContent = `Última atualização: ${formatted}`;
+            const footerRefreshEl = document.getElementById('footerRefresh');
+            if (footerRefreshEl) footerRefreshEl.textContent = `Última atualização: ${formatted}`;
         }
 
         function formatLastRefresh(iso) {
@@ -2000,8 +2002,33 @@ let sharedViewToken = null;
             return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
         }
 
+        function resolvePlanDisplayName() {
+            return (
+                orgCapabilities?.plan_display ||
+                orgCapabilities?.plan ||
+                document.getElementById('planBadge')?.textContent ||
+                'Free'
+            );
+        }
+
+        function resolveRestaurantUsageCurrent() {
+            const capabilitiesCurrent = Number(orgCapabilities?.limits?.restaurants?.current);
+            const loadedCount = Array.isArray(restaurantsData) ? restaurantsData.length : 0;
+            if (Number.isFinite(capabilitiesCurrent) && (capabilitiesCurrent > 0 || loadedCount === 0)) {
+                return capabilitiesCurrent;
+            }
+            return loadedCount;
+        }
+
+        function updateFooterPlanSummary() {
+            const footerPlanEl = document.getElementById('footerPlan');
+            if (!footerPlanEl) return;
+            const plan = resolvePlanDisplayName();
+            const stores = resolveRestaurantUsageCurrent();
+            footerPlanEl.textContent = `${plan} · ${stores} ${stores === 1 ? 'restaurante' : 'restaurantes'}`;
+        }
+
         function updateSaaSUsageCard() {
-            if (!orgCapabilities) return;
             const planEl = document.getElementById('overviewPlan');
             const restEl = document.getElementById('usageRestaurants');
             const userEl = document.getElementById('usageUsers');
@@ -2010,22 +2037,29 @@ let sharedViewToken = null;
             const storeCountEl = document.getElementById('orgStoreCount');
             const comparativoLink = document.getElementById('comparativoNavLink');
 
-            const plan = orgCapabilities.plan_display || orgCapabilities.plan || 'Free';
-            const r = orgCapabilities.limits?.restaurants || {};
-            const u = orgCapabilities.limits?.users || {};
-            const near = !!orgCapabilities.health?.near_limit;
-            const canComparativo = (orgCapabilities.features || []).includes('comparativo');
+            const plan = resolvePlanDisplayName();
+            const restaurantCurrent = resolveRestaurantUsageCurrent();
+            const restaurantMaxRaw = Number(orgCapabilities?.limits?.restaurants?.max);
+            const usersCurrentRaw = Number(orgCapabilities?.limits?.users?.current);
+            const usersMaxRaw = Number(orgCapabilities?.limits?.users?.max);
+            const near = !!orgCapabilities?.health?.near_limit;
+            const hasFeatureList = Array.isArray(orgCapabilities?.features);
+            const canComparativo = hasFeatureList ? orgCapabilities.features.includes('comparativo') : true;
+            const restaurantMax = Number.isFinite(restaurantMaxRaw) && restaurantMaxRaw > 0 ? restaurantMaxRaw : '--';
+            const usersCurrent = Number.isFinite(usersCurrentRaw) ? usersCurrentRaw : '--';
+            const usersMax = Number.isFinite(usersMaxRaw) && usersMaxRaw > 0 ? usersMaxRaw : '--';
 
             if (planEl) planEl.textContent = plan;
-            if (restEl) restEl.textContent = `Lojas: ${r.current ?? 0}/${r.max ?? 0}`;
-            if (userEl) userEl.textContent = `Usuarios: ${u.current ?? 0}/${u.max ?? 0}`;
+            if (restEl) restEl.textContent = `Lojas: ${restaurantCurrent}/${restaurantMax}`;
+            if (userEl) userEl.textContent = `Usuarios: ${usersCurrent}/${usersMax}`;
             if (hintEl) {
                 hintEl.textContent = near ? 'Limite proximo. Considere upgrade.' : 'Dentro da capacidade';
                 hintEl.style.color = near ? 'var(--error-500)' : 'var(--text-tertiary)';
             }
             if (badgeEl) badgeEl.textContent = String(plan).toUpperCase();
-            if (storeCountEl) storeCountEl.textContent = `${r.current ?? 0} lojas`;
-            if (comparativoLink) comparativoLink.style.display = canComparativo ? '' : 'none';
+            if (storeCountEl) storeCountEl.textContent = `${restaurantCurrent} lojas`;
+            if (comparativoLink && hasFeatureList) comparativoLink.style.display = canComparativo ? '' : 'none';
+            updateFooterPlanSummary();
         }
 
         function updateOverviewKPIs() {
@@ -2038,6 +2072,7 @@ let sharedViewToken = null;
             document.getElementById('overviewStores').textContent = data.length;
             const tEl = document.getElementById('overviewRevenueTrend');
             if (tEl) tEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:600;font-family:var(--font-mono);${avgTrend >= 0 ? 'color:var(--success-500)' : 'color:var(--error-500)'}">${avgTrend >= 0 ? '↑' : '↓'} ${Math.abs(avgTrend).toFixed(1)}% vs período anterior</span>`;
+            updateFooterPlanSummary();
         }
 
         function renderRestaurants() {
@@ -2107,16 +2142,21 @@ let sharedViewToken = null;
                 const stateRaw = String(r.state ?? r.operational_status ?? rawStatus?.state ?? rawStatus?.status ?? (typeof r.status === 'string' ? r.status : '') ?? '').trim().toLowerCase();
                 const closureText = String(r.closure_reason ?? rawStatus?.message ?? rawStatus?.description ?? '').trim().toLowerCase();
                 const interruptions = Number(r.active_interruptions_count ?? r.activeInterruptionsCount ?? 0);
+<<<<<<< Updated upstream
                 const closePattern = /\b(closed|offline|unavailable|paused|stopped|fechad[oa]s?|indispon(?:ivel|ível|iveis|íveis)?)\b/i;
                 const hasExplicitClosure = ['is_closed', 'isClosed', 'closure_reason', 'closureReason', 'closed_until', 'closedUntil', 'active_interruptions_count', 'activeInterruptionsCount']
                     .some((key) => Object.prototype.hasOwnProperty.call(r, key));
                 const stateSuggestsClosed = closePattern.test(stateRaw);
                 const messageSuggestsClosed = closePattern.test(closureText);
                 const isClosed = toBoolFlag(r.is_closed) || toBoolFlag(r.isClosed) || interruptions > 0 || (!hasExplicitClosure && (stateSuggestsClosed || messageSuggestsClosed));
+=======
+                const stateSuggestsClosed = ['closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon'].some(token => stateRaw.includes(token));
+                const isClosed = toBoolFlag(r.is_closed) || toBoolFlag(r.isClosed) || interruptions > 0 || stateSuggestsClosed;
+>>>>>>> Stashed changes
                 const isSuper = toBoolFlag(r.isSuperRestaurant) || toBoolFlag(r.isSuper) || toBoolFlag(r.super);
                 const ratingValue = Number(r.rating);
                 const hasRating = Number.isFinite(ratingValue) && ratingValue > 0;
-                const closedReason = escapeHtml(r.closure_reason || rawStatus?.message || 'Loja fechada no momento');
+                const closedReason = escapeHtml((isClosed && (r.closure_reason || rawStatus?.message)) || 'Loja fechada no momento');
 
                 return `
                     <div class="restaurant-card" onclick="window.location.href='/restaurant/${safeRestaurantId}'">
@@ -2413,6 +2453,8 @@ let sharedViewToken = null;
                     document.getElementById('sidebarUserRole').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
                     isAdmin = (u.role === 'admin');
                     if (isAdmin) { const adminEl = document.getElementById('adminSection'); if (adminEl) adminEl.style.display = 'block'; }
+                    const opsNav = document.getElementById('opsNavLink');
+                    if (opsNav) opsNav.style.display = u.is_platform_admin ? '' : 'none';
 
                     const org = data.org || {};
                     if (org.name) {
@@ -2428,6 +2470,7 @@ let sharedViewToken = null;
                         const planBadge = document.getElementById('planBadge');
                         if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
                     }
+                    updateSaaSUsageCard();
                 }
             }).catch(() => {});
         }

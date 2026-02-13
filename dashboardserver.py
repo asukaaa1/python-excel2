@@ -16,7 +16,7 @@ import html
 import hashlib
 from typing import Dict, List, Optional
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 import uuid
 import threading
@@ -177,6 +177,7 @@ REDIS_EVENTS_CHANNEL = 'timo:events'
 REDIS_REFRESH_QUEUE = 'timo:jobs:refresh'
 REDIS_REFRESH_STATUS_KEY = 'timo:refresh:status'
 REDIS_REFRESH_LOCK_KEY = 'timo:refresh:lock'
+REDIS_KEEPALIVE_LOCK_KEY = 'timo:ifood:keepalive:lock'
 REDIS_CACHE_PREFIX = 'timo:cache:restaurants'
 try:
     REDIS_SOCKET_TIMEOUT_SECONDS = float(os.environ.get('REDIS_SOCKET_TIMEOUT_SECONDS', '35') or 35)
@@ -251,17 +252,27 @@ def set_cached_restaurants(org_id, month_filter, data):
     key = (org_id, month_filter)
     _api_cache[key] = {'data': data, 'timestamp': datetime.now()}
 
-def invalidate_cache():
-    """Clear all API caches (called after data refresh)"""
+def invalidate_cache(org_id=None):
+    """Clear API cache entries globally or for one organization."""
     if USE_REDIS_CACHE:
         r = get_redis_client()
         if r:
             try:
-                for k in r.scan_iter(match=f"{REDIS_CACHE_PREFIX}:*"):
+                if org_id is None:
+                    pattern = f"{REDIS_CACHE_PREFIX}:*"
+                else:
+                    pattern = f"{REDIS_CACHE_PREFIX}:{org_id}:*"
+                for k in r.scan_iter(match=pattern):
                     r.delete(k)
             except Exception:
                 pass
-    _api_cache.clear()
+
+    if org_id is None:
+        _api_cache.clear()
+    else:
+        for key in list(_api_cache.keys()):
+            if key[0] == org_id:
+                _api_cache.pop(key, None)
 
 # Per-org data store: {org_id: {'restaurants': [], 'api': IFoodAPI, 'last_refresh': datetime, 'config': {}}}
 ORG_DATA = {}
@@ -280,34 +291,34 @@ _RATE_LIMIT_LOCK = threading.Lock()
 # Marketing metadata for plan cards in admin UI.
 PLAN_CATALOG_UI = {
     'starter': {
-        'subtitle': 'Centralizacao e relatorios',
+        'subtitle': 'Centralização e relatórios',
         'badge': None,
         'highlight': False,
         'note': 'Em breve',
         'features_ui': [
-            'Centralizacao e relatorios'
+            'Centralização e relatórios'
         ]
     },
     'pro': {
-        'subtitle': 'O plano completo para agencias',
-        'badge': 'Agencias',
+        'subtitle': 'O plano completo para agências',
+        'badge': 'Agências',
         'highlight': True,
         'note': 'Em breve',
         'features_ui': [
-            'Multiusuario',
+            'Multiusuário',
             'Squads',
-            'Links publicos',
-            'Relatorios em PDF'
+            'Links públicos',
+            'Relatórios em PDF'
         ]
     },
     'enterprise': {
-        'subtitle': 'Para operacoes avancadas',
+        'subtitle': 'Para operações avançadas',
         'badge': None,
         'highlight': False,
         'note': 'Em breve',
         'features_ui': [
-            'Customizacoes avancadas',
-            'Integracoes sob demanda',
+            'Customizações avançadas',
+            'Integrações sob demanda',
             'White Label'
         ]
     }
@@ -1068,7 +1079,8 @@ def _parse_generic_datetime(raw_value):
     try:
         parsed = datetime.fromisoformat(str(raw_value).replace('Z', '+00:00'))
         if getattr(parsed, 'tzinfo', None) is not None:
-            parsed = parsed.replace(tzinfo=None)
+            # Convert aware timestamps to UTC before dropping tz to keep comparisons correct.
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
         return parsed
     except Exception:
         return None
@@ -1090,7 +1102,7 @@ def _extract_status_message_text(raw_message) -> str:
 
 def detect_restaurant_closure(api_client, merchant_id):
     """Infer if a store is currently closed using interruptions + merchant status."""
-    now = datetime.now()
+    now = datetime.utcnow()
     active_reason = None
     closed_until = None
     active_interruptions = 0
@@ -1155,9 +1167,31 @@ def detect_restaurant_closure(api_client, merchant_id):
         status_payload = {'state': str(status_payload)}
 
     state_raw = str(status_payload.get('state') or status_payload.get('status') or '').strip().upper()
+<<<<<<< Updated upstream
     message = _extract_status_message_text(status_payload.get('message'))
+=======
+    message_field = status_payload.get('message')
+    if isinstance(message_field, dict):
+        message = str(
+            message_field.get('title')
+            or message_field.get('status')
+            or message_field.get('subtitle')
+            or message_field.get('description')
+            or ''
+        ).strip()
+    else:
+        message = str(message_field or '').strip()
+    available_flag = status_payload.get('available')
+>>>>>>> Stashed changes
 
-    closed_by_state = state_raw in {'CLOSED', 'CLOSE', 'OFFLINE', 'UNAVAILABLE', 'PAUSED', 'STOPPED'}
+    open_status_values = {'OK', 'OPEN', 'AVAILABLE', 'ONLINE', 'TRUE'}
+    closed_status_values = {
+        'CLOSED', 'CLOSE', 'OFFLINE', 'UNAVAILABLE', 'PAUSED', 'STOPPED',
+        'FALSE', 'NOK', 'ERROR', 'DISCONNECTED', 'DOWN'
+    }
+    closed_by_state = (state_raw in closed_status_values)
+    if not closed_by_state and isinstance(available_flag, bool):
+        closed_by_state = (not available_flag)
 
     if not closed_by_state:
         validations = status_payload.get('validations') or []
@@ -1167,6 +1201,7 @@ def detect_restaurant_closure(api_client, merchant_id):
             for validation in validations:
                 if not isinstance(validation, dict):
                     continue
+<<<<<<< Updated upstream
                 code = str(validation.get('code') or '').strip().lower()
                 validation_status = str(validation.get('status') or validation.get('state') or '').strip().upper()
                 if code in ('opening-hours', 'opening_hours', 'is-open', 'is_open'):
@@ -1181,6 +1216,43 @@ def detect_restaurant_closure(api_client, merchant_id):
                         closed_by_state = True
                         if not active_reason:
                             active_reason = validation_message or 'Fora do horario de funcionamento'
+=======
+                code = str(validation.get('id') or validation.get('code') or '').strip().lower()
+                raw_validation_status = validation.get('status')
+                if raw_validation_status in (None, ''):
+                    raw_validation_status = validation.get('state')
+                if isinstance(raw_validation_status, bool):
+                    validation_status = 'TRUE' if raw_validation_status else 'FALSE'
+                else:
+                    validation_status = str(raw_validation_status or '').strip().upper()
+                is_connectivity_check = code in ('is-connected', 'is_connected', 'is.connected.config')
+                is_opening_check = code in (
+                    'opening-hours', 'opening_hours', 'is-open', 'is_open',
+                    'during.opening-hours.config', 'during.opening.hours.config'
+                )
+                is_availability_check = code in ('is-available', 'is_available')
+
+                if is_connectivity_check or is_opening_check or is_availability_check:
+                    if validation_status in closed_status_values or (
+                        validation_status and validation_status not in open_status_values
+                    ):
+                        closed_by_state = True
+                        if not active_reason:
+                            validation_message = validation.get('message')
+                            if isinstance(validation_message, dict):
+                                validation_message = (
+                                    validation_message.get('title')
+                                    or validation_message.get('status')
+                                    or validation_message.get('subtitle')
+                                    or validation_message.get('description')
+                                )
+                            fallback_reason = 'Loja indisponivel no iFood'
+                            if is_connectivity_check:
+                                fallback_reason = 'Integracao iFood desconectada'
+                            elif is_opening_check:
+                                fallback_reason = 'Fora do horario de funcionamento'
+                            active_reason = str(validation_message or validation.get('description') or '').strip() or fallback_reason
+>>>>>>> Stashed changes
                         break
                     if validation_status in open_validation_statuses:
                         continue
@@ -1196,6 +1268,9 @@ def detect_restaurant_closure(api_client, merchant_id):
             active_reason = message
         elif closed_by_state:
             active_reason = f'Status: {state_raw}' if state_raw else 'Loja fechada no momento'
+    if not is_closed:
+        active_reason = None
+        closed_until = None
 
     return {
         'is_closed': is_closed,
@@ -1521,6 +1596,35 @@ def release_refresh_lock(token):
         pass
 
 
+def acquire_keepalive_lock():
+    """Acquire keepalive polling lock to avoid duplicate polling across instances."""
+    r = get_redis_client()
+    if not r:
+        return REDIS_INSTANCE_ID
+    token = str(uuid.uuid4())
+    ttl_seconds = max(20, int(IFOOD_POLL_INTERVAL_SECONDS or 30) * 2)
+    try:
+        ok = r.set(REDIS_KEEPALIVE_LOCK_KEY, token, nx=True, ex=ttl_seconds)
+        return token if ok else None
+    except Exception:
+        return REDIS_INSTANCE_ID
+
+
+def release_keepalive_lock(token):
+    """Release keepalive polling lock owned by token."""
+    if not token or token == REDIS_INSTANCE_ID:
+        return
+    r = get_redis_client()
+    if not r:
+        return
+    try:
+        current = r.get(REDIS_KEEPALIVE_LOCK_KEY)
+        if current == token:
+            r.delete(REDIS_KEEPALIVE_LOCK_KEY)
+    except Exception:
+        pass
+
+
 def set_refresh_status(status_payload: dict):
     """Persist refresh status for all instances."""
     if not isinstance(status_payload, dict):
@@ -1598,6 +1702,165 @@ def _extract_org_merchant_ids(org_config):
     return list(dict.fromkeys(ids))
 
 
+def _order_cache_key(order: dict) -> str:
+    if not isinstance(order, dict):
+        return ''
+    return str(
+        order.get('id')
+        or order.get('orderId')
+        or order.get('displayId')
+        or f"{order.get('createdAt')}:{order.get('orderStatus')}"
+    )
+
+
+def _find_org_restaurant_record(org_data: dict, merchant_id: str):
+    if not isinstance(org_data, dict):
+        return None
+    wanted = str(merchant_id or '').strip()
+    if not wanted:
+        return None
+    for restaurant in (org_data.get('restaurants') or []):
+        if not isinstance(restaurant, dict):
+            continue
+        candidates = (
+            restaurant.get('_resolved_merchant_id'),
+            restaurant.get('merchant_id'),
+            restaurant.get('merchantId'),
+            restaurant.get('ifood_merchant_id'),
+            restaurant.get('id'),
+        )
+        for candidate in candidates:
+            if str(candidate or '').strip() == wanted:
+                return restaurant
+    return None
+
+
+def _extract_event_id_from_payload(event: dict):
+    if not isinstance(event, dict):
+        return None
+    for key in ('id', 'eventId', 'event_id'):
+        value = event.get(key)
+        if value:
+            return str(value)
+    metadata = event.get('metadata')
+    if isinstance(metadata, dict):
+        for key in ('id', 'eventId', 'event_id'):
+            value = metadata.get(key)
+            if value:
+                return str(value)
+    return None
+
+
+def _extract_order_id_from_poll_event(api_client, event: dict):
+    if hasattr(api_client, '_extract_order_id_from_event'):
+        try:
+            value = api_client._extract_order_id_from_event(event)
+            if value:
+                return str(value)
+        except Exception:
+            pass
+    if not isinstance(event, dict):
+        return None
+    for key in ('orderId', 'order_id'):
+        value = event.get(key)
+        if value:
+            return str(value)
+    metadata = event.get('metadata')
+    if isinstance(metadata, dict):
+        for key in ('orderId', 'order_id'):
+            value = metadata.get(key)
+            if value:
+                return str(value)
+    return None
+
+
+def _extract_merchant_id_from_poll_event(event: dict):
+    if not isinstance(event, dict):
+        return None
+    for key in ('merchantId', 'merchant_id'):
+        value = event.get(key)
+        if value:
+            return str(value)
+    merchant_obj = event.get('merchant')
+    if isinstance(merchant_obj, dict):
+        for key in ('id', 'merchantId', 'merchant_id'):
+            value = merchant_obj.get(key)
+            if value:
+                return str(value)
+    metadata = event.get('metadata')
+    if isinstance(metadata, dict):
+        for key in ('merchantId', 'merchant_id'):
+            value = metadata.get(key)
+            if value:
+                return str(value)
+        nested_merchant = metadata.get('merchant')
+        if isinstance(nested_merchant, dict):
+            for key in ('id', 'merchantId', 'merchant_id'):
+                value = nested_merchant.get(key)
+                if value:
+                    return str(value)
+    return None
+
+
+def _extract_status_from_poll_event(api_client, event: dict):
+    if hasattr(api_client, '_extract_order_status_from_event'):
+        try:
+            return api_client._extract_order_status_from_event(event)
+        except Exception:
+            pass
+    if not isinstance(event, dict):
+        return None
+    for key in ('orderStatus', 'status', 'state', 'fullCode', 'code'):
+        value = event.get(key)
+        if value:
+            return value
+    metadata = event.get('metadata')
+    if isinstance(metadata, dict):
+        for key in ('orderStatus', 'status', 'state', 'fullCode', 'code'):
+            value = metadata.get(key)
+            if value:
+                return value
+    return None
+
+
+def _merge_orders_into_restaurant_cache(restaurant: dict, incoming_orders: list) -> int:
+    if not isinstance(restaurant, dict):
+        return 0
+
+    merged = {}
+    for existing in (restaurant.get('_orders_cache') or []):
+        if not isinstance(existing, dict):
+            continue
+        normalized_existing = normalize_order_payload(existing)
+        key = _order_cache_key(normalized_existing)
+        if key:
+            merged[key] = normalized_existing
+
+    before = len(merged)
+    for order in (incoming_orders or []):
+        if not isinstance(order, dict):
+            continue
+        normalized_order = normalize_order_payload(order)
+        key = _order_cache_key(normalized_order)
+        if key:
+            merged[key] = normalized_order
+
+    restaurant['_orders_cache'] = list(merged.values())
+    return max(0, len(merged) - before)
+
+
+def _refresh_restaurant_closure(org_data: dict, api_client, merchant_id: str) -> bool:
+    restaurant_record = _find_org_restaurant_record(org_data, merchant_id)
+    if not restaurant_record:
+        return False
+    closure = detect_restaurant_closure(api_client, merchant_id) or {}
+    restaurant_record['is_closed'] = bool(closure.get('is_closed'))
+    restaurant_record['closure_reason'] = closure.get('closure_reason')
+    restaurant_record['closed_until'] = closure.get('closed_until')
+    restaurant_record['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
+    return True
+
+
 def run_ifood_keepalive_poll_once():
     """Poll iFood order events to keep test merchants marked as connected/open."""
     global _KEEPALIVE_POLL_CYCLE
@@ -1605,58 +1868,225 @@ def run_ifood_keepalive_poll_once():
         'orgs_checked': 0,
         'merchants_polled': 0,
         'events_received': 0,
+        'events_acknowledged': 0,
+        'orders_cached': 0,
         'errors': 0
     }
 
     if not IFOOD_KEEPALIVE_POLLING:
         return summary
 
-    for org_id, org_data in list(ORG_DATA.items()):
-        if not isinstance(org_data, dict):
-            continue
-        api = org_data.get('api')
-        if not api:
-            continue
+    lock_token = acquire_keepalive_lock()
+    if lock_token is None:
+        return summary
 
-        config = org_data.get('config') or {}
-        merchant_ids = _extract_org_merchant_ids(config)
-        if not merchant_ids:
-            # Refresh config lazily in worker mode when in-memory config is stale.
-            db_config = db.get_org_ifood_config(org_id) or {}
-            if isinstance(db_config, dict):
-                org_data['config'] = db_config
-                merchant_ids = _extract_org_merchant_ids(db_config)
+    try:
+        for org_id, org_data in list(ORG_DATA.items()):
+            if not isinstance(org_data, dict):
+                continue
+            api = org_data.get('api')
+            if not api:
+                continue
 
-        if not merchant_ids:
-            continue
+            config = org_data.get('config') or {}
+            merchant_ids = _extract_org_merchant_ids(config)
+            if not merchant_ids:
+                # Refresh config lazily in worker mode when in-memory config is stale.
+                db_config = db.get_org_ifood_config(org_id) or {}
+                if isinstance(db_config, dict):
+                    org_data['config'] = db_config
+                    merchant_ids = _extract_org_merchant_ids(db_config)
 
-        summary['orgs_checked'] += 1
-        for merchant_id in merchant_ids:
+            if not merchant_ids:
+                continue
+
+            summary['orgs_checked'] += 1
+            summary['merchants_polled'] += len(merchant_ids)
+            merchant_set = {str(mid) for mid in merchant_ids}
+            events = []
+
             try:
                 if hasattr(api, 'poll_events'):
-                    events = api.poll_events(merchant_id) or []
-                else:
-                    headers = {'x-polling-merchants': str(merchant_id)}
-                    payload = api._request('GET', '/order/v1.0/events:polling', headers=headers) if hasattr(api, '_request') else None
-                    events = payload if isinstance(payload, list) else []
-                summary['merchants_polled'] += 1
+                    events = api.poll_events(merchant_ids) or []
+                elif hasattr(api, '_request'):
+                    headers = {'x-polling-merchants': ','.join(merchant_ids)}
+                    payload = api._request('GET', '/events/v1.0/events:polling', headers=headers)
+                    if payload is None:
+                        payload = api._request('GET', '/order/v1.0/events:polling', headers=headers)
+                    if isinstance(payload, list):
+                        events = [e for e in payload if isinstance(e, dict)]
+                    elif isinstance(payload, dict):
+                        for key in ('events', 'data', 'items'):
+                            nested = payload.get(key)
+                            if isinstance(nested, list):
+                                events = [e for e in nested if isinstance(e, dict)]
+                                break
+                        if not events:
+                            events = [payload]
                 summary['events_received'] += len(events)
             except Exception:
                 summary['errors'] += 1
+                events = []
+
+            events_by_merchant = {}
+            orphan_events = []
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                event_merchant_id = _extract_merchant_id_from_poll_event(event)
+                if not event_merchant_id:
+                    orphan_events.append(event)
+                    continue
+                if event_merchant_id not in merchant_set:
+                    continue
+                events_by_merchant.setdefault(event_merchant_id, []).append(event)
+            if len(merchant_ids) == 1 and orphan_events:
+                only_merchant_id = str(merchant_ids[0])
+                events_by_merchant.setdefault(only_merchant_id, []).extend(orphan_events)
+
+            for merchant_id in merchant_ids:
+                try:
+                    merchant_events = events_by_merchant.get(str(merchant_id), [])
+                    if merchant_events:
+                        latest_event_status_by_order = {}
+                        order_ids = []
+                        for event in merchant_events:
+                            if not isinstance(event, dict):
+                                continue
+                            order_id = _extract_order_id_from_poll_event(api, event)
+                            if not order_id:
+                                continue
+                            order_ids.append(str(order_id))
+                            status_raw = _extract_status_from_poll_event(api, event)
+                            normalized_status = normalize_order_status_value(status_raw)
+                            if normalized_status == 'UNKNOWN':
+                                continue
+                            event_created_at = _parse_generic_datetime(event.get('createdAt'))
+                            existing = latest_event_status_by_order.get(str(order_id))
+                            if not existing:
+                                latest_event_status_by_order[str(order_id)] = {
+                                    'status': normalized_status,
+                                    'created_at': event_created_at
+                                }
+                                continue
+                            existing_created = existing.get('created_at')
+                            if existing_created is None or (event_created_at and event_created_at >= existing_created):
+                                latest_event_status_by_order[str(order_id)] = {
+                                    'status': normalized_status,
+                                    'created_at': event_created_at
+                                }
+
+                        dedup_order_ids = list(dict.fromkeys([str(oid) for oid in order_ids if oid]))
+                        resolved_orders = []
+                        if hasattr(api, 'get_order_details'):
+                            for order_id in dedup_order_ids:
+                                try:
+                                    details = api.get_order_details(order_id)
+                                except Exception:
+                                    details = None
+                                if not isinstance(details, dict) or not details:
+                                    continue
+                                normalized_current_status = normalize_order_status_value(details.get('orderStatus'))
+                                if normalized_current_status == 'UNKNOWN':
+                                    event_info = latest_event_status_by_order.get(str(order_id))
+                                    if event_info and event_info.get('status'):
+                                        details['orderStatus'] = event_info.get('status')
+                                resolved_orders.append(normalize_order_payload(details))
+
+                        direct_orders = []
+                        for event in merchant_events:
+                            if not isinstance(event, dict):
+                                continue
+                            if 'orderStatus' not in event and 'totalPrice' not in event and 'total' not in event:
+                                continue
+                            event_order = dict(event)
+                            fallback_order_id = _extract_order_id_from_poll_event(api, event_order)
+                            if fallback_order_id:
+                                # Polling event id is usually the event id, not the order id.
+                                event_order['id'] = str(fallback_order_id)
+                            direct_orders.append(normalize_order_payload(event_order))
+
+                        merged_orders = {}
+                        for order in resolved_orders + direct_orders:
+                            if not isinstance(order, dict):
+                                continue
+                            key = _order_cache_key(order)
+                            if key:
+                                merged_orders[key] = order
+                        incoming_orders = list(merged_orders.values())
+
+                        if incoming_orders:
+                            restaurant_record = _find_org_restaurant_record(org_data, merchant_id)
+                            if restaurant_record:
+                                added = _merge_orders_into_restaurant_cache(restaurant_record, incoming_orders)
+                                summary['orders_cached'] += int(added)
+                except Exception:
+                    summary['errors'] += 1
+                try:
+                    _refresh_restaurant_closure(org_data, api, merchant_id)
+                except Exception:
+                    summary['errors'] += 1
+
+            if events and hasattr(api, 'acknowledge_events'):
+                try:
+                    ack_result = api.acknowledge_events(events)
+                    if isinstance(ack_result, dict) and ack_result.get('success'):
+                        summary['events_acknowledged'] += int(ack_result.get('acknowledged') or 0)
+                    else:
+                        summary['errors'] += 1
+                except Exception:
+                    summary['errors'] += 1
+    finally:
+        release_keepalive_lock(lock_token)
 
     _KEEPALIVE_POLL_CYCLE += 1
     if summary['errors'] > 0:
         print(
             f"iFood keepalive polling completed with errors "
-            f"(orgs={summary['orgs_checked']}, merchants={summary['merchants_polled']}, events={summary['events_received']}, errors={summary['errors']})"
+            f"(orgs={summary['orgs_checked']}, merchants={summary['merchants_polled']}, "
+            f"events={summary['events_received']}, acked={summary['events_acknowledged']}, "
+            f"orders_cached={summary['orders_cached']}, errors={summary['errors']})"
         )
     elif summary['merchants_polled'] > 0 and (_KEEPALIVE_POLL_CYCLE % 20 == 0):
         # avoid noisy logs: once every ~10 minutes at 30s interval
         print(
             f"iFood keepalive polling active "
-            f"(orgs={summary['orgs_checked']}, merchants={summary['merchants_polled']}, events={summary['events_received']})"
+            f"(orgs={summary['orgs_checked']}, merchants={summary['merchants_polled']}, "
+            f"events={summary['events_received']}, acked={summary['events_acknowledged']}, "
+            f"orders_cached={summary['orders_cached']})"
         )
     return summary
+
+
+_KEEPALIVE_THREAD = None
+_KEEPALIVE_STOP_EVENT = threading.Event()
+_KEEPALIVE_THREAD_LOCK = threading.Lock()
+
+
+def _keepalive_loop():
+    interval_seconds = max(10, int(IFOOD_POLL_INTERVAL_SECONDS or 30))
+    while not _KEEPALIVE_STOP_EVENT.is_set():
+        started_at = time.time()
+        try:
+            run_ifood_keepalive_poll_once()
+        except Exception as e:
+            print(f"Keepalive poller error: {e}")
+        elapsed = time.time() - started_at
+        wait_seconds = max(1.0, interval_seconds - elapsed)
+        _KEEPALIVE_STOP_EVENT.wait(wait_seconds)
+
+
+def start_keepalive_poller():
+    global _KEEPALIVE_THREAD
+    if not IFOOD_KEEPALIVE_POLLING:
+        return
+    with _KEEPALIVE_THREAD_LOCK:
+        if _KEEPALIVE_THREAD and _KEEPALIVE_THREAD.is_alive():
+            return
+        _KEEPALIVE_STOP_EVENT.clear()
+        _KEEPALIVE_THREAD = threading.Thread(target=_keepalive_loop, daemon=True, name="ifood-keepalive")
+        _KEEPALIVE_THREAD.start()
+        print(f"iFood keepalive poller started (every {IFOOD_POLL_INTERVAL_SECONDS}s)")
 
 
 def run_refresh_worker_loop(interval_seconds=1800):
@@ -2572,7 +3002,7 @@ def admin_page():
 
 
 @app.route('/ops')
-@admin_required
+@platform_admin_required
 def ops_page():
     """Serve operations panel page."""
     ops_file = DASHBOARD_OUTPUT / 'ops.html'
@@ -3251,9 +3681,19 @@ def api_org_user_role_update(user_id):
     if not org_role:
         return jsonify({'success': False, 'error': 'org_role is required'}), 400
 
-    result = db.update_org_member_role(org_id, user_id, org_role)
+    result = db.update_org_member_role(
+        org_id,
+        user_id,
+        org_role,
+        acting_user_id=session.get('user', {}).get('id')
+    )
     if not result.get('success'):
         code = str(result.get('error') or '')
+        if code == 'admin_cannot_self_promote_to_owner':
+            return jsonify({
+                'success': False,
+                'error': 'Admins cannot promote themselves to owner'
+            }), 403
         status = 404 if code == 'member_not_found' else 400
         return jsonify(result), status
 
@@ -3412,7 +3852,7 @@ def api_data_quality():
 
 
 @app.route('/api/ops/summary')
-@admin_required
+@platform_admin_required
 def api_ops_summary():
     """Operations summary for Railway/production diagnostics."""
     org_id = get_current_org_id()
@@ -3650,11 +4090,38 @@ def api_restaurants():
             is_closed = to_bool_flag(record.get('is_closed')) or to_bool_flag(record.get('isClosed'))
             reason = record.get('closure_reason') or record.get('closureReason')
             closed_until = record.get('closed_until') or record.get('closedUntil')
+            status_message = None
             try:
                 active_interruptions = int(record.get('active_interruptions_count') or record.get('activeInterruptionsCount') or 0)
             except Exception:
                 active_interruptions = 0
 
+<<<<<<< Updated upstream
+=======
+            status_field = record.get('status')
+            state_candidates = [record.get('state'), record.get('operational_status')]
+            if isinstance(status_field, dict):
+                state_candidates.append(status_field.get('state') or status_field.get('status'))
+                status_message = status_field.get('message') or status_field.get('description')
+                if not reason:
+                    reason = status_message
+            elif isinstance(status_field, str):
+                state_candidates.append(status_field)
+
+            state_raw = ' '.join(str(v or '') for v in state_candidates).strip().lower()
+            if not is_closed and state_raw:
+                if any(token in state_raw for token in ('closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
+                    is_closed = True
+
+            message_text = str(status_message or '').strip().lower()
+            if not is_closed and message_text:
+                if any(token in message_text for token in ('closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
+                    is_closed = True
+
+            if active_interruptions > 0:
+                is_closed = True
+
+>>>>>>> Stashed changes
             has_explicit_closure_fields = any(
                 key in record
                 for key in (
@@ -3704,6 +4171,10 @@ def api_restaurants():
                         pass
                     if active_interruptions > 0:
                         is_closed = True
+
+            if not is_closed:
+                reason = None
+                closed_until = None
 
             return {
                 'is_closed': bool(is_closed),
@@ -7358,6 +7829,10 @@ def initialize_app():
     initialize_all_orgs()
     
     queue_mode = USE_REDIS_QUEUE and bool(get_redis_client())
+    is_worker_process = (
+        ('--worker' in sys.argv)
+        or (str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on'))
+    )
 
     # Fallback: if no orgs have data, try legacy config file
     if not any(od['restaurants'] for od in ORG_DATA.values()):
@@ -7384,6 +7859,10 @@ def initialize_app():
         if not queue_mode:
             bg_refresher.interval = 1800  # 30 min
             bg_refresher.start()
+
+    # Ensure keepalive polling can run on web instances when worker mode is not active.
+    if IFOOD_KEEPALIVE_POLLING and not is_worker_process:
+        start_keepalive_poller()
     
     total_restaurants = sum(len(od['restaurants']) for od in ORG_DATA.values()) + len(RESTAURANTS_DATA)
     total_orgs = len([o for o in ORG_DATA.values() if o['restaurants']])

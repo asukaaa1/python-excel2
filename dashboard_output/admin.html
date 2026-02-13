@@ -265,7 +265,7 @@
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
                     <span>Lojas Ocultas</span>
                 </a>
-                <a href="/ops" class="sidebar-link">
+                <a href="/ops" class="sidebar-link" id="opsNavLink" style="display:none">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h4l3 8 4-16 3 8h4"/></svg>
                     <span>Ops</span>
                 </a>
@@ -582,6 +582,8 @@
             return response;
         };
         let currentOrgId = null;
+        let currentUserId = null;
+        let currentUserOrgRole = null;
         let organizationsCache = [];
         async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig(), loadSubscription(), loadOnboarding(), loadDataQualitySummary()]); }
 
@@ -724,22 +726,27 @@
                     document.getElementById('userCount').textContent = data.users.length;
                     const tbody = document.getElementById('usersTable');
                     if (data.users.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum usuário vinculado</td></tr>'; return; }
-                    tbody.innerHTML = data.users.map(user => `
+                    tbody.innerHTML = data.users.map(user => {
+                        const userOrgRole = String(user.org_role || '').toLowerCase();
+                        const isOwner = userOrgRole === 'owner';
+                        const isSelfAdmin = Number(user.id) === Number(currentUserId) && currentUserOrgRole === 'admin';
+                        return `
                         <tr>
                             <td>${escapeHtml(user.name || user.username || 'Usuário')}</td>
                             <td>${user.email || '-'}</td>
                             <td>${renderOrgRoleBadge(user.org_role)}</td>
                             <td>${user.last_login ? new Date(user.last_login).toLocaleDateString('pt-BR') : 'Nunca'}</td>
                             <td style="display:flex;gap:8px;flex-wrap:wrap">
-                                <select class="form-select" style="max-width:120px;padding:6px 8px" onchange="updateOrgUserRole(${user.id}, this.value)" ${String(user.org_role || '').toLowerCase() === 'owner' ? 'disabled' : ''}>
-                                    <option value="viewer" ${String(user.org_role || '').toLowerCase() === 'viewer' ? 'selected' : ''}>Viewer</option>
-                                    <option value="admin" ${String(user.org_role || '').toLowerCase() === 'admin' ? 'selected' : ''}>Admin</option>
-                                    <option value="owner" ${String(user.org_role || '').toLowerCase() === 'owner' ? 'selected' : ''}>Owner</option>
+                                <select class="form-select" style="max-width:120px;padding:6px 8px" onchange="updateOrgUserRole(${user.id}, this.value)" ${isOwner ? 'disabled' : ''}>
+                                    <option value="viewer" ${userOrgRole === 'viewer' ? 'selected' : ''}>Viewer</option>
+                                    <option value="admin" ${userOrgRole === 'admin' ? 'selected' : ''}>Admin</option>
+                                    <option value="owner" ${userOrgRole === 'owner' ? 'selected' : ''} ${isSelfAdmin ? 'disabled' : ''}>Owner</option>
                                 </select>
                                 <button class="btn btn-secondary btn-danger" onclick="removeOrgUser(${user.id}, '${escapeJs(user.name || user.username || 'Usuário')}')">Desvincular</button>
                             </td>
                         </tr>
-                    `).join('');
+                    `;
+                    }).join('');
                 }
             } catch (error) { console.error('Error loading users:', error); document.getElementById('usersTable').innerHTML = '<tr><td colspan="5" class="empty-state">Erro ao carregar usuários</td></tr>'; }
         }
@@ -1306,6 +1313,8 @@
                 }
 
                 const u = data.user;
+                currentUserId = Number(u.id || 0) || null;
+                currentUserOrgRole = String(u.org_role || '').toLowerCase();
                 document.getElementById('userName').textContent = u.name || u.username || 'Usuario';
                 const initials = (u.name || u.username || 'U').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                 document.getElementById('userAvatar').textContent = initials;
@@ -1314,6 +1323,8 @@
                     window.location.href = '/dashboard';
                     return;
                 }
+                const opsNav = document.getElementById('opsNavLink');
+                if (opsNav) opsNav.style.display = u.is_platform_admin ? '' : 'none';
 
                 currentOrgId = Number(data.org_id || currentOrgId || 0);
                 const org = data.org || {};
@@ -1370,6 +1381,8 @@
                     document.getElementById('userAvatar').textContent = initials;
                     document.getElementById('userRoleText').textContent = u.role === 'admin' ? 'Administrador' : 'Usuário';
                     if (u.role !== 'admin') { window.location.href = '/dashboard'; }
+                    const opsNav = document.getElementById('opsNavLink');
+                    if (opsNav) opsNav.style.display = u.is_platform_admin ? '' : 'none';
 
                     const org = data.org || {};
                     if (org.name) {

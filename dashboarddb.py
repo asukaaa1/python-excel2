@@ -1950,7 +1950,7 @@ class DashboardDatabase:
         finally:
             cursor.close(); conn.close()
 
-    def update_org_member_role(self, org_id, user_id, org_role):
+    def update_org_member_role(self, org_id, user_id, org_role, acting_user_id=None):
         conn = self.get_connection()
         if not conn:
             return {'success': False, 'error': 'db_unavailable'}
@@ -1966,6 +1966,17 @@ class DashboardDatabase:
                 return {'success': False, 'error': 'member_not_found'}
 
             current_role = row[0]
+            # Guardrail: org admins cannot promote themselves to owner.
+            try:
+                same_user = (
+                    acting_user_id is not None
+                    and int(acting_user_id) == int(user_id)
+                )
+            except Exception:
+                same_user = False
+            if same_user and str(current_role or '').strip().lower() == 'admin' and role == 'owner':
+                return {'success': False, 'error': 'admin_cannot_self_promote_to_owner'}
+
             if current_role == 'owner' and role != 'owner':
                 cursor.execute("SELECT COUNT(*) FROM org_members WHERE org_id=%s AND org_role='owner'", (org_id,))
                 owner_count = int(cursor.fetchone()[0] or 0)

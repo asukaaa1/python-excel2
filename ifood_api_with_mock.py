@@ -29,6 +29,14 @@ class IFoodAPI:
     # API Endpoints
     BASE_URL = "https://merchant-api.ifood.com.br"
     AUTH_URL = "https://merchant-api.ifood.com.br/authentication/v1.0/oauth/token"
+    POLLING_ENDPOINTS = (
+        "/events/v1.0/events:polling",
+        "/order/v1.0/events:polling",  # legacy compatibility
+    )
+    ACK_ENDPOINTS = (
+        "/events/v1.0/events/acknowledgment",
+        "/order/v1.0/events/acknowledgment",  # legacy compatibility
+    )
     
     def __init__(self, client_id: str, client_secret: str, use_mock_data: bool = False):
         """Initialize iFood API client
@@ -203,8 +211,7 @@ class IFoodAPI:
         
         # Real API flow:
         # 1) poll order events, 2) resolve order details by order id.
-        polling_headers = {'x-polling-merchants': str(merchant_id)}
-        polling_result = self._request('GET', '/order/v1.0/events:polling', headers=polling_headers)
+        polling_result = self._poll_events_payload(merchant_id)
         events = self._extract_polling_events(polling_result)
         latest_event_status_by_order = {}
         for event in events:
@@ -236,7 +243,12 @@ class IFoodAPI:
         direct_orders = []
         for item in events:
             if isinstance(item, dict) and ('orderStatus' in item or 'totalPrice' in item):
-                direct_orders.append(item)
+                direct_item = dict(item)
+                direct_order_id = self._extract_order_id_from_event(direct_item)
+                if direct_order_id:
+                    # Polling event id is usually the event id, not the order id.
+                    direct_item['id'] = str(direct_order_id)
+                direct_orders.append(direct_item)
 
         order_ids = []
         for event in events:
@@ -285,18 +297,84 @@ class IFoodAPI:
 
         return self._filter_orders(candidate_orders, merchant_id, start_date, end_date, status)
 
-    def poll_events(self, merchant_id: str) -> List[Dict]:
+    def poll_events(self, merchant_id) -> List[Dict]:
         """Perform lightweight events polling for one merchant.
 
         Useful for keeping test stores connected/open in iFood sandbox.
         """
         if self.use_mock_data:
             return []
-        if not merchant_id:
+        polling_merchants = self._normalize_polling_merchants(merchant_id)
+        if not polling_merchants:
             return []
-        polling_headers = {'x-polling-merchants': str(merchant_id)}
-        polling_result = self._request('GET', '/order/v1.0/events:polling', headers=polling_headers)
+        polling_result = self._poll_events_payload(polling_merchants)
         return self._extract_polling_events(polling_result)
+
+    def _normalize_polling_merchants(self, merchant_id) -> str:
+        if merchant_id is None:
+            return ''
+        if isinstance(merchant_id, (list, tuple, set)):
+            normalized = [str(mid).strip() for mid in merchant_id if str(mid).strip()]
+            return ','.join(list(dict.fromkeys(normalized)))
+        return str(merchant_id).strip()
+
+    def _poll_events_payload(self, merchant_id):
+        """Fetch polling payload using official endpoint, then legacy fallback."""
+        polling_merchants = self._normalize_polling_merchants(merchant_id)
+        if not polling_merchants:
+            return None
+        polling_headers = {'x-polling-merchants': polling_merchants}
+        for endpoint in self.POLLING_ENDPOINTS:
+            payload = self._request('GET', endpoint, headers=polling_headers)
+            if payload is not None:
+                return payload
+        return None
+
+    def _extract_event_id(self, event: Dict) -> Optional[str]:
+        if not isinstance(event, dict):
+            return None
+        for key in ('id', 'eventId', 'event_id'):
+            value = event.get(key)
+            if value:
+                return str(value)
+        metadata = event.get('metadata')
+        if isinstance(metadata, dict):
+            for key in ('id', 'eventId', 'event_id'):
+                value = metadata.get(key)
+                if value:
+                    return str(value)
+        return None
+
+    def acknowledge_events(self, events: List[Dict]) -> Dict:
+        """Acknowledge polled events after processing to avoid backlog/re-delivery loops."""
+        if self.use_mock_data:
+            return {'success': True, 'requested': 0, 'acknowledged': 0}
+
+        ack_items = []
+        seen_ids = set()
+        for event in (events or []):
+            event_id = self._extract_event_id(event)
+            if not event_id or event_id in seen_ids:
+                continue
+            seen_ids.add(event_id)
+            ack_items.append({'id': event_id})
+
+        requested = len(ack_items)
+        if requested == 0:
+            return {'success': True, 'requested': 0, 'acknowledged': 0}
+
+        payload_variants = (
+            ack_items,
+            {'events': ack_items},
+            [item['id'] for item in ack_items],
+        )
+        for endpoint in self.ACK_ENDPOINTS:
+            for payload in payload_variants:
+                result = self._request('POST', endpoint, data=payload)
+                if result is not None:
+                    return {'success': True, 'requested': requested, 'acknowledged': requested, 'endpoint': endpoint}
+
+        return {'success': False, 'requested': requested, 'acknowledged': 0}
 
     def get_order_details(self, order_id: str) -> Optional[Dict]:
         """Resolve full order payload by order id."""
@@ -661,7 +739,10 @@ class IFoodAPI:
                 status = int(getattr(resp, 'status', 200) or 200)
                 raw = resp.read()
                 if status not in (200, 201, 202, 204):
+<<<<<<< Updated upstream
                     self._last_http_error = {'status': status, 'endpoint': endpoint, 'detail': ''}
+=======
+>>>>>>> Stashed changes
                     print(f"API Error (urllib): {status} - {endpoint}")
                     return None
                 self._last_http_error = None
@@ -724,6 +805,7 @@ class IFoodAPI:
                     return None
 
                 if response.status_code in (200, 201, 202, 204):
+<<<<<<< Updated upstream
                     self._last_http_error = None
                     if not response.content:
                         return {}
@@ -731,6 +813,9 @@ class IFoodAPI:
                         return response.json()
                     except Exception:
                         return {}
+=======
+                    return response.json() if response.content else {}
+>>>>>>> Stashed changes
 
                 if response.status_code == 401:
                     self._last_http_error = {'status': 401, 'endpoint': endpoint, 'detail': response.text}
