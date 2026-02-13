@@ -1076,12 +1076,26 @@ def normalize_order_payload(order):
     order['orderStatus'] = normalized_status
 
     if not order.get('createdAt'):
-        created_candidate = (
-            order.get('created_at')
-            or order.get('created')
-            or order.get('createdDate')
-            or order.get('creationDate')
-        )
+        created_candidate = None
+        for key in (
+            'created_at',
+            'created',
+            'createdDate',
+            'creationDate',
+            'orderCreatedAt',
+            'orderDate',
+            'timestamp',
+            'date',
+            'lastStatusDate',
+            'updatedAt',
+            'eventCreatedAt',
+        ):
+            value = order.get(key)
+            if value in (None, ''):
+                continue
+            parsed = _parse_generic_datetime(value)
+            created_candidate = parsed.isoformat() if parsed else value
+            break
         if created_candidate:
             order['createdAt'] = created_candidate
 
@@ -1098,17 +1112,23 @@ def filter_orders_by_month(orders, month_filter):
         return orders
     target_month = int(month_filter)
     filtered = []
+    undated = []
     for order in orders:
         try:
             normalize_order_payload(order)
-            created_at = order.get('createdAt')
-            if not created_at:
+            order_date = _parse_order_datetime(order)
+            if not order_date:
+                undated.append(order)
                 continue
-            order_date = datetime.fromisoformat(str(created_at).replace('Z', '+00:00'))
             if order_date.month == target_month:
                 filtered.append(order)
         except Exception:
             continue
+    if filtered:
+        return filtered
+    if undated:
+        # Keep undated events visible instead of collapsing the dashboard to zero.
+        return undated
     return filtered
 
 
@@ -1467,21 +1487,52 @@ def aggregate_dashboard_summary(restaurants):
 
 def _parse_order_datetime(order):
     normalized_order = normalize_order_payload(order or {})
-    created_at = (normalized_order or {}).get('createdAt')
-    if not created_at:
-        return None
-    try:
-        return datetime.fromisoformat(str(created_at).replace('Z', '+00:00')).replace(tzinfo=None)
-    except Exception:
-        return None
+    for key in (
+        'createdAt',
+        'created_at',
+        'created',
+        'createdDate',
+        'creationDate',
+        'orderCreatedAt',
+        'orderDate',
+        'timestamp',
+        'date',
+        'lastStatusDate',
+        'updatedAt',
+        'eventCreatedAt',
+    ):
+        created_at = (normalized_order or {}).get(key)
+        parsed = _parse_generic_datetime(created_at)
+        if parsed:
+            return parsed
+    return None
 
 
 def _parse_generic_datetime(raw_value):
     """Parse ISO datetime payloads from interruption/status APIs."""
     if not raw_value:
         return None
+    if isinstance(raw_value, (int, float)):
+        try:
+            ts = float(raw_value)
+            if ts > 10_000_000_000:
+                ts = ts / 1000.0
+            return datetime.utcfromtimestamp(ts)
+        except Exception:
+            return None
+    raw_text = str(raw_value).strip()
+    if not raw_text:
+        return None
+    if raw_text.isdigit():
+        try:
+            ts = float(raw_text)
+            if ts > 10_000_000_000:
+                ts = ts / 1000.0
+            return datetime.utcfromtimestamp(ts)
+        except Exception:
+            return None
     try:
-        parsed = datetime.fromisoformat(str(raw_value).replace('Z', '+00:00'))
+        parsed = datetime.fromisoformat(raw_text.replace('Z', '+00:00'))
         if getattr(parsed, 'tzinfo', None) is not None:
             # Convert aware timestamps to UTC before dropping tz to keep comparisons correct.
             parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)

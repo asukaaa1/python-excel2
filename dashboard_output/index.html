@@ -1619,20 +1619,19 @@
         let restaurantsData = [];
         let hiddenStores = [];
         let currentSortOrder = 'name-asc';
-let currentMonthFilter = 'all';
-let searchQuery = '';
-let isAdmin = false;
-let lastRefreshAt = null;
-let orgCapabilities = null;
-let savedViews = [];
-let sharedViewToken = null;
-
-        // Initialize current month filter
-        (function initMonth() {
-            const now = new Date();
-            const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
-            currentMonthFilter = currentMonth;
-        })();
+        const MONTH_FILTER_STORAGE_KEY = 'dashboard_month_filter';
+        const VALID_MONTH_FILTERS = new Set(['all', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12']);
+        const sanitizeMonthFilter = (value) => {
+            const normalized = String(value ?? 'all').trim().toLowerCase();
+            return VALID_MONTH_FILTERS.has(normalized) ? normalized : 'all';
+        };
+        let currentMonthFilter = sanitizeMonthFilter(localStorage.getItem(MONTH_FILTER_STORAGE_KEY) || 'all');
+        let searchQuery = '';
+        let isAdmin = false;
+        let lastRefreshAt = null;
+        let orgCapabilities = null;
+        let savedViews = [];
+        let sharedViewToken = null;
 
         // Formatters
         const formatCurrency = (v) => v ? 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'R$ 0,00';
@@ -1831,7 +1830,7 @@ let sharedViewToken = null;
         }
 
         async function applySavedPayload(payload) {
-            const month = String(payload?.month || 'all');
+            const month = sanitizeMonthFilter(payload?.month || 'all');
             const sort = String(payload?.sort || 'name-asc');
             const search = String(payload?.search || '');
             const input = document.getElementById('searchInput');
@@ -2300,7 +2299,8 @@ let sharedViewToken = null;
         }
 
         async function filterByMonth(month, ev) {
-            currentMonthFilter = month;
+            currentMonthFilter = sanitizeMonthFilter(month);
+            localStorage.setItem(MONTH_FILTER_STORAGE_KEY, currentMonthFilter);
             const monthNames = {
                 'all': 'Todos',
                 '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março',
@@ -2308,11 +2308,11 @@ let sharedViewToken = null;
                 '07': 'Julho', '08': 'Agosto', '09': 'Setembro',
                 '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
             };
-            document.getElementById('monthValue').textContent = monthNames[month];
+            document.getElementById('monthValue').textContent = monthNames[currentMonthFilter] || 'Todos';
             document.querySelectorAll('#monthDropdown .sort-dropdown-item').forEach(item => item.classList.remove('active'));
-            const target = ev && ev.target ? ev.target : document.querySelector(`#monthDropdown .sort-dropdown-item[data-month="${month}"]`);
+            const target = ev && ev.target ? ev.target : document.querySelector(`#monthDropdown .sort-dropdown-item[data-month="${currentMonthFilter}"]`);
             if (target) target.classList.add('active');
-            await loadRestaurants(month);
+            await loadRestaurants(currentMonthFilter);
             document.getElementById('monthDropdown').classList.remove('open');
         }
 
@@ -2515,7 +2515,10 @@ let sharedViewToken = null;
                 '07': 'Julho', '08': 'Agosto', '09': 'Setembro',
                 '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
             };
-            document.getElementById('monthValue').textContent = monthNames[currentMonthFilter] || 'Mês atual';
+            document.getElementById('monthValue').textContent = monthNames[currentMonthFilter] || 'Todos';
+            document.querySelectorAll('#monthDropdown .sort-dropdown-item').forEach(item => item.classList.remove('active'));
+            const initialMonthTarget = document.querySelector(`#monthDropdown .sort-dropdown-item[data-month="${currentMonthFilter}"]`);
+            if (initialMonthTarget) initialMonthTarget.classList.add('active');
 
             sharedViewToken = new URLSearchParams(window.location.search).get('shared_view');
             checkUser();
