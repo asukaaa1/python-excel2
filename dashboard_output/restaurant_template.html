@@ -774,6 +774,9 @@ function renderMainChart() {
         const n = Number(current) || 0;
         return Math.max(acc, Math.abs(n));
     }, 0);
+    const isOrdersChart = activeChartType === 'orders';
+    const orderStepSize = maxAbsValue <= 20 ? 1 : undefined;
+    const orderSuggestedMax = Math.max(5, Math.ceil(maxAbsValue || 0));
 
     mainChart = new Chart(ctx, {
         type: 'line',
@@ -821,11 +824,14 @@ function renderMainChart() {
                     ticks: { color: isDark ? '#737373' : '#a3a3a3' }
                 },
                 y: {
+                    beginAtZero: isOrdersChart,
+                    suggestedMax: isOrdersChart ? orderSuggestedMax : undefined,
                     grid: { color: isDark ? '#262626' : '#f5f5f5' },
                     ticks: {
                         color: isDark ? '#737373' : '#a3a3a3',
+                        stepSize: isOrdersChart ? orderStepSize : undefined,
                         callback: v => {
-                            if (activeChartType === 'orders') return Math.round(Number(v) || 0);
+                            if (isOrdersChart) return Number(v).toLocaleString('pt-BR');
                             return formatCurrencyCompact(v, maxAbsValue);
                         }
                     }

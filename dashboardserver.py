@@ -1860,7 +1860,23 @@ def run_ifood_keepalive_poll_once():
         return summary
 
     try:
-        for org_id, org_data in list(ORG_DATA.items()):
+        org_items = list(ORG_DATA.items())
+        has_org_api = any(
+            isinstance(org_data, dict) and org_data.get('api')
+            for _, org_data in org_items
+        )
+        # Legacy single-tenant fallback: keepalive must still run when no org API is initialized.
+        if IFOOD_API and not has_org_api:
+            org_items.append((
+                None,
+                {
+                    'api': IFOOD_API,
+                    'config': IFOOD_CONFIG or {},
+                    'restaurants': RESTAURANTS_DATA,
+                }
+            ))
+
+        for org_id, org_data in org_items:
             if not isinstance(org_data, dict):
                 continue
             api = org_data.get('api')
@@ -1871,10 +1887,11 @@ def run_ifood_keepalive_poll_once():
             merchant_ids = _extract_org_merchant_ids(config)
             if not merchant_ids:
                 # Refresh config lazily in worker mode when in-memory config is stale.
-                db_config = db.get_org_ifood_config(org_id) or {}
-                if isinstance(db_config, dict):
-                    org_data['config'] = db_config
-                    merchant_ids = _extract_org_merchant_ids(db_config)
+                if org_id is not None:
+                    db_config = db.get_org_ifood_config(org_id) or {}
+                    if isinstance(db_config, dict):
+                        org_data['config'] = db_config
+                        merchant_ids = _extract_org_merchant_ids(db_config)
 
             if not merchant_ids:
                 continue
