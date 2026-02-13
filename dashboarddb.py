@@ -704,6 +704,59 @@ class DashboardDatabase:
             cursor.close()
             conn.close()
 
+    def update_user_global_role(self, user_id: int, role: str, acting_user_id: Optional[int] = None) -> Dict:
+        """Update the global role for a user (platform/site admin operation)."""
+        conn = self.get_connection()
+        if not conn:
+            return {'success': False, 'error': 'db_unavailable'}
+
+        cursor = conn.cursor()
+        try:
+            target_role = str(role or '').strip().lower()
+            if target_role not in ('user', 'admin', 'site_admin'):
+                return {'success': False, 'error': 'invalid_role'}
+
+            cursor.execute("SELECT id, role FROM dashboard_users WHERE id=%s", (user_id,))
+            row = cursor.fetchone()
+            if not row:
+                return {'success': False, 'error': 'user_not_found'}
+
+            current_role = str(row[1] or '').strip().lower()
+
+            same_user = False
+            try:
+                same_user = (
+                    acting_user_id is not None
+                    and int(acting_user_id) == int(user_id)
+                )
+            except Exception:
+                same_user = False
+
+            if same_user:
+                return {'success': False, 'error': 'cannot_update_own_role'}
+
+            if current_role == 'site_admin' and target_role != 'site_admin':
+                cursor.execute("SELECT COUNT(*) FROM dashboard_users WHERE LOWER(role) = 'site_admin'")
+                site_admin_count = int(cursor.fetchone()[0] or 0)
+                if site_admin_count <= 1:
+                    return {'success': False, 'error': 'cannot_demote_last_site_admin'}
+
+            if current_role == target_role:
+                return {'success': True, 'role': target_role, 'changed': False}
+
+            cursor.execute(
+                "UPDATE dashboard_users SET role=%s WHERE id=%s",
+                (target_role, user_id)
+            )
+            conn.commit()
+            return {'success': True, 'role': target_role, 'changed': True}
+        except Exception as e:
+            conn.rollback()
+            return {'success': False, 'error': str(e)}
+        finally:
+            cursor.close()
+            conn.close()
+
     def is_platform_admin(self, user_id: int) -> bool:
         """Return True when a user has global site/platform-admin privileges."""
         conn = self.get_connection()

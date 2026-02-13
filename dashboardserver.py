@@ -6579,6 +6579,56 @@ def api_create_user():
         return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
+@app.route('/api/users/<int:user_id>/role', methods=['PATCH'])
+@admin_required
+def api_update_user_global_role(user_id):
+    """Update a user's global role (platform/site admin only)."""
+    try:
+        current_user = session.get('user', {})
+        if not is_platform_admin_user(current_user):
+            return jsonify({'success': False, 'error': 'Platform admin access required'}), 403
+
+        data = get_json_payload()
+        role = (data.get('role') or '').strip().lower()
+        if not role:
+            return jsonify({'success': False, 'error': 'role is required'}), 400
+
+        result = db.update_user_global_role(
+            user_id,
+            role,
+            acting_user_id=current_user.get('id')
+        )
+        if not result.get('success'):
+            code = str(result.get('error') or '')
+            if code == 'user_not_found':
+                return jsonify({'success': False, 'error': 'User not found'}), 404
+            if code == 'invalid_role':
+                return jsonify({'success': False, 'error': 'Invalid global role'}), 400
+            if code == 'cannot_demote_last_site_admin':
+                return jsonify({'success': False, 'error': 'Cannot demote the last site admin'}), 409
+            if code == 'cannot_update_own_role':
+                return jsonify({'success': False, 'error': 'You cannot change your own global role'}), 400
+            return jsonify({'success': False, 'error': code or 'Failed to update global role'}), 400
+
+        db.log_action(
+            'user.global_role_updated',
+            org_id=get_current_org_id(),
+            user_id=current_user.get('id'),
+            details={'target_user_id': user_id, 'role': result.get('role')},
+            ip_address=request.remote_addr
+        )
+
+        return jsonify({
+            'success': True,
+            'user_id': user_id,
+            'role': result.get('role'),
+            'changed': bool(result.get('changed', True))
+        })
+    except Exception as e:
+        print(f"Error updating user global role: {e}")
+        return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
 @admin_required
 def api_delete_user(user_id):

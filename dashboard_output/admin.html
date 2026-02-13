@@ -785,6 +785,8 @@
                 if (usersRoleHeader) usersRoleHeader.textContent = isPlatformAdmin ? 'Escopo' : 'Papel na Org';
                 if (usersActionsHeader) usersActionsHeader.textContent = isPlatformAdmin ? 'Observação' : 'Ações';
 
+                if (isPlatformAdmin && usersRoleHeader) usersRoleHeader.textContent = 'Fun\u00E7\u00E3o Global';
+                if (usersActionsHeader) usersActionsHeader.textContent = 'A\u00E7\u00F5es';
                 const tbody = document.getElementById('usersTable');
                 if (users.length === 0) {
                     tbody.innerHTML = `<tr><td colspan="5" class="empty-state">${isPlatformAdmin ? 'Nenhum usuário cadastrado' : 'Nenhum usuário vinculado'}</td></tr>`;
@@ -804,7 +806,14 @@
                             <td>${user.email || '-'}</td>
                             <td>${renderGlobalRoleBadge(user.role)} <span class="badge badge-user">${orgCount} org</span></td>
                             <td>${user.last_login ? new Date(user.last_login).toLocaleDateString('pt-BR') : 'Nunca'}</td>
-                            <td title="${escapeHtml(orgHint)}">Somente leitura global</td>
+                            <td title="${escapeHtml(orgHint)}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                                <select class="form-select" style="max-width:170px;padding:6px 8px" onchange="updateGlobalUserRole(${user.id}, this.value)" ${Number(user.id) === Number(currentUserId) ? 'disabled' : ''}>
+                                    <option value="user" ${String(user.role || 'user').toLowerCase() === 'user' ? 'selected' : ''}>Usuario</option>
+                                    <option value="admin" ${String(user.role || 'user').toLowerCase() === 'admin' ? 'selected' : ''}>Administrador</option>
+                                    <option value="site_admin" ${String(user.role || 'user').toLowerCase() === 'site_admin' ? 'selected' : ''}>Site Admin</option>
+                                </select>
+                                ${Number(user.id) === Number(currentUserId) ? '<span class="badge badge-user">Seu usuario</span>' : ''}
+                            </td>
                         </tr>
                     `;
                     }).join('');
@@ -1214,6 +1223,27 @@
                 if (data.success) { showToast('Usuário criado e vinculado!', 'success'); closeModal('addUserModal'); await loadUsers(); }
                 else { showToast(data.error || 'Erro ao criar usuário', 'error'); }
             } catch (error) { showToast('Erro de conexão', 'error'); }
+        }
+
+        async function updateGlobalUserRole(userId, role) {
+            try {
+                const response = await fetch(`/api/users/${userId}/role`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ role })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    showToast(data.error || 'Falha ao atualizar funcao global', 'error');
+                    await loadUsers();
+                    return;
+                }
+                showToast('Funcao global atualizada', 'success');
+                await loadUsers();
+            } catch (error) {
+                showToast('Erro ao atualizar funcao global', 'error');
+                await loadUsers();
+            }
         }
 
         async function updateOrgUserRole(userId, orgRole) {
