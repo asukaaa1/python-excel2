@@ -327,8 +327,22 @@ class DashboardDatabase:
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_group_share_links_lookup ON group_share_links(token, is_active)")
-            
-            # â”€â”€ SaaS: Per-org data snapshots â”€â”€
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS restaurant_share_links (
+                    id SERIAL PRIMARY KEY,
+                    org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                    restaurant_id VARCHAR(100) NOT NULL,
+                    token VARCHAR(120) UNIQUE NOT NULL,
+                    created_by INTEGER REFERENCES dashboard_users(id) ON DELETE SET NULL,
+                    expires_at TIMESTAMP,
+                    is_active BOOLEAN DEFAULT true,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_restaurant_share_links_lookup ON restaurant_share_links(token, is_active)")
+
+            # â"€â"€ SaaS: Per-org data snapshots â"€â"€
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS org_data_cache (
                     id SERIAL PRIMARY KEY,
@@ -1805,6 +1819,110 @@ class DashboardDatabase:
         except Exception as e:
             print(f"âŒ get_group_by_share_token: {e}")
             return None
+        finally:
+            cursor.close(); conn.close()
+
+    # ================================================================
+    # SaaS: RESTAURANT SHARE LINKS
+    # ================================================================
+
+    def create_restaurant_share_link(self, org_id, restaurant_id, created_by=None, expires_hours=168):
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            token = secrets.token_urlsafe(24)
+            expires_hours = max(1, min(int(expires_hours or 168), 2160))
+            expires_at = datetime.utcnow() + timedelta(hours=expires_hours)
+            cursor.execute("""
+                INSERT INTO restaurant_share_links (org_id, restaurant_id, token, created_by, expires_at, is_active)
+                VALUES (%s, %s, %s, %s, %s, true)
+                RETURNING id
+            """, (org_id, restaurant_id, token, created_by, expires_at))
+            link_id = cursor.fetchone()[0]
+            conn.commit()
+            return {'id': link_id, 'token': token, 'expires_at': expires_at.isoformat()}
+        except Exception as e:
+            conn.rollback()
+            print(f"create_restaurant_share_link error: {e}")
+            return None
+        finally:
+            cursor.close(); conn.close()
+
+    def get_restaurant_by_share_token(self, token):
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT restaurant_id, org_id, expires_at
+                FROM restaurant_share_links
+                WHERE token=%s AND is_active=true
+                LIMIT 1
+            """, (token,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            expires_at = row[2]
+            if expires_at and expires_at < datetime.utcnow():
+                return None
+            return {
+                'restaurant_id': row[0],
+                'org_id': row[1],
+                'expires_at': expires_at.isoformat() if isinstance(expires_at, datetime) else (str(expires_at) if expires_at else None)
+            }
+        except Exception as e:
+            print(f"get_restaurant_by_share_token error: {e}")
+            return None
+        finally:
+            cursor.close(); conn.close()
+
+    def list_restaurant_share_links(self, org_id, restaurant_id):
+        conn = self.get_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT id, token, expires_at, is_active, created_at, created_by
+                FROM restaurant_share_links
+                WHERE org_id=%s AND restaurant_id=%s
+                ORDER BY created_at DESC
+            """, (org_id, restaurant_id))
+            rows = cursor.fetchall()
+            return [{
+                'id': r[0],
+                'token': r[1],
+                'expires_at': r[2].isoformat() if isinstance(r[2], datetime) else (str(r[2]) if r[2] else None),
+                'is_active': bool(r[3]),
+                'created_at': r[4].isoformat() if isinstance(r[4], datetime) else str(r[4]),
+                'created_by': r[5]
+            } for r in rows]
+        except Exception as e:
+            print(f"list_restaurant_share_links error: {e}")
+            return []
+        finally:
+            cursor.close(); conn.close()
+
+    def revoke_restaurant_share_link(self, org_id, restaurant_id, link_id):
+        conn = self.get_connection()
+        if not conn:
+            return False
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE restaurant_share_links
+                SET is_active=false
+                WHERE id=%s AND org_id=%s AND restaurant_id=%s
+            """, (link_id, org_id, restaurant_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            print(f"revoke_restaurant_share_link error: {e}")
+            return False
         finally:
             cursor.close(); conn.close()
 

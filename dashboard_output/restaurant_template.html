@@ -136,7 +136,7 @@
 const _origFetch = window.fetch;
 window.fetch = async function(...args) {
     const response = await _origFetch.apply(this, args);
-    if (response.status === 401 && !String(args[0]).includes('/api/login')) {
+    if (!window.__PUBLIC_MODE__ && response.status === 401 && !String(args[0]).includes('/api/login')) {
         window.location.href = '/login';
     }
     return response;
@@ -175,8 +175,11 @@ async function fetchRestaurantData() {
         if (startDate) params.append('start_date', startDate.toISOString().split('T')[0]);
         if (endDate) params.append('end_date', endDate.toISOString().split('T')[0]);
         
-        const response = await fetch(`/api/restaurant/${restaurantId}?${params}`);
-        if (response.status === 401) { window.location.href = '/login'; return; }
+        const apiUrl = window.__PUBLIC_MODE__
+            ? `${window.__PUBLIC_API_BASE__}?${params}`
+            : `/api/restaurant/${restaurantId}?${params}`;
+        const response = await fetch(apiUrl);
+        if (!window.__PUBLIC_MODE__ && response.status === 401) { window.location.href = '/login'; return; }
         const data = await response.json();
         
         if (data.success) {
@@ -250,6 +253,7 @@ async function fetchRestaurantData() {
 }
 
 async function fetchOrders() {
+    if (window.__PUBLIC_MODE__) return;
     try {
         const response = await fetch(`/api/restaurant/${restaurantId}/orders?per_page=100`);
         if (response.status === 401) { window.location.href = '/login'; return; }

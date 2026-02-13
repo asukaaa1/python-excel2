@@ -491,6 +491,16 @@ def find_restaurant_by_identifier(restaurant_id: str, restaurants: Optional[List
     return None
 
 
+def find_restaurant_in_org(restaurant_id: str, org_id: int):
+    """Find restaurant by identifier within a specific org's data (no session required)."""
+    source_restaurants = ORG_DATA.get(org_id, {}).get('restaurants') or []
+    if not source_restaurants:
+        cached = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=12)
+        if isinstance(cached, list):
+            source_restaurants = cached
+    return find_restaurant_by_identifier(restaurant_id, restaurants=source_restaurants)
+
+
 def enrich_plan_payload(plan_row):
     """Attach plan marketing metadata used by admin UI."""
     name = (plan_row.get('name') or '').lower()
@@ -857,7 +867,7 @@ def resolve_current_org_fetch_days(default_days=30):
     return max(1, min(int(days or default_days), 365))
 
 
-def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str):
+def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_override: int = None):
     """
     Ensure a store has raw orders cached for detail screens.
     DB snapshots intentionally strip internal cache fields, so this may need
@@ -908,7 +918,7 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str):
 
     # Try to infer merchant id from configured merchants (org/local config).
     try:
-        org_id = get_current_org_id()
+        org_id = org_id_override or get_current_org_id()
         config = {}
         if org_id:
             org = get_org_data(org_id)
@@ -6798,6 +6808,219 @@ def public_group_share_page(token):
     return redirect(f"/grupo/{shared.get('group_slug')}?token={token}")
 
 
+# ============================================================================
+# PUBLIC RESTAURANT SHARE LINKS
+# ============================================================================
+
+@app.route('/r/<token>')
+@rate_limit(limit=30, window_seconds=60, scope='public_restaurant')
+def public_restaurant_share_page(token):
+    """Serve restaurant dashboard via share token -- no login required."""
+    try:
+        shared = db.get_restaurant_by_share_token((token or '').strip())
+        if not shared:
+            return "Restaurant link not found or expired", 404
+
+        org_id = shared['org_id']
+        restaurant_id = shared['restaurant_id']
+
+        restaurant = find_restaurant_in_org(restaurant_id, org_id)
+        if not restaurant:
+            return "Restaurant data not available", 404
+
+        merchant_lookup_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or restaurant_id
+        )
+        try:
+            ensure_restaurant_orders_cache(restaurant, merchant_lookup_id, org_id_override=org_id)
+        except Exception:
+            pass
+
+        template_file = DASHBOARD_OUTPUT / 'restaurant_template.html'
+        if not template_file.exists():
+            return "Restaurant template not found", 404
+
+        with open(template_file, 'r', encoding='utf-8') as f:
+            template = f.read()
+
+        resolved_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or restaurant.get('id')
+            or restaurant_id
+        )
+
+        rendered = template.replace('{{restaurant_name}}', escape_html_text(restaurant.get('name', 'Restaurante')))
+        rendered = rendered.replace('{{restaurant_id}}', escape_html_text(resolved_id))
+        rendered = rendered.replace('{{restaurant_manager}}', escape_html_text(restaurant.get('manager', 'Gerente')))
+        rendered = rendered.replace('{{restaurant_data}}', safe_json_for_script(restaurant))
+
+        public_script = f"""
+<script>
+    window.__PUBLIC_MODE__ = true;
+    window.__PUBLIC_TOKEN__ = '{escape_html_text(token)}';
+    window.__PUBLIC_API_BASE__ = '/api/public/restaurant/{escape_html_text(token)}';
+</script>
+<style>
+    .nav-back {{ display: none !important; }}
+    #exportPdfBtn {{ display: none !important; }}
+</style>
+"""
+        rendered = rendered.replace('</head>', public_script + '</head>')
+
+        return Response(rendered, mimetype='text/html')
+
+    except Exception as e:
+        log_exception("public_restaurant_share_page_failed", e)
+        return "Error loading restaurant", 500
+
+
+@app.route('/api/public/restaurant/<token>')
+@rate_limit(limit=60, window_seconds=60, scope='public_restaurant_api')
+def api_public_restaurant_detail(token):
+    """Public API: get restaurant data via share token (no auth required)."""
+    try:
+        shared = db.get_restaurant_by_share_token((token or '').strip())
+        if not shared:
+            return jsonify({'success': False, 'error': 'Link not found or expired'}), 404
+
+        org_id = shared['org_id']
+        restaurant_id = shared['restaurant_id']
+
+        restaurant = find_restaurant_in_org(restaurant_id, org_id)
+        if not restaurant:
+            return jsonify({'success': False, 'error': 'Restaurant data not available'}), 404
+
+        merchant_lookup_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or restaurant_id
+        )
+
+        all_orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id, org_id_override=org_id)
+        merchant_lookup_id = (
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or merchant_lookup_id
+        )
+
+        # Date filtering
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+
+        filtered_orders = all_orders
+        if start_date or end_date:
+            filtered_orders = []
+            for order in all_orders:
+                try:
+                    order_date_str = normalize_order_payload(order).get('createdAt', '')
+                    if order_date_str:
+                        order_date = datetime.fromisoformat(order_date_str.replace('Z', '+00:00')).date()
+                        include_order = True
+                        if start_date:
+                            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                            if order_date < start:
+                                include_order = False
+                        if end_date:
+                            end = datetime.strptime(end_date, '%Y-%m-%d').date()
+                            if order_date > end:
+                                include_order = False
+                        if include_order:
+                            filtered_orders.append(order)
+                except:
+                    continue
+
+        # Process restaurant data
+        if start_date or end_date:
+            merchant_details = {
+                'id': merchant_lookup_id,
+                'name': restaurant.get('name', 'Unknown'),
+                'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
+            }
+            response_data = IFoodDataProcessor.process_restaurant_data(merchant_details, filtered_orders, None)
+            response_data['name'] = restaurant['name']
+            response_data['manager'] = restaurant['manager']
+        else:
+            if all_orders:
+                merchant_details = {
+                    'id': merchant_lookup_id,
+                    'name': restaurant.get('name', 'Unknown'),
+                    'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
+                }
+                response_data = IFoodDataProcessor.process_restaurant_data(merchant_details, all_orders, None)
+                response_data['name'] = restaurant.get('name', response_data.get('name'))
+                response_data['manager'] = restaurant.get('manager', response_data.get('manager'))
+            else:
+                response_data = {k: v for k, v in restaurant.items() if not k.startswith('_')}
+
+        # Chart data
+        chart_data = {}
+        orders_for_charts = filtered_orders if (start_date or end_date) else all_orders
+        top_n = request.args.get('top_n', default=10, type=int)
+        top_n = max(1, min(top_n or 10, 50))
+        menu_performance = IFoodDataProcessor.calculate_menu_item_performance(orders_for_charts, top_n=top_n)
+
+        if orders_for_charts:
+            if hasattr(IFoodDataProcessor, 'generate_charts_data_with_interruptions'):
+                chart_data = IFoodDataProcessor.generate_charts_data_with_interruptions(orders_for_charts, [])
+            else:
+                chart_data = IFoodDataProcessor.generate_charts_data(orders_for_charts)
+                chart_data['interruptions'] = []
+
+        # Reviews
+        reviews_list = []
+        rating_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for order in orders_for_charts:
+            fb = order.get('feedback')
+            if fb and fb.get('rating'):
+                r = fb['rating']
+                if r in rating_counts:
+                    rating_counts[r] += 1
+                reviews_list.append({
+                    'rating': r,
+                    'comment': fb.get('comment'),
+                    'compliments': fb.get('compliments', []),
+                    'complaints': fb.get('complaints', []),
+                    'customer_name': order.get('customer', {}).get('name', 'Cliente'),
+                    'date': order.get('createdAt'),
+                    'order_id': order.get('displayId', order.get('id', ''))
+                })
+
+        total_reviews = sum(rating_counts.values())
+        avg_review_rating = round(
+            sum(k * v for k, v in rating_counts.items()) / total_reviews, 1
+        ) if total_reviews else 0
+
+        return jsonify({
+            'success': True,
+            'restaurant': response_data,
+            'charts': chart_data,
+            'menu_performance': menu_performance,
+            'interruptions': [],
+            'reviews': {
+                'average_rating': avg_review_rating,
+                'total_reviews': total_reviews,
+                'rating_distribution': rating_counts,
+                'items': sorted(reviews_list, key=lambda x: x['date'] or '', reverse=True)
+            },
+            'filter': {
+                'start_date': start_date,
+                'end_date': end_date,
+                'total_orders_filtered': len(filtered_orders) if (start_date or end_date) else len(all_orders)
+            }
+        })
+
+    except Exception as e:
+        log_exception("api_public_restaurant_detail_failed", e)
+        return internal_error_response()
+
+
 # API: Get all groups
 @app.route('/api/groups', methods=['GET'])
 @login_required
@@ -7068,6 +7291,96 @@ def api_group_share_links_revoke(group_id, link_id):
         cursor.close()
         conn.close()
     ok = db.revoke_group_share_link(org_id, group_id, link_id)
+    if not ok:
+        return jsonify({'success': False, 'error': 'Share link not found'}), 404
+    return jsonify({'success': True})
+
+
+# ============================================================================
+# API ROUTES - RESTAURANT SHARE LINKS (ADMIN)
+# ============================================================================
+
+def _resolve_restaurant_id(restaurant_id):
+    """Resolve a restaurant identifier to its canonical merchant ID."""
+    restaurant = find_restaurant_by_identifier(restaurant_id)
+    if not restaurant:
+        return None, None
+    resolved_id = (
+        restaurant.get('_resolved_merchant_id')
+        or restaurant.get('merchant_id')
+        or restaurant.get('merchantId')
+        or restaurant.get('id')
+        or restaurant_id
+    )
+    return restaurant, resolved_id
+
+
+@app.route('/api/restaurant/<restaurant_id>/share-links', methods=['GET'])
+@admin_required
+@require_feature('public_links')
+def api_restaurant_share_links_list(restaurant_id):
+    """List share links for a restaurant."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    restaurant, resolved_id = _resolve_restaurant_id(restaurant_id)
+    if not restaurant:
+        return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
+
+    links = db.list_restaurant_share_links(org_id, resolved_id)
+    base_url = get_public_base_url()
+    for link in links:
+        link['url'] = f"{base_url}/r/{link['token']}"
+    return jsonify({'success': True, 'links': links})
+
+
+@app.route('/api/restaurant/<restaurant_id>/share-links', methods=['POST'])
+@admin_required
+@require_feature('public_links')
+def api_restaurant_share_links_create(restaurant_id):
+    """Create share link for a restaurant."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    restaurant, resolved_id = _resolve_restaurant_id(restaurant_id)
+    if not restaurant:
+        return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
+
+    data = get_json_payload()
+    try:
+        expires_hours = int(data.get('expires_hours', 24 * 7))
+    except Exception:
+        expires_hours = 24 * 7
+    expires_hours = max(1, min(expires_hours, 24 * 90))
+
+    link = db.create_restaurant_share_link(
+        org_id, resolved_id,
+        created_by=session.get('user', {}).get('id'),
+        expires_hours=expires_hours
+    )
+    if not link:
+        return jsonify({'success': False, 'error': 'Unable to create share link'}), 400
+
+    share_url = f"{get_public_base_url()}/r/{link['token']}"
+    return jsonify({'success': True, 'link': {**link, 'url': share_url}})
+
+
+@app.route('/api/restaurant/<restaurant_id>/share-links/<int:link_id>', methods=['DELETE'])
+@admin_required
+@require_feature('public_links')
+def api_restaurant_share_links_revoke(restaurant_id, link_id):
+    """Revoke a restaurant share link."""
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'success': False, 'error': 'No organization selected'}), 403
+
+    restaurant, resolved_id = _resolve_restaurant_id(restaurant_id)
+    if not restaurant:
+        return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
+
+    ok = db.revoke_restaurant_share_link(org_id, resolved_id, link_id)
     if not ok:
         return jsonify({'success': False, 'error': 'Share link not found'}), 404
     return jsonify({'success': True})
