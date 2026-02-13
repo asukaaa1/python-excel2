@@ -4890,59 +4890,38 @@ def api_restaurants():
                 or r.get('id')
             )
 
-            # Opportunistic recovery for stale cached records that have zeroed metrics
-            # and no raw orders cache (common after DB cache restore).
-            metrics_snapshot = r.get('metrics') if isinstance(r.get('metrics'), dict) else {}
-            try:
-                snapshot_orders = int(
-                    (metrics_snapshot or {}).get('total_pedidos')
-                    or (metrics_snapshot or {}).get('vendas')
-                    or r.get('orders')
-                    or 0
-                )
-            except Exception:
-                snapshot_orders = 0
-            try:
-                snapshot_revenue = float(
-                    (metrics_snapshot or {}).get('liquido')
-                    or (metrics_snapshot or {}).get('valor_bruto')
-                    or r.get('revenue')
-                    or 0
-                )
-            except Exception:
-                snapshot_revenue = 0.0
-
+            # Always hydrate raw orders when cache is missing.
+            # This prevents "all months" from serving stale snapshot-only metrics.
             if not (r.get('_orders_cache') or []):
-                if snapshot_orders <= 0 or snapshot_revenue <= 0:
-                    hydrated_orders = ensure_restaurant_orders_cache(r, merchant_lookup_id)
-                    if hydrated_orders:
-                        resolved_lookup_id = (
-                            r.get('_resolved_merchant_id')
-                            or r.get('merchant_id')
-                            or r.get('merchantId')
-                            or merchant_lookup_id
+                hydrated_orders = ensure_restaurant_orders_cache(r, merchant_lookup_id)
+                if hydrated_orders:
+                    resolved_lookup_id = (
+                        r.get('_resolved_merchant_id')
+                        or r.get('merchant_id')
+                        or r.get('merchantId')
+                        or merchant_lookup_id
+                    )
+                    try:
+                        merchant_details = {
+                            'id': resolved_lookup_id,
+                            'name': r.get('name', 'Unknown Restaurant'),
+                            'merchantManager': {'name': r.get('manager', 'Gerente')},
+                            'address': {'neighborhood': r.get('neighborhood', 'Centro')},
+                            'isSuperRestaurant': get_super_flag(r),
+                        }
+                        refreshed = IFoodDataProcessor.process_restaurant_data(
+                            merchant_details,
+                            hydrated_orders,
+                            None
                         )
-                        try:
-                            merchant_details = {
-                                'id': resolved_lookup_id,
-                                'name': r.get('name', 'Unknown Restaurant'),
-                                'merchantManager': {'name': r.get('manager', 'Gerente')},
-                                'address': {'neighborhood': r.get('neighborhood', 'Centro')},
-                                'isSuperRestaurant': get_super_flag(r),
-                            }
-                            refreshed = IFoodDataProcessor.process_restaurant_data(
-                                merchant_details,
-                                hydrated_orders,
-                                None
-                            )
-                            refreshed['name'] = r.get('name', refreshed.get('name'))
-                            refreshed['manager'] = r.get('manager', refreshed.get('manager'))
-                            refreshed['merchant_id'] = resolved_lookup_id
-                            for key, value in (refreshed or {}).items():
-                                if not str(key).startswith('_'):
-                                    r[key] = value
-                        except Exception:
-                            pass
+                        refreshed['name'] = r.get('name', refreshed.get('name'))
+                        refreshed['manager'] = r.get('manager', refreshed.get('manager'))
+                        refreshed['merchant_id'] = resolved_lookup_id
+                        for key, value in (refreshed or {}).items():
+                            if not str(key).startswith('_'):
+                                r[key] = value
+                    except Exception:
+                        pass
             merchant_lookup_id = (
                 r.get('_resolved_merchant_id')
                 or r.get('merchant_id')
