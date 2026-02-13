@@ -3775,6 +3775,13 @@ def api_login():
                 session['org_id'] = orgs[0]['id']
                 session['org_name'] = orgs[0]['name']
                 session['org_plan'] = orgs[0]['plan']
+            elif user.get('is_platform_admin'):
+                all_orgs = db.list_all_organizations()
+                if all_orgs:
+                    first_org = all_orgs[0]
+                    session['org_id'] = first_org.get('id')
+                    session['org_name'] = first_org.get('name')
+                    session['org_plan'] = first_org.get('plan')
             
             redirect_url = '/dashboard'
             
@@ -3819,6 +3826,9 @@ def api_me():
 
     user_payload = dict(user)
     user_payload['is_platform_admin'] = bool(is_platform_admin_user(user))
+    if user_payload.get('is_platform_admin'):
+        # Keep legacy frontend role checks working for global admins.
+        user_payload['role'] = 'admin'
     user_payload['org_role'] = org_role
     if (not user_payload.get('is_platform_admin')) and org_role in ('owner', 'admin'):
         user_payload['role'] = 'admin'
@@ -3883,8 +3893,13 @@ def api_user_orgs():
     if not user_id:
         return jsonify({'success': False, 'error': 'Not authenticated'}), 401
 
+    platform_admin = is_platform_admin_user(user)
+
     if request.method == 'GET':
-        orgs = db.get_user_orgs(user_id)
+        if platform_admin:
+            orgs = db.list_all_organizations()
+        else:
+            orgs = db.get_user_orgs(user_id)
         return jsonify({'success': True, 'organizations': orgs})
 
     data = get_json_payload()
@@ -3905,9 +3920,10 @@ def api_user_orgs():
 
     source_members = []
     if copy_users and current_org_id:
-        current_member_role = db.get_org_member_role(current_org_id, user_id)
-        if current_member_role not in ('owner', 'admin'):
-            return jsonify({'success': False, 'error': 'Owner/admin role required to copy users'}), 403
+        if not platform_admin:
+            current_member_role = db.get_org_member_role(current_org_id, user_id)
+            if current_member_role not in ('owner', 'admin'):
+                return jsonify({'success': False, 'error': 'Owner/admin role required to copy users'}), 403
         source_members = db.get_org_users(current_org_id)
 
     created = db.create_organization(
@@ -3968,13 +3984,15 @@ def api_user_orgs():
         ip_address=request.remote_addr
     )
 
+    organizations_payload = db.list_all_organizations() if platform_admin else db.get_user_orgs(user_id)
+
     return jsonify({
         'success': True,
         'organization': created,
         'org_id': created['id'],
         'copied_users': copied_users,
         'copy_errors': copy_errors,
-        'organizations': db.get_user_orgs(user_id)
+        'organizations': organizations_payload
     }), 201
 
 
@@ -3991,7 +4009,17 @@ def api_switch_org():
         org_id_str = org_id.strip()
         if org_id_str.isdigit():
             org_id = int(org_id_str)
-    orgs = db.get_user_orgs(session['user']['id'])
+    current_user = session.get('user', {})
+    if is_platform_admin_user(current_user):
+        details = db.get_org_details(org_id)
+        if not details:
+            return jsonify({'success': False, 'error': 'Organization not found'}), 404
+        session['org_id'] = org_id
+        session['org_name'] = details.get('name')
+        session['org_plan'] = details.get('plan')
+        return jsonify({'success': True, 'org_id': org_id})
+
+    orgs = db.get_user_orgs(current_user['id'])
     if not any(o['id'] == org_id for o in orgs):
         return jsonify({'success': False, 'error': 'Not a member'}), 403
     session['org_id'] = org_id
@@ -6489,7 +6517,9 @@ def api_create_user():
         full_name = data.get('full_name')
         email = data.get('email')
         role = (data.get('role') or 'user').strip().lower()
-        org_role = (data.get('org_role') or ('admin' if role == 'admin' else 'viewer')).strip().lower()
+        if role not in ('user', 'admin', 'site_admin'):
+            return jsonify({'success': False, 'error': 'Invalid global role'}), 400
+        org_role = (data.get('org_role') or ('admin' if role in ('admin', 'site_admin') else 'viewer')).strip().lower()
         org_id = get_current_org_id()
         
         if not all([username, password, full_name]):
@@ -6798,7 +6828,7 @@ def unhide_store(store_id):
 
 def get_user_allowed_restaurant_ids(user_id, user_role):
     """Helper function to get allowed restaurant IDs for a user based on squad membership"""
-    if user_role == 'admin':
+    if user_role in ('admin', 'site_admin'):
         return None  # None means all restaurants allowed
 
     # Owners/admins in the active org should always see all restaurants.
@@ -8524,8 +8554,8 @@ def api_user_allowed_restaurants():
         user_id = user.get('id')
         user_role = user.get('role')
         
-        # Admins see all restaurants
-        if user_role == 'admin':
+        # Admins/site-admins see all restaurants
+        if user_role in ('admin', 'site_admin'):
             return jsonify({
                 'success': True,
                 'allowed_all': True,

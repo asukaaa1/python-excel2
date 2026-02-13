@@ -635,7 +635,7 @@ class DashboardDatabase:
         )
     
     def get_all_users(self) -> List[Dict]:
-        """Get all users (for admin panel)"""
+        """Get all users (for platform/site admin panel)."""
         conn = self.get_connection()
         if not conn:
             return []
@@ -644,12 +644,44 @@ class DashboardDatabase:
         
         try:
             cursor.execute("""
-                SELECT id, username, full_name, email, role, created_at, last_login
-                FROM dashboard_users
-                ORDER BY created_at DESC
+                SELECT
+                    u.id,
+                    u.username,
+                    u.full_name,
+                    u.email,
+                    u.role,
+                    u.created_at,
+                    u.last_login,
+                    COUNT(om.org_id) AS org_count,
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'id', o.id,
+                                'name', o.name,
+                                'org_role', om.org_role
+                            )
+                            ORDER BY o.name
+                        ) FILTER (WHERE o.id IS NOT NULL),
+                        '[]'::json
+                    ) AS organizations
+                FROM dashboard_users u
+                LEFT JOIN org_members om ON om.user_id = u.id
+                LEFT JOIN organizations o ON o.id = om.org_id
+                GROUP BY u.id, u.username, u.full_name, u.email, u.role, u.created_at, u.last_login
+                ORDER BY u.created_at DESC
             """)
             
             results = cursor.fetchall()
+            def _decode_orgs(raw_orgs):
+                if isinstance(raw_orgs, list):
+                    return raw_orgs
+                if isinstance(raw_orgs, str):
+                    try:
+                        decoded = json.loads(raw_orgs)
+                        return decoded if isinstance(decoded, list) else []
+                    except Exception:
+                        return []
+                return []
             return [
                 {
                     'id': row[0],
@@ -658,7 +690,9 @@ class DashboardDatabase:
                     'email': row[3],
                     'role': row[4],
                     'created_at': str(row[5]),
-                    'last_login': str(row[6]) if row[6] else None
+                    'last_login': str(row[6]) if row[6] else None,
+                    'org_count': int(row[7] or 0),
+                    'organizations': _decode_orgs(row[8])
                 }
                 for row in results
             ]
@@ -671,7 +705,7 @@ class DashboardDatabase:
             conn.close()
 
     def is_platform_admin(self, user_id: int) -> bool:
-        """Return True when a user has global platform-admin privileges."""
+        """Return True when a user has global site/platform-admin privileges."""
         conn = self.get_connection()
         if not conn:
             return False
@@ -680,7 +714,13 @@ class DashboardDatabase:
         try:
             cursor.execute("SELECT role, email FROM dashboard_users WHERE id = %s", (user_id,))
             row = cursor.fetchone()
-            if not row or row[0] != 'admin':
+            if not row:
+                return False
+
+            role = str(row[0] or '').strip().lower()
+            if role == 'site_admin':
+                return True
+            if role != 'admin':
                 return False
 
             allowed_admins_raw = (os.environ.get('PLATFORM_ADMIN_EMAILS') or '').strip()
@@ -1963,6 +2003,58 @@ class DashboardDatabase:
             return None
         except:
             return None
+        finally:
+            cursor.close()
+            conn.close()
+
+    def list_all_organizations(self) -> List[Dict]:
+        """List all organizations (global view for site/platform admins)."""
+        conn = self.get_connection()
+        if not conn:
+            return []
+
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT
+                    o.id,
+                    o.name,
+                    o.slug,
+                    o.plan,
+                    COALESCE(p.display_name, o.plan) AS plan_display,
+                    o.max_restaurants,
+                    o.max_users,
+                    o.is_active,
+                    o.created_at,
+                    COUNT(om.user_id) AS users_count,
+                    COALESCE(jsonb_array_length(o.ifood_merchants), 0) AS merchants_count
+                FROM organizations o
+                LEFT JOIN plans p ON p.name = o.plan
+                LEFT JOIN org_members om ON om.org_id = o.id
+                GROUP BY o.id, o.name, o.slug, o.plan, p.display_name, o.max_restaurants, o.max_users, o.is_active, o.created_at, o.ifood_merchants
+                ORDER BY o.name ASC
+            """)
+
+            orgs = []
+            for row in cursor.fetchall():
+                orgs.append({
+                    'id': row[0],
+                    'name': row[1],
+                    'slug': row[2],
+                    'plan': row[3],
+                    'plan_display': row[4],
+                    'max_restaurants': int(row[5] or 0),
+                    'max_users': int(row[6] or 0),
+                    'is_active': bool(row[7]),
+                    'created_at': str(row[8]) if row[8] else None,
+                    'users_count': int(row[9] or 0),
+                    'merchants_count': int(row[10] or 0),
+                    'org_role': 'site_admin'
+                })
+            return orgs
+        except Exception as e:
+            print(f"❌ list_all_organizations: {e}")
+            return []
         finally:
             cursor.close()
             conn.close()

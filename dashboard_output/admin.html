@@ -368,7 +368,7 @@
 
         <div class="section animate-in">
             <div class="section-header">
-                <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>Membros da Organização</h2>
+                <h2 id="usersSectionTitle"><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>Membros da Organização</h2>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
                     <button class="btn btn-secondary" onclick="openAssignUserModal()">
                         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8M8 12h5m-5 5h8M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
@@ -382,8 +382,20 @@
             </div>
             <div class="section-body">
                 <table class="table">
-                    <thead><tr><th>Nome</th><th>Email</th><th>Papel na Org</th><th>Último Login</th><th>Ações</th></tr></thead>
+                    <thead><tr><th>Nome</th><th>Email</th><th id="usersRoleHeader">Papel na Org</th><th>Último Login</th><th id="usersActionsHeader">Ações</th></tr></thead>
                     <tbody id="usersTable"><tr><td colspan="5" class="empty-state">Carregando...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="section animate-in" id="globalOrganizationsSection" style="display:none;">
+            <div class="section-header">
+                <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21h18M5 21V7l8-4 8 4v14M9 9h.01M9 13h.01M9 17h.01M13 9h.01M13 13h.01M13 17h.01M17 9h.01M17 13h.01M17 17h.01"/></svg>Organizações (Global)</h2>
+            </div>
+            <div class="section-body">
+                <table class="table">
+                    <thead><tr><th>Nome</th><th>Plano</th><th>Usuários</th><th>Lojas</th><th>Status</th></tr></thead>
+                    <tbody id="organizationsTable"><tr><td colspan="5" class="empty-state">Carregando...</td></tr></tbody>
                 </table>
             </div>
         </div>
@@ -452,6 +464,7 @@
                     <select class="form-select" id="userRole">
                         <option value="user">Usuário</option>
                         <option value="admin">Administrador</option>
+                        <option value="site_admin" id="siteAdminRoleOption" style="display:none;">Site Admin (Global)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -584,12 +597,14 @@
         let currentOrgId = null;
         let currentUserId = null;
         let currentUserOrgRole = null;
+        let isPlatformAdmin = false;
         let organizationsCache = [];
         async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig(), loadSubscription(), loadOnboarding(), loadDataQualitySummary()]); }
 
         async function refreshOrgContext() {
             await loadUserInfo();
             await loadData();
+            await loadOrganizations(false);
         }
 
         async function loadOrganizations(renderToModal = false) {
@@ -606,6 +621,7 @@
                     return;
                 }
                 organizationsCache = Array.isArray(data.organizations) ? data.organizations : [];
+                renderGlobalOrganizationsTable();
                 if (renderToModal) {
                     renderOrganizationOptions();
                 }
@@ -639,6 +655,37 @@
                         </span>
                         ${isCurrent ? '<span class="badge badge-connected">Atual</span>' : ''}
                     </button>
+                `;
+            }).join('');
+        }
+
+        function renderGlobalOrganizationsTable() {
+            const section = document.getElementById('globalOrganizationsSection');
+            const tbody = document.getElementById('organizationsTable');
+            if (!section || !tbody) return;
+            if (!isPlatformAdmin) {
+                section.style.display = 'none';
+                return;
+            }
+            section.style.display = '';
+            if (!organizationsCache.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhuma organização encontrada</td></tr>';
+                return;
+            }
+            tbody.innerHTML = organizationsCache.map(org => {
+                const name = escapeHtml(org.name || 'Organização');
+                const plan = escapeHtml(String(org.plan_display || org.plan || '-').toUpperCase());
+                const usersCount = Number(org.users_count || 0);
+                const merchantsCount = Number(org.merchants_count || 0);
+                const active = !!org.is_active;
+                return `
+                    <tr>
+                        <td>${name}</td>
+                        <td>${plan}</td>
+                        <td>${usersCount}</td>
+                        <td>${merchantsCount}</td>
+                        <td><span class="badge ${active ? 'badge-connected' : 'badge-disconnected'}">${active ? 'Ativa' : 'Inativa'}</span></td>
+                    </tr>
                 `;
             }).join('');
         }
@@ -720,35 +767,75 @@
 
         async function loadUsers() {
             try {
-                const response = await fetch('/api/org/users');
+                const response = await fetch('/api/users');
                 const data = await response.json();
-                if (data.success) {
-                    document.getElementById('userCount').textContent = data.users.length;
-                    const tbody = document.getElementById('usersTable');
-                    if (data.users.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum usuário vinculado</td></tr>'; return; }
-                    tbody.innerHTML = data.users.map(user => {
-                        const userOrgRole = String(user.org_role || '').toLowerCase();
-                        const isOwner = userOrgRole === 'owner';
-                        const isSelfAdmin = Number(user.id) === Number(currentUserId) && currentUserOrgRole === 'admin';
+                if (!data.success) {
+                    return;
+                }
+
+                const users = Array.isArray(data.users) ? data.users : [];
+                document.getElementById('userCount').textContent = users.length;
+
+                const usersTitle = document.getElementById('usersSectionTitle');
+                const usersRoleHeader = document.getElementById('usersRoleHeader');
+                const usersActionsHeader = document.getElementById('usersActionsHeader');
+                if (usersTitle) {
+                    usersTitle.innerHTML = usersTitle.innerHTML.replace('Membros da Organização', isPlatformAdmin ? 'Usuários (Visão Global)' : 'Membros da Organização');
+                }
+                if (usersRoleHeader) usersRoleHeader.textContent = isPlatformAdmin ? 'Escopo' : 'Papel na Org';
+                if (usersActionsHeader) usersActionsHeader.textContent = isPlatformAdmin ? 'Observação' : 'Ações';
+
+                const tbody = document.getElementById('usersTable');
+                if (users.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="empty-state">${isPlatformAdmin ? 'Nenhum usuário cadastrado' : 'Nenhum usuário vinculado'}</td></tr>`;
+                    return;
+                }
+
+                if (isPlatformAdmin) {
+                    tbody.innerHTML = users.map(user => {
+                        const orgCount = Number(user.org_count || (Array.isArray(user.organizations) ? user.organizations.length : 0));
+                        const orgNames = Array.isArray(user.organizations)
+                            ? user.organizations.map(o => o && o.name ? String(o.name) : '').filter(Boolean).slice(0, 3)
+                            : [];
+                        const orgHint = orgNames.length ? orgNames.join(', ') : 'Sem organizações';
                         return `
                         <tr>
                             <td>${escapeHtml(user.name || user.username || 'Usuário')}</td>
                             <td>${user.email || '-'}</td>
-                            <td>${renderOrgRoleBadge(user.org_role)}</td>
+                            <td>${renderGlobalRoleBadge(user.role)} <span class="badge badge-user">${orgCount} org</span></td>
                             <td>${user.last_login ? new Date(user.last_login).toLocaleDateString('pt-BR') : 'Nunca'}</td>
-                            <td style="display:flex;gap:8px;flex-wrap:wrap">
-                                <select class="form-select" style="max-width:120px;padding:6px 8px" onchange="updateOrgUserRole(${user.id}, this.value)" ${isOwner ? 'disabled' : ''}>
-                                    <option value="viewer" ${userOrgRole === 'viewer' ? 'selected' : ''}>Viewer</option>
-                                    <option value="admin" ${userOrgRole === 'admin' ? 'selected' : ''}>Admin</option>
-                                    <option value="owner" ${userOrgRole === 'owner' ? 'selected' : ''} ${isSelfAdmin ? 'disabled' : ''}>Owner</option>
-                                </select>
-                                <button class="btn btn-secondary btn-danger" onclick="removeOrgUser(${user.id}, '${escapeJs(user.name || user.username || 'Usuário')}')">Desvincular</button>
-                            </td>
+                            <td title="${escapeHtml(orgHint)}">Somente leitura global</td>
                         </tr>
                     `;
                     }).join('');
+                    return;
                 }
-            } catch (error) { console.error('Error loading users:', error); document.getElementById('usersTable').innerHTML = '<tr><td colspan="5" class="empty-state">Erro ao carregar usuários</td></tr>'; }
+
+                tbody.innerHTML = users.map(user => {
+                    const userOrgRole = String(user.org_role || '').toLowerCase();
+                    const isOwner = userOrgRole === 'owner';
+                    const isSelfAdmin = Number(user.id) === Number(currentUserId) && currentUserOrgRole === 'admin';
+                    return `
+                    <tr>
+                        <td>${escapeHtml(user.name || user.username || 'Usuário')}</td>
+                        <td>${user.email || '-'}</td>
+                        <td>${renderOrgRoleBadge(user.org_role)}</td>
+                        <td>${user.last_login ? new Date(user.last_login).toLocaleDateString('pt-BR') : 'Nunca'}</td>
+                        <td style="display:flex;gap:8px;flex-wrap:wrap">
+                            <select class="form-select" style="max-width:120px;padding:6px 8px" onchange="updateOrgUserRole(${user.id}, this.value)" ${isOwner ? 'disabled' : ''}>
+                                <option value="viewer" ${userOrgRole === 'viewer' ? 'selected' : ''}>Viewer</option>
+                                <option value="admin" ${userOrgRole === 'admin' ? 'selected' : ''}>Admin</option>
+                                <option value="owner" ${userOrgRole === 'owner' ? 'selected' : ''} ${isSelfAdmin ? 'disabled' : ''}>Owner</option>
+                            </select>
+                            <button class="btn btn-secondary btn-danger" onclick="removeOrgUser(${user.id}, '${escapeJs(user.name || user.username || 'Usuário')}')">Desvincular</button>
+                        </td>
+                    </tr>
+                `;
+                }).join('');
+            } catch (error) {
+                console.error('Error loading users:', error);
+                document.getElementById('usersTable').innerHTML = '<tr><td colspan="5" class="empty-state">Erro ao carregar usuários</td></tr>';
+            }
         }
 
         function renderOrgRoleBadge(orgRole) {
@@ -756,6 +843,13 @@
             if (role === 'owner') return '<span class="badge badge-admin">Owner</span>';
             if (role === 'admin') return '<span class="badge badge-admin">Admin</span>';
             return '<span class="badge badge-user">Viewer</span>';
+        }
+
+        function renderGlobalRoleBadge(roleValue) {
+            const role = String(roleValue || 'user').toLowerCase();
+            if (role === 'site_admin') return '<span class="badge badge-admin">Site Admin</span>';
+            if (role === 'admin') return '<span class="badge badge-admin">Admin</span>';
+            return '<span class="badge badge-user">Usuário</span>';
         }
 
         async function loadIfoodConfigLegacy() {
@@ -1315,16 +1409,20 @@
                 const u = data.user;
                 currentUserId = Number(u.id || 0) || null;
                 currentUserOrgRole = String(u.org_role || '').toLowerCase();
+                isPlatformAdmin = !!u.is_platform_admin;
+                const hasAdminAccess = (u.role === 'admin' || u.role === 'site_admin' || isPlatformAdmin);
                 document.getElementById('userName').textContent = u.name || u.username || 'Usuario';
                 const initials = (u.name || u.username || 'U').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                 document.getElementById('userAvatar').textContent = initials;
-                document.getElementById('userRoleText').textContent = u.role === 'admin' ? 'Administrador' : 'Usuario';
-                if (u.role !== 'admin') {
+                document.getElementById('userRoleText').textContent = isPlatformAdmin ? 'Site Admin' : (u.role === 'admin' ? 'Administrador' : 'Usuario');
+                if (!hasAdminAccess) {
                     window.location.href = '/dashboard';
                     return;
                 }
                 const opsNav = document.getElementById('opsNavLink');
                 if (opsNav) opsNav.style.display = u.is_platform_admin ? '' : 'none';
+                const siteAdminRoleOption = document.getElementById('siteAdminRoleOption');
+                if (siteAdminRoleOption) siteAdminRoleOption.style.display = isPlatformAdmin ? '' : 'none';
 
                 currentOrgId = Number(data.org_id || currentOrgId || 0);
                 const org = data.org || {};
@@ -1341,6 +1439,7 @@
                     const planBadge = document.getElementById('planBadge');
                     if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
                 }
+                renderGlobalOrganizationsTable();
             } catch (error) {
                 window.location.href = '/login';
             }
@@ -1416,6 +1515,6 @@
 
         document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal('addMerchantModal'); closeModal('addUserModal'); closeModal('assignUserModal'); closeModal('orgSwitcherModal'); closeModal('createOrgModal'); closeSidebar(); } });
         document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(e.target.id); }));
-    </script>
+</script>
 </body>
 </html>
