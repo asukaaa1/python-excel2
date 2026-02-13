@@ -450,8 +450,8 @@ function normalizeOrderStatus(order) {
 
     if (!raw) return 'UNKNOWN';
     if (raw === 'CANCELED' || raw.includes('CANCEL') || raw === 'CAN' || raw === 'DECLINED' || raw === 'REJECTED') return 'CANCELLED';
-    if (raw === 'CONCLUDED' || raw === 'COMPLETED' || raw === 'DELIVERED' || raw === 'FINISHED') return 'CONCLUDED';
-    if (raw === 'CONFIRMED' || raw === 'PLACED' || raw === 'CREATED' || raw === 'PREPARING' || raw === 'READY' || raw === 'HANDOFF' || raw === 'IN_TRANSIT' || raw === 'DISPATCHED' || raw === 'PICKED_UP') return 'CONFIRMED';
+    if (raw === 'CON' || raw === 'CONCLUDED' || raw === 'COMPLETED' || raw === 'DELIVERED' || raw === 'FINISHED') return 'CONCLUDED';
+    if (raw === 'CFM' || raw === 'CONFIRMED' || raw === 'PLACED' || raw === 'CREATED' || raw === 'PREPARING' || raw === 'READY' || raw === 'HANDOFF' || raw === 'IN_TRANSIT' || raw === 'DISPATCHED' || raw === 'PICKED_UP') return 'CONFIRMED';
     return raw;
 }
 
@@ -463,6 +463,44 @@ function getOrderAmount(order) {
     const total = order.total || {};
     const fromOrderAmount = toNumber(total.orderAmount, NaN);
     if (Number.isFinite(fromOrderAmount)) return fromOrderAmount;
+
+    const rootOrderAmount = toNumber(order.orderAmount, NaN);
+    if (Number.isFinite(rootOrderAmount)) return rootOrderAmount;
+    const rootAmount = toNumber(order.amount, NaN);
+    if (Number.isFinite(rootAmount)) return rootAmount;
+    const rootTotalAmount = toNumber(order.totalAmount, NaN);
+    if (Number.isFinite(rootTotalAmount)) return rootTotalAmount;
+
+    const payment = order.payment || {};
+    const paymentAmount = toNumber(payment.amount, NaN);
+    if (Number.isFinite(paymentAmount)) return paymentAmount;
+    const paymentValue = toNumber(payment.value, NaN);
+    if (Number.isFinite(paymentValue)) return paymentValue;
+
+    const payments = Array.isArray(order.payments) ? order.payments : [];
+    if (payments.length > 0) {
+        const sumPayments = payments.reduce((sum, p) => {
+            const pv = toNumber(p?.amount, NaN);
+            if (Number.isFinite(pv)) return sum + pv;
+            const vv = toNumber(p?.value, NaN);
+            if (Number.isFinite(vv)) return sum + vv;
+            return sum;
+        }, 0);
+        if (sumPayments > 0) return sumPayments;
+    }
+
+    const items = Array.isArray(order.items) ? order.items : [];
+    if (items.length > 0) {
+        const sumItems = items.reduce((sum, item) => {
+            const totalItem = toNumber(item?.totalPrice, NaN);
+            if (Number.isFinite(totalItem) && totalItem > 0) return sum + totalItem;
+            const qty = toNumber(item?.quantity, 1);
+            const unit = toNumber(item?.unitPrice, NaN);
+            if (Number.isFinite(unit) && unit > 0 && Number.isFinite(qty) && qty > 0) return sum + (qty * unit);
+            return sum;
+        }, 0);
+        if (sumItems > 0) return sumItems;
+    }
 
     const subTotal = toNumber(total.subTotal, 0);
     const deliveryFee = toNumber(total.deliveryFee, 0);

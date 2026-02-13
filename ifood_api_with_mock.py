@@ -552,11 +552,81 @@ class IFoodAPI:
             status = 'CANCELLED'
         if 'CANCEL' in status or status in ('CAN', 'DECLINED', 'REJECTED'):
             return 'CANCELLED'
-        if status in ('CONCLUDED', 'COMPLETED', 'DELIVERED', 'FINISHED'):
+        if status in ('CON', 'CONCLUDED', 'COMPLETED', 'DELIVERED', 'FINISHED'):
             return 'CONCLUDED'
-        if status in ('CONFIRMED', 'PLACED', 'CREATED', 'PREPARING', 'READY', 'HANDOFF', 'IN_TRANSIT', 'DISPATCHED', 'PICKED_UP'):
+        if status in ('CFM', 'CONFIRMED', 'PLACED', 'CREATED', 'PREPARING', 'READY', 'HANDOFF', 'IN_TRANSIT', 'DISPATCHED', 'PICKED_UP'):
             return 'CONFIRMED'
         return status
+
+    def _safe_float_amount(self, value) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return 0.0
+
+    def _extract_order_amount(self, order: Dict) -> float:
+        if not isinstance(order, dict):
+            return 0.0
+
+        direct_total = self._safe_float_amount(order.get('totalPrice'))
+        if direct_total > 0:
+            return direct_total
+
+        total = order.get('total')
+        if isinstance(total, dict):
+            for key in ('orderAmount', 'totalPrice', 'amount'):
+                amount = self._safe_float_amount(total.get(key))
+                if amount > 0:
+                    return amount
+            sub_total = self._safe_float_amount(total.get('subTotal'))
+            delivery_fee = self._safe_float_amount(total.get('deliveryFee'))
+            combined = sub_total + delivery_fee
+            if combined > 0:
+                return combined
+
+        for key in ('orderAmount', 'amount', 'totalAmount', 'value'):
+            amount = self._safe_float_amount(order.get(key))
+            if amount > 0:
+                return amount
+
+        payment = order.get('payment')
+        if isinstance(payment, dict):
+            for key in ('amount', 'value', 'total', 'paidAmount'):
+                amount = self._safe_float_amount(payment.get(key))
+                if amount > 0:
+                    return amount
+
+        payments = order.get('payments')
+        if isinstance(payments, list):
+            paid_total = 0.0
+            for p in payments:
+                if not isinstance(p, dict):
+                    continue
+                value = 0.0
+                for key in ('amount', 'value', 'total', 'paidAmount'):
+                    value = self._safe_float_amount(p.get(key))
+                    if value > 0:
+                        break
+                paid_total += value
+            if paid_total > 0:
+                return paid_total
+
+        items = order.get('items')
+        if isinstance(items, list) and items:
+            items_total = 0.0
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item_total = self._safe_float_amount(item.get('totalPrice'))
+                if item_total <= 0:
+                    qty = self._safe_float_amount(item.get('quantity') or 1)
+                    unit = self._safe_float_amount(item.get('unitPrice'))
+                    item_total = qty * unit if qty > 0 and unit > 0 else 0.0
+                items_total += item_total
+            if items_total > 0:
+                return items_total
+
+        return 0.0
 
     def _get_order_status(self, order: Dict) -> str:
         if not isinstance(order, dict):
@@ -591,16 +661,9 @@ class IFoodAPI:
                 order['createdAt'] = created_candidate
 
         if not order.get('totalPrice'):
-            total = order.get('total')
-            if isinstance(total, dict):
-                amount = total.get('orderAmount')
-                if amount is None:
-                    try:
-                        amount = float(total.get('subTotal', 0) or 0) + float(total.get('deliveryFee', 0) or 0)
-                    except Exception:
-                        amount = None
-                if amount is not None:
-                    order['totalPrice'] = amount
+            amount = self._extract_order_amount(order)
+            if amount > 0:
+                order['totalPrice'] = amount
         return order
 
     def _order_matches_merchant(self, order: Dict, merchant_id: str) -> bool:

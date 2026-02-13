@@ -900,10 +900,10 @@ def normalize_order_status_value(status_value):
     if 'CANCEL' in status or status in {'CAN', 'DECLINED', 'REJECTED'}:
         return 'CANCELLED'
 
-    if status in {'CONCLUDED', 'COMPLETED', 'DELIVERED', 'FINISHED'}:
+    if status in {'CON', 'CONCLUDED', 'COMPLETED', 'DELIVERED', 'FINISHED'}:
         return 'CONCLUDED'
 
-    if status in {'CONFIRMED', 'PLACED', 'CREATED', 'PREPARING', 'READY', 'HANDOFF', 'IN_TRANSIT', 'DISPATCHED', 'PICKED_UP'}:
+    if status in {'CFM', 'CONFIRMED', 'PLACED', 'CREATED', 'PREPARING', 'READY', 'HANDOFF', 'IN_TRANSIT', 'DISPATCHED', 'PICKED_UP'}:
         return 'CONFIRMED'
 
     return status
@@ -928,6 +928,145 @@ def get_order_status(order):
     return 'UNKNOWN'
 
 
+def _safe_float_amount(value):
+    try:
+        return float(value)
+    except Exception:
+        return 0.0
+
+
+def extract_order_amount(order: dict) -> float:
+    """Best-effort extraction of order monetary amount from heterogeneous payloads."""
+    if not isinstance(order, dict):
+        return 0.0
+
+    direct_total = _safe_float_amount(order.get('totalPrice'))
+    if direct_total > 0:
+        return direct_total
+
+    total = order.get('total')
+    if isinstance(total, dict):
+        for key in ('orderAmount', 'totalPrice', 'amount'):
+            amount = _safe_float_amount(total.get(key))
+            if amount > 0:
+                return amount
+        sub_total = _safe_float_amount(total.get('subTotal'))
+        delivery_fee = _safe_float_amount(total.get('deliveryFee'))
+        combined = sub_total + delivery_fee
+        if combined > 0:
+            return combined
+
+    for key in ('orderAmount', 'amount', 'totalAmount', 'value'):
+        amount = _safe_float_amount(order.get(key))
+        if amount > 0:
+            return amount
+
+    payment = order.get('payment')
+    if isinstance(payment, dict):
+        for key in ('amount', 'value', 'total', 'paidAmount'):
+            amount = _safe_float_amount(payment.get(key))
+            if amount > 0:
+                return amount
+
+    payments = order.get('payments')
+    if isinstance(payments, list):
+        paid_total = 0.0
+        for p in payments:
+            if not isinstance(p, dict):
+                continue
+            value = 0.0
+            for key in ('amount', 'value', 'total', 'paidAmount'):
+                value = _safe_float_amount(p.get(key))
+                if value > 0:
+                    break
+            paid_total += value
+        if paid_total > 0:
+            return paid_total
+
+    items = order.get('items')
+    if isinstance(items, list) and items:
+        items_total = 0.0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_total = _safe_float_amount(item.get('totalPrice'))
+            if item_total <= 0:
+                qty = _safe_float_amount(item.get('quantity') or 1)
+                unit = _safe_float_amount(item.get('unitPrice'))
+                item_total = qty * unit if qty > 0 and unit > 0 else 0.0
+            items_total += item_total
+        if items_total > 0:
+            return items_total
+
+    return 0.0
+
+
+def _order_needs_detail_enrichment(order: dict) -> bool:
+    if not isinstance(order, dict):
+        return False
+    order_id = str(order.get('id') or order.get('orderId') or order.get('order_id') or '').strip()
+    if not order_id:
+        return False
+    amount = extract_order_amount(order)
+    status = get_order_status(order)
+    return amount <= 0 or status in ('UNKNOWN', '')
+
+
+def _enrich_orders_with_details(api_client, merchant_id: str, orders: list, max_lookups: int = 20):
+    if not api_client or not hasattr(api_client, 'get_order_details'):
+        return orders, 0, 0
+    if not isinstance(orders, list) or not orders:
+        return orders, 0, 0
+
+    merged_orders = []
+    seen_order_ids = set()
+    lookups = 0
+    updated = 0
+    merchant_text = str(merchant_id or '').strip()
+
+    for raw_order in orders:
+        order = normalize_order_payload(raw_order) if isinstance(raw_order, dict) else raw_order
+        if not isinstance(order, dict):
+            continue
+
+        order_id = str(order.get('id') or order.get('orderId') or order.get('order_id') or '').strip()
+        if (
+            order_id
+            and order_id not in seen_order_ids
+            and lookups < max_lookups
+            and _order_needs_detail_enrichment(order)
+        ):
+            seen_order_ids.add(order_id)
+            lookups += 1
+            details = None
+            try:
+                details = api_client.get_order_details(order_id)
+            except Exception:
+                details = None
+
+            if isinstance(details, dict) and details:
+                candidate = dict(order)
+                for key, value in details.items():
+                    if value is None:
+                        continue
+                    if isinstance(value, str) and not value.strip():
+                        continue
+                    candidate[key] = value
+                if not candidate.get('id'):
+                    candidate['id'] = order_id
+                if merchant_text and not candidate.get('merchantId'):
+                    candidate['merchantId'] = merchant_text
+                normalized_candidate = normalize_order_payload(candidate)
+                if normalized_candidate != order:
+                    updated += 1
+                merged_orders.append(normalized_candidate)
+                continue
+
+        merged_orders.append(order)
+
+    return merged_orders, lookups, updated
+
+
 def normalize_order_payload(order):
     """Best-effort normalization so downstream metrics use consistent fields."""
     if not isinstance(order, dict):
@@ -947,16 +1086,9 @@ def normalize_order_payload(order):
             order['createdAt'] = created_candidate
 
     if not order.get('totalPrice'):
-        total = order.get('total')
-        if isinstance(total, dict):
-            amount = total.get('orderAmount')
-            if amount is None:
-                try:
-                    amount = float(total.get('subTotal', 0) or 0) + float(total.get('deliveryFee', 0) or 0)
-                except Exception:
-                    amount = None
-            if amount is not None:
-                order['totalPrice'] = amount
+        amount = extract_order_amount(order)
+        if amount > 0:
+            order['totalPrice'] = amount
 
     return order
 
@@ -1015,6 +1147,35 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
         for o in (existing or [])
         if isinstance(o, dict)
     ]
+    api = get_resilient_api_client()
+
+    def _maybe_enrich_orders(orders_payload: list, merchant_hint: str):
+        if not isinstance(orders_payload, list) or not orders_payload:
+            return orders_payload
+        if not api:
+            return orders_payload
+        if not any(_order_needs_detail_enrichment(o) for o in orders_payload if isinstance(o, dict)):
+            return orders_payload
+
+        now_ts = time.time()
+        last_enriched_at = 0.0
+        try:
+            last_enriched_at = float((restaurant or {}).get('_orders_enriched_at') or 0)
+        except Exception:
+            last_enriched_at = 0.0
+        # Avoid hammering detail endpoint on every request.
+        if (now_ts - last_enriched_at) < 45:
+            return orders_payload
+
+        enriched_orders, _, _ = _enrich_orders_with_details(
+            api,
+            merchant_hint,
+            orders_payload,
+            max_lookups=25
+        )
+        restaurant['_orders_enriched_at'] = now_ts
+        return enriched_orders if isinstance(enriched_orders, list) else orders_payload
+
     if normalized_existing:
         # Keep any normalized cache that has identifiable orders.
         has_identifiable_orders = any(
@@ -1027,6 +1188,15 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
             for o in normalized_existing
         )
         if has_identifiable_orders:
+            normalized_existing = _maybe_enrich_orders(
+                normalized_existing,
+                normalize_merchant_id(
+                    restaurant.get('_resolved_merchant_id')
+                    or restaurant.get('merchant_id')
+                    or restaurant.get('merchantId')
+                    or restaurant_id
+                ) or str(restaurant_id or '').strip()
+            )
             restaurant['_orders_cache'] = normalized_existing
             return normalized_existing
 
@@ -1077,6 +1247,18 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
                     for o in cached_orders
                 )
                 if has_identifiable_cached_orders:
+                    cached_orders = _maybe_enrich_orders(
+                        cached_orders,
+                        normalize_merchant_id(
+                            cached_match.get('_resolved_merchant_id')
+                            or cached_match.get('merchant_id')
+                            or cached_match.get('merchantId')
+                            or restaurant.get('_resolved_merchant_id')
+                            or restaurant.get('merchant_id')
+                            or restaurant.get('merchantId')
+                            or restaurant_id
+                        ) or str(restaurant_id or '').strip()
+                    )
                     restaurant['_orders_cache'] = cached_orders
                     resolved_merchant_id = (
                         cached_match.get('_resolved_merchant_id')
@@ -1097,7 +1279,6 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
                             restaurant['merchant_id'] = str(resolved_merchant_id)
                     return cached_orders
 
-    api = get_resilient_api_client()
     if not api or not restaurant_id:
         if normalized_existing:
             restaurant['_orders_cache'] = normalized_existing
@@ -1209,6 +1390,10 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
         for o in (fetched_orders or [])
         if isinstance(o, dict)
     ]
+    normalized_fetched = _maybe_enrich_orders(
+        normalized_fetched,
+        normalize_merchant_id(resolved_merchant_id) or str(resolved_merchant_id or '').strip()
+    )
     if resolved_merchant_id:
         restaurant['_resolved_merchant_id'] = resolved_merchant_id
         if not restaurant.get('merchant_id'):

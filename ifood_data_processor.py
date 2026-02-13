@@ -39,9 +39,9 @@ class IFoodDataProcessor:
 
         if 'CANCEL' in status or status in {'CAN', 'REJECTED', 'DECLINED'}:
             return 'CANCELLED'
-        if status in {'CONCLUDED', 'COMPLETED', 'DELIVERED', 'FINISHED'}:
+        if status in {'CON', 'CONCLUDED', 'COMPLETED', 'DELIVERED', 'FINISHED'}:
             return 'CONCLUDED'
-        if status in {'CONFIRMED', 'PLACED', 'CREATED', 'PREPARING', 'READY', 'HANDOFF', 'IN_TRANSIT', 'DISPATCHED', 'PICKED_UP'}:
+        if status in {'CFM', 'CONFIRMED', 'PLACED', 'CREATED', 'PREPARING', 'READY', 'HANDOFF', 'IN_TRANSIT', 'DISPATCHED', 'PICKED_UP'}:
             return 'CONFIRMED'
 
         return status
@@ -72,18 +72,64 @@ class IFoodDataProcessor:
 
         total_price = order.get('totalPrice')
         if total_price is not None:
-            return IFoodDataProcessor._safe_float(total_price, 0.0)
+            amount = IFoodDataProcessor._safe_float(total_price, 0.0)
+            if amount > 0:
+                return amount
 
         total = order.get('total')
         if isinstance(total, dict):
             for key in ('orderAmount', 'totalPrice'):
                 if total.get(key) is not None:
-                    return IFoodDataProcessor._safe_float(total.get(key), 0.0)
+                    amount = IFoodDataProcessor._safe_float(total.get(key), 0.0)
+                    if amount > 0:
+                        return amount
             subtotal = IFoodDataProcessor._safe_float(total.get('subTotal', 0), 0.0)
             delivery_fee = IFoodDataProcessor._safe_float(total.get('deliveryFee', 0), 0.0)
             combined = subtotal + delivery_fee
             if combined > 0:
                 return combined
+
+        for key in ('orderAmount', 'amount', 'totalAmount', 'value'):
+            amount = IFoodDataProcessor._safe_float(order.get(key), 0.0)
+            if amount > 0:
+                return amount
+
+        payment = order.get('payment')
+        if isinstance(payment, dict):
+            for key in ('amount', 'value', 'total', 'paidAmount'):
+                amount = IFoodDataProcessor._safe_float(payment.get(key), 0.0)
+                if amount > 0:
+                    return amount
+
+        payments = order.get('payments')
+        if isinstance(payments, list):
+            paid_total = 0.0
+            for p in payments:
+                if not isinstance(p, dict):
+                    continue
+                value = 0.0
+                for key in ('amount', 'value', 'total', 'paidAmount'):
+                    value = IFoodDataProcessor._safe_float(p.get(key), 0.0)
+                    if value > 0:
+                        break
+                paid_total += value
+            if paid_total > 0:
+                return paid_total
+
+        items = order.get('items')
+        if isinstance(items, list) and items:
+            items_total = 0.0
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item_total = IFoodDataProcessor._safe_float(item.get('totalPrice'), 0.0)
+                if item_total <= 0:
+                    qty = IFoodDataProcessor._safe_float(item.get('quantity', 1), 1.0)
+                    unit = IFoodDataProcessor._safe_float(item.get('unitPrice', 0), 0.0)
+                    item_total = qty * unit if qty > 0 and unit > 0 else 0.0
+                items_total += item_total
+            if items_total > 0:
+                return items_total
         return 0.0
 
     @staticmethod
