@@ -6868,6 +6868,7 @@ def public_restaurant_share_page(token):
 <style>
     .nav-back {{ display: none !important; }}
     #exportPdfBtn {{ display: none !important; }}
+    #shareLinkBtn {{ display: none !important; }}
 </style>
 """
         rendered = rendered.replace('</head>', public_script + '</head>')
