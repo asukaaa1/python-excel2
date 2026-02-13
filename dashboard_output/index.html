@@ -1632,6 +1632,41 @@
         let orgCapabilities = null;
         let savedViews = [];
         let sharedViewToken = null;
+        const AUTO_REFRESH_QUERY_PARAM = 'refresh';
+        const AUTO_REFRESH_STORAGE_KEY = 'dashboard_auto_refresh_seconds';
+        const AUTO_REFRESH_DEFAULT_SECONDS = 60;
+        const AUTO_REFRESH_MIN_SECONDS = 15;
+        const AUTO_REFRESH_MAX_SECONDS = 900;
+        let autoRefreshSeconds = AUTO_REFRESH_DEFAULT_SECONDS;
+        let autoRefreshTimerId = null;
+        let autoRefreshInFlight = false;
+
+        function clampAutoRefreshSeconds(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return null;
+            return Math.max(AUTO_REFRESH_MIN_SECONDS, Math.min(AUTO_REFRESH_MAX_SECONDS, Math.floor(n)));
+        }
+
+        function parseAutoRefreshSeconds(value) {
+            if (value === null || value === undefined || value === '') return null;
+            return clampAutoRefreshSeconds(value);
+        }
+
+        function getConfiguredAutoRefreshSeconds() {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const queryValue = parseAutoRefreshSeconds(params.get(AUTO_REFRESH_QUERY_PARAM));
+                if (queryValue !== null) {
+                    localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, String(queryValue));
+                    return queryValue;
+                }
+                const storedValue = parseAutoRefreshSeconds(localStorage.getItem(AUTO_REFRESH_STORAGE_KEY));
+                if (storedValue !== null) return storedValue;
+            } catch (error) {
+                // Ignore storage/query parsing failures and use default.
+            }
+            return AUTO_REFRESH_DEFAULT_SECONDS;
+        }
 
         // Formatters
         const formatCurrency = (v) => v ? 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'R$ 0,00';
@@ -2006,6 +2041,29 @@
             }
         }
 
+        async function runAutoRefreshTick() {
+            if (document.hidden || autoRefreshInFlight) return;
+            autoRefreshInFlight = true;
+            try {
+                await loadRestaurants(currentMonthFilter);
+            } finally {
+                autoRefreshInFlight = false;
+            }
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshTimerId) {
+                clearInterval(autoRefreshTimerId);
+                autoRefreshTimerId = null;
+            }
+        }
+
+        function startAutoRefresh() {
+            stopAutoRefresh();
+            if (!(autoRefreshSeconds > 0)) return;
+            autoRefreshTimerId = setInterval(runAutoRefreshTick, autoRefreshSeconds * 1000);
+        }
+
         function updateFilterCounts() {
             const growth = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) > 0).length;
             const decline = restaurantsData.filter(r => (r.metrics?.trends?.vendas ?? 0) < 0).length;
@@ -2015,10 +2073,11 @@
 
         function updateLastRefresh() {
             const formatted = formatLastRefresh(lastRefreshAt);
+            const autoSuffix = autoRefreshSeconds > 0 ? ` | auto ${autoRefreshSeconds}s` : '';
             const lrEl = document.getElementById('overviewLastRefresh');
-            if (lrEl) lrEl.textContent = `Última atualização: ${formatted}`;
+            if (lrEl) lrEl.textContent = `Última atualização: ${formatted}${autoSuffix}`;
             const footerRefreshEl = document.getElementById('footerRefresh');
-            if (footerRefreshEl) footerRefreshEl.textContent = `Última atualização: ${formatted}`;
+            if (footerRefreshEl) footerRefreshEl.textContent = `Última atualização: ${formatted}${autoSuffix}`;
         }
 
         function formatLastRefresh(iso) {
@@ -2507,6 +2566,7 @@
             document.documentElement.setAttribute('data-theme', theme);
             document.getElementById('sunIcon').style.display = theme === 'dark' ? 'block' : 'none';
             document.getElementById('moonIcon').style.display = theme === 'dark' ? 'none' : 'block';
+            autoRefreshSeconds = getConfiguredAutoRefreshSeconds();
 
             const monthNames = {
                 'all': 'Todos',
@@ -2525,6 +2585,7 @@
             loadRestaurants(currentMonthFilter).then(async () => {
                 await applySharedViewFromUrl();
             });
+            startAutoRefresh();
         })();
 
         // Global event listeners
@@ -2546,6 +2607,14 @@
                 document.getElementById('monthDropdown').classList.remove('open');
             }
         });
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                runAutoRefreshTick();
+            }
+        });
+
+        window.addEventListener('beforeunload', stopAutoRefresh);
 
         
         
