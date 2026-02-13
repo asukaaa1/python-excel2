@@ -76,6 +76,7 @@ class IFoodAPI:
         # Mock data cache - FIXED: Store complete merchant data
         self._mock_merchants = {}
         self._interruptions_cache = {}
+        self._merchant_orders_cache = {}
         
         if self.use_mock_data:
             print("ðŸŽ­ Running in MOCK DATA mode - using sample data for testing")
@@ -101,6 +102,42 @@ class IFoodAPI:
                 days=30
             )
         return self._mock_merchants.get(key)
+
+    def _order_cache_key(self, order: Dict) -> str:
+        if not isinstance(order, dict):
+            return ''
+        return str(
+            order.get('id')
+            or order.get('orderId')
+            or order.get('displayId')
+            or f"{order.get('createdAt')}:{order.get('orderStatus')}"
+        )
+
+    def _merge_orders_into_local_cache(self, merchant_id: str, orders: List[Dict]) -> List[Dict]:
+        merchant_key = str(merchant_id or '').strip()
+        if not merchant_key:
+            return []
+
+        merged = {}
+        for existing in (self._merchant_orders_cache.get(merchant_key) or []):
+            if not isinstance(existing, dict):
+                continue
+            normalized_existing = self._normalize_order_payload(existing)
+            existing_key = self._order_cache_key(normalized_existing)
+            if existing_key:
+                merged[existing_key] = normalized_existing
+
+        for order in (orders or []):
+            if not isinstance(order, dict):
+                continue
+            normalized_order = self._normalize_order_payload(order)
+            key = self._order_cache_key(normalized_order)
+            if key:
+                merged[key] = normalized_order
+
+        merged_list = list(merged.values())
+        self._merchant_orders_cache[merchant_key] = merged_list
+        return merged_list
     
     def authenticate(self) -> bool:
         """Authenticate with iFood API (or fake it for mock mode)"""
@@ -317,7 +354,25 @@ class IFoodAPI:
                         print("iFood info: /order/v1.0/orders is not available for this credential scope; using events/details only")
                         self._order_list_fallback_disabled_logged = True
 
-        return self._filter_orders(candidate_orders, merchant_id, start_date, end_date, status)
+        normalized_candidates = [
+            self._normalize_order_payload(order)
+            for order in (candidate_orders or [])
+            if isinstance(order, dict)
+        ]
+        if normalized_candidates:
+            merged_cache = self._merge_orders_into_local_cache(merchant_id, normalized_candidates)
+            filtered = self._filter_orders(merged_cache, merchant_id, start_date, end_date, status)
+        else:
+            cached_orders = self._merchant_orders_cache.get(str(merchant_id or '').strip()) or []
+            filtered = self._filter_orders(cached_orders, merchant_id, start_date, end_date, status)
+
+        if events:
+            try:
+                self.acknowledge_events(events)
+            except Exception:
+                pass
+
+        return filtered
 
     def poll_events(self, merchant_id) -> List[Dict]:
         """Perform lightweight events polling for one merchant.

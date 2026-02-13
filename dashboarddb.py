@@ -1946,9 +1946,10 @@ class DashboardDatabase:
         finally:
             cursor.close(); conn.close()
 
-    def load_org_data_cache(self, org_id, cache_key, max_age_hours=2):
+    def load_org_data_cache_meta(self, org_id, cache_key, max_age_hours=2):
         conn = self.get_connection()
-        if not conn: return None
+        if not conn:
+            return None
         cursor = conn.cursor()
         try:
             cursor.execute("SELECT data, created_at FROM org_data_cache WHERE org_id=%s AND cache_key=%s", (org_id, cache_key))
@@ -1956,12 +1957,21 @@ class DashboardDatabase:
             if row:
                 data, created = row
                 if datetime.now() - created < timedelta(hours=max_age_hours):
-                    if isinstance(data, str): data = json.loads(data)
-                    return data
+                    if isinstance(data, str):
+                        data = json.loads(data)
+                    return {'data': data, 'created_at': created}
             return None
-        except: return None
+        except:
+            return None
         finally:
-            cursor.close(); conn.close()
+            cursor.close()
+            conn.close()
+
+    def load_org_data_cache(self, org_id, cache_key, max_age_hours=2):
+        cache_meta = self.load_org_data_cache_meta(org_id, cache_key, max_age_hours=max_age_hours)
+        if isinstance(cache_meta, dict):
+            return cache_meta.get('data')
+        return None
 
     def get_org_member_role(self, org_id, user_id):
         conn = self.get_connection()

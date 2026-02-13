@@ -14,6 +14,7 @@ from pathlib import Path
 import json
 import html
 import hashlib
+import re
 from typing import Dict, List, Optional
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -333,7 +334,8 @@ def get_org_data(org_id):
             'api': None,
             'last_refresh': None,
             'config': {},
-            'init_attempted_at': None
+            'init_attempted_at': None,
+            '_cache_sync_checked_at': 0.0
         }
     return ORG_DATA[org_id]
 
@@ -359,11 +361,115 @@ def is_shared_mock_mode():
     return bool(IFOOD_API and getattr(IFOOD_API, 'use_mock_data', False))
 
 
+_MERCHANT_UUID_RE = re.compile(
+    r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+)
+
+
+def normalize_merchant_id(value) -> str:
+    """Normalize merchant id values that may include pasted labels/noise."""
+    text = str(value or '').strip()
+    if not text:
+        return ''
+
+    uuid_match = _MERCHANT_UUID_RE.search(text)
+    if uuid_match:
+        return uuid_match.group(0)
+
+    compact = re.sub(r'[\r\n\t]+', ' ', text)
+    compact = re.sub(r'\s+', ' ', compact).strip()
+    return compact
+
+
+def sanitize_merchant_name(value) -> str:
+    """Sanitize merchant display names pasted from tabular sources."""
+    text = str(value or '').strip()
+    if not text:
+        return ''
+
+    compact = text.replace('\r', ' ').replace('\n', ' ').strip()
+    if '\t' in compact:
+        parts = [p.strip() for p in compact.split('\t') if p and str(p).strip()]
+        candidates = []
+        for part in parts:
+            cleaned = re.sub(
+                r'(?i)^\s*(tipo de loja|merchant id|merchant uuid)\s*[:\-]?\s*',
+                '',
+                str(part or '').strip()
+            ).strip()
+            cleaned_lower = cleaned.lower()
+            if cleaned and cleaned_lower not in ('tipo de loja', 'merchant id', 'merchant uuid'):
+                candidates.append(cleaned)
+        if candidates:
+            # Prefer the longest non-header token; this is usually the store name.
+            compact = max(candidates, key=lambda item: len(str(item)))
+        elif parts:
+            compact = parts[0]
+
+    compact = re.sub(r'\s{2,}', ' ', compact).strip()
+    return compact
+
+
+def _count_orders_in_restaurant_list(restaurants) -> int:
+    total = 0
+    if not isinstance(restaurants, list):
+        return 0
+    for restaurant in restaurants:
+        if not isinstance(restaurant, dict):
+            continue
+        orders = restaurant.get('_orders_cache') or []
+        if isinstance(orders, list):
+            total += len(orders)
+    return total
+
+
+def _sync_org_restaurants_from_cache(org_id: int, org: dict, max_age_hours: int = 12, force: bool = False):
+    """Refresh in-memory org restaurants from DB cache when cache is newer/richer."""
+    if not org_id or not isinstance(org, dict):
+        return
+
+    now_ts = time.time()
+    if not force:
+        last_sync_check = float(org.get('_cache_sync_checked_at') or 0)
+        if (now_ts - last_sync_check) < 20:
+            return
+    org['_cache_sync_checked_at'] = now_ts
+
+    cache_meta = db.load_org_data_cache_meta(org_id, 'restaurants', max_age_hours=max_age_hours)
+    if not isinstance(cache_meta, dict):
+        return
+
+    cached_restaurants = cache_meta.get('data')
+    cache_created_at = cache_meta.get('created_at')
+    if not isinstance(cached_restaurants, list) or not cached_restaurants:
+        return
+
+    current_restaurants = org.get('restaurants') or []
+    current_last_refresh = org.get('last_refresh')
+    current_order_count = _count_orders_in_restaurant_list(current_restaurants)
+    cached_order_count = _count_orders_in_restaurant_list(cached_restaurants)
+
+    should_replace = False
+    if not current_restaurants:
+        should_replace = True
+    elif isinstance(cache_created_at, datetime):
+        if not isinstance(current_last_refresh, datetime) or cache_created_at > (current_last_refresh + timedelta(seconds=5)):
+            should_replace = True
+    if not should_replace and current_order_count <= 0 and cached_order_count > 0:
+        should_replace = True
+
+    if should_replace:
+        org['restaurants'] = cached_restaurants
+        if isinstance(cache_created_at, datetime):
+            org['last_refresh'] = cache_created_at
+
+
 def get_current_org_restaurants():
     """Get restaurant data for the current session's org"""
     org_id = get_current_org_id()
     if org_id:
         org = get_org_data(org_id)
+        _sync_org_restaurants_from_cache(org_id, org, max_age_hours=12)
         org_restaurants = org.get('restaurants') or []
         if org_restaurants:
             return org_restaurants
@@ -384,10 +490,12 @@ def get_current_org_restaurants():
             return RESTAURANTS_DATA
 
         # Load tenant cache on-demand so newly selected orgs immediately show stores.
-        cached_org_data = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=12)
+        cached_org_meta = db.load_org_data_cache_meta(org_id, 'restaurants', max_age_hours=12)
+        cached_org_data = cached_org_meta.get('data') if isinstance(cached_org_meta, dict) else None
         if isinstance(cached_org_data, list) and cached_org_data:
             org['restaurants'] = cached_org_data
-            org['last_refresh'] = datetime.now()
+            cached_created_at = cached_org_meta.get('created_at') if isinstance(cached_org_meta, dict) else None
+            org['last_refresh'] = cached_created_at if isinstance(cached_created_at, datetime) else datetime.now()
             return cached_org_data
 
         # Retry iFood init occasionally (supports env fallback credentials).
@@ -487,6 +595,10 @@ def _restaurant_id_candidates(restaurant: dict):
             if text:
                 candidates.add(text)
                 candidates.add(text.lower())
+                normalized = normalize_merchant_id(text)
+                if normalized:
+                    candidates.add(normalized)
+                    candidates.add(normalized.lower())
     return candidates
 
 
@@ -496,19 +608,28 @@ def find_restaurant_by_identifier(restaurant_id: str, restaurants: Optional[List
     if not target:
         return None
     target_lower = target.lower()
+    target_normalized = normalize_merchant_id(target)
+    target_normalized_lower = target_normalized.lower() if target_normalized else ''
     pool = restaurants if isinstance(restaurants, list) else get_current_org_restaurants()
     for restaurant in pool:
         if not isinstance(restaurant, dict):
             continue
         candidates = _restaurant_id_candidates(restaurant)
-        if target in candidates or target_lower in candidates:
+        if (
+            target in candidates
+            or target_lower in candidates
+            or (target_normalized and target_normalized in candidates)
+            or (target_normalized_lower and target_normalized_lower in candidates)
+        ):
             return restaurant
     return None
 
 
 def find_restaurant_in_org(restaurant_id: str, org_id: int):
     """Find restaurant by identifier within a specific org's data (no session required)."""
-    source_restaurants = ORG_DATA.get(org_id, {}).get('restaurants') or []
+    org = get_org_data(org_id)
+    _sync_org_restaurants_from_cache(org_id, org, max_age_hours=12)
+    source_restaurants = org.get('restaurants') or []
     if not source_restaurants:
         cached = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=12)
         if isinstance(cached, list):
@@ -922,7 +1043,7 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
             seen_ids = set()
 
             def _push_candidate(value):
-                text = str(value or '').strip()
+                text = normalize_merchant_id(value)
                 if text and text not in seen_ids:
                     seen_ids.add(text)
                     candidate_ids.append(text)
@@ -967,6 +1088,10 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
                         or restaurant_id
                     )
                     if resolved_merchant_id:
+                        resolved_merchant_id = (
+                            normalize_merchant_id(resolved_merchant_id)
+                            or str(resolved_merchant_id).strip()
+                        )
                         restaurant['_resolved_merchant_id'] = str(resolved_merchant_id)
                         if not restaurant.get('merchant_id'):
                             restaurant['merchant_id'] = str(resolved_merchant_id)
@@ -985,7 +1110,7 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
     def _add_candidate(candidate_list, seen_set, value):
-        candidate = str(value or '').strip()
+        candidate = normalize_merchant_id(value)
         if candidate and candidate not in seen_set:
             candidate_list.append(candidate)
             seen_set.add(candidate)
@@ -1756,9 +1881,14 @@ def _extract_org_merchant_ids(org_config):
 
     ids = []
     for m in merchants:
+        if isinstance(m, str):
+            merchant_id = normalize_merchant_id(m)
+            if merchant_id:
+                ids.append(str(merchant_id))
+            continue
         if not isinstance(m, dict):
             continue
-        merchant_id = m.get('merchant_id') or m.get('id')
+        merchant_id = normalize_merchant_id(m.get('merchant_id') or m.get('id'))
         if merchant_id:
             ids.append(str(merchant_id))
     # preserve insertion order, drop duplicates
@@ -1779,9 +1909,10 @@ def _order_cache_key(order: dict) -> str:
 def _find_org_restaurant_record(org_data: dict, merchant_id: str):
     if not isinstance(org_data, dict):
         return None
-    wanted = str(merchant_id or '').strip()
+    wanted = normalize_merchant_id(merchant_id)
     if not wanted:
         return None
+    wanted_lower = wanted.lower()
     for restaurant in (org_data.get('restaurants') or []):
         if not isinstance(restaurant, dict):
             continue
@@ -1793,7 +1924,8 @@ def _find_org_restaurant_record(org_data: dict, merchant_id: str):
             restaurant.get('id'),
         )
         for candidate in candidates:
-            if str(candidate or '').strip() == wanted:
+            normalized_candidate = normalize_merchant_id(candidate)
+            if normalized_candidate == wanted or normalized_candidate.lower() == wanted_lower:
                 return restaurant
     return None
 
@@ -2408,9 +2540,20 @@ def _do_data_refresh():
         if existing_mid and existing_orders:
             existing_orders_by_merchant[str(existing_mid)] = existing_orders
     
+    seen_merchant_ids = set()
     for merchant_config in merchants_config:
-        merchant_id = merchant_config.get('merchant_id')
-        name = merchant_config.get('name', 'Unknown Restaurant')
+        if isinstance(merchant_config, str):
+            merchant_config = {'merchant_id': merchant_config}
+        if not isinstance(merchant_config, dict):
+            continue
+        merchant_id = normalize_merchant_id(merchant_config.get('merchant_id') or merchant_config.get('id'))
+        if not merchant_id:
+            continue
+        if merchant_id in seen_merchant_ids:
+            continue
+        seen_merchant_ids.add(merchant_id)
+        name = sanitize_merchant_name(merchant_config.get('name')) or f"Restaurant {str(merchant_id)[:8]}"
+        manager_name = sanitize_merchant_name(merchant_config.get('manager')) or 'Gerente'
         
         try:
             merchant_details = IFOOD_API.get_merchant_details(merchant_id)
@@ -2418,7 +2561,7 @@ def _do_data_refresh():
                 merchant_details = {
                     'id': merchant_id,
                     'name': name,
-                    'merchantManager': {'name': merchant_config.get('manager', 'Gerente')}
+                    'merchantManager': {'name': manager_name}
                 }
             
             fetched_orders = IFOOD_API.get_orders(merchant_id, start_date, end_date) or []
@@ -2457,10 +2600,10 @@ def _do_data_refresh():
             restaurant_data = IFoodDataProcessor.process_restaurant_data(merchant_details, orders, financial_data)
             closure = detect_restaurant_closure(IFOOD_API, merchant_id)
             
-            if merchant_config.get('name'):
-                restaurant_data['name'] = merchant_config['name']
-            if merchant_config.get('manager'):
-                restaurant_data['manager'] = merchant_config['manager']
+            if name:
+                restaurant_data['name'] = name
+            if manager_name:
+                restaurant_data['manager'] = manager_name
             restaurant_data['merchant_id'] = merchant_id
             
             restaurant_data['_orders_cache'] = orders
@@ -2652,6 +2795,11 @@ def _load_org_restaurants(org_id):
     if not api:
         return
     merchants_config = config.get('merchants', [])
+    if isinstance(merchants_config, str):
+        try:
+            merchants_config = json.loads(merchants_config)
+        except Exception:
+            merchants_config = []
     if not merchants_config:
         try:
             merchants = api.get_merchants()
@@ -2720,12 +2868,20 @@ def _load_org_restaurants(org_id):
             }
         }
 
+    seen_merchant_ids = set()
     for mc in merchants_config:
-        merchant_id = mc.get('merchant_id') or mc.get('id')
+        if isinstance(mc, str):
+            mc = {'merchant_id': mc}
+        if not isinstance(mc, dict):
+            continue
+        merchant_id = normalize_merchant_id(mc.get('merchant_id') or mc.get('id'))
         if not merchant_id:
             continue
-        merchant_name = str(mc.get('name') or f"Restaurant {str(merchant_id)[:8]}")
-        merchant_manager = str(mc.get('manager') or 'Gerente')
+        if merchant_id in seen_merchant_ids:
+            continue
+        seen_merchant_ids.add(merchant_id)
+        merchant_name = sanitize_merchant_name(mc.get('name')) or f"Restaurant {str(merchant_id)[:8]}"
+        merchant_manager = sanitize_merchant_name(mc.get('manager')) or 'Gerente'
 
         details = None
         try:
@@ -2742,10 +2898,12 @@ def _load_org_restaurants(org_id):
                 'isSuperRestaurant': False
             }
         else:
-            details['id'] = details.get('id') or merchant_id
-            details['name'] = merchant_name or details.get('name') or f"Restaurant {str(merchant_id)[:8]}"
+            details['id'] = normalize_merchant_id(details.get('id') or merchant_id) or merchant_id
+            api_name = sanitize_merchant_name(details.get('name'))
+            details['name'] = merchant_name or api_name or f"Restaurant {str(merchant_id)[:8]}"
             manager_obj = details.get('merchantManager') if isinstance(details.get('merchantManager'), dict) else {}
-            manager_obj['name'] = merchant_manager or manager_obj.get('name') or 'Gerente'
+            manager_obj_name = sanitize_merchant_name(manager_obj.get('name'))
+            manager_obj['name'] = merchant_manager or manager_obj_name or 'Gerente'
             details['merchantManager'] = manager_obj
             if not isinstance(details.get('address'), dict):
                 details['address'] = {'neighborhood': mc.get('neighborhood') or 'Centro'}
@@ -2789,10 +2947,10 @@ def _load_org_restaurants(org_id):
             restaurant_data = _fallback_restaurant(merchant_id, merchant_name, merchant_manager, neighborhood)
 
         if merchant_name:
-            restaurant_data['name'] = merchant_name
+            restaurant_data['name'] = sanitize_merchant_name(merchant_name) or merchant_name
         if merchant_manager:
-            restaurant_data['manager'] = merchant_manager
-        restaurant_data['merchant_id'] = merchant_id
+            restaurant_data['manager'] = sanitize_merchant_name(merchant_manager) or merchant_manager
+        restaurant_data['merchant_id'] = normalize_merchant_id(merchant_id) or merchant_id
 
         closure = {
             'is_closed': False,
@@ -2839,11 +2997,13 @@ def initialize_all_orgs():
     for org_info in orgs:
         org_id = org_info['id']
         # Try cache first
-        cached = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=2)
+        cached_meta = db.load_org_data_cache_meta(org_id, 'restaurants', max_age_hours=2)
+        cached = cached_meta.get('data') if isinstance(cached_meta, dict) else None
         if cached:
             od = get_org_data(org_id)
             od['restaurants'] = cached
-            od['last_refresh'] = datetime.now()
+            cache_created_at = cached_meta.get('created_at') if isinstance(cached_meta, dict) else None
+            od['last_refresh'] = cache_created_at if isinstance(cache_created_at, datetime) else datetime.now()
             print(f"  Ã¢Å¡Â¡ Org {org_id} ({org_info['name']}): {len(cached)} restaurants from cache")
             # Init API in background
             threading.Thread(target=_init_and_refresh_org, args=(org_id,), daemon=True).start()
@@ -2957,9 +3117,20 @@ def load_restaurants_from_ifood():
     print(f"   Fetching data from {start_date} to {end_date}")
     
     # Process each merchant
+    seen_merchant_ids = set()
     for merchant_config in merchants_config:
-        merchant_id = merchant_config.get('merchant_id')
-        name = merchant_config.get('name', 'Unknown Restaurant')
+        if isinstance(merchant_config, str):
+            merchant_config = {'merchant_id': merchant_config}
+        if not isinstance(merchant_config, dict):
+            continue
+        merchant_id = normalize_merchant_id(merchant_config.get('merchant_id') or merchant_config.get('id'))
+        if not merchant_id:
+            continue
+        if merchant_id in seen_merchant_ids:
+            continue
+        seen_merchant_ids.add(merchant_id)
+        name = sanitize_merchant_name(merchant_config.get('name')) or f"Restaurant {str(merchant_id)[:8]}"
+        manager_name = sanitize_merchant_name(merchant_config.get('manager')) or 'Gerente'
         
         print(f"   Ã°Å¸â€œâ€ž Processing: {name}")
         
@@ -2970,7 +3141,7 @@ def load_restaurants_from_ifood():
                 merchant_details = {
                     'id': merchant_id,
                     'name': name,
-                    'merchantManager': {'name': merchant_config.get('manager', 'Gerente')}
+                    'merchantManager': {'name': manager_name}
                 }
             
             # Get orders
@@ -3019,10 +3190,10 @@ def load_restaurants_from_ifood():
             closure = detect_restaurant_closure(IFOOD_API, merchant_id)
             
             # Override name and manager from config if provided
-            if merchant_config.get('name'):
-                restaurant_data['name'] = merchant_config['name']
-            if merchant_config.get('manager'):
-                restaurant_data['manager'] = merchant_config['manager']
+            if name:
+                restaurant_data['name'] = name
+            if manager_name:
+                restaurant_data['manager'] = manager_name
             restaurant_data['merchant_id'] = merchant_id
             
             # Store raw orders for charts
@@ -5598,8 +5769,20 @@ def api_ifood_config():
             'configured': bool(IFOOD_API),
             'merchant_count': len(IFOOD_CONFIG.get('merchants', [])),
             'merchants': [
-                {'merchant_id': m.get('merchant_id'), 'name': m.get('name'), 'manager': m.get('manager')}
-                for m in IFOOD_CONFIG.get('merchants', [])
+                (
+                    {
+                        'merchant_id': normalize_merchant_id(m.get('merchant_id') or m.get('id')),
+                        'name': sanitize_merchant_name(m.get('name')),
+                        'manager': sanitize_merchant_name(m.get('manager'))
+                    }
+                    if isinstance(m, dict)
+                    else {
+                        'merchant_id': normalize_merchant_id(m),
+                        'name': '',
+                        'manager': ''
+                    }
+                )
+                for m in (IFOOD_CONFIG.get('merchants', []) or [])
             ],
             'data_fetch_days': IFOOD_CONFIG.get('data_fetch_days', 30),
             'refresh_interval_minutes': IFOOD_CONFIG.get('refresh_interval_minutes', 60),
@@ -5620,9 +5803,9 @@ def api_add_merchant():
     try:
         data = get_json_payload()
         
-        merchant_id = data.get('merchant_id')
-        name = data.get('name')
-        manager = data.get('manager', 'Gerente')
+        merchant_id = normalize_merchant_id(data.get('merchant_id'))
+        name = sanitize_merchant_name(data.get('name'))
+        manager = sanitize_merchant_name(data.get('manager')) or 'Gerente'
         
         if not merchant_id:
             return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
@@ -5638,7 +5821,12 @@ def api_add_merchant():
             if 'merchants' not in IFOOD_CONFIG:
                 IFOOD_CONFIG['merchants'] = []
             for m in IFOOD_CONFIG['merchants']:
-                if m.get('merchant_id') == merchant_id:
+                existing_id = normalize_merchant_id(
+                    m.get('merchant_id') or m.get('id')
+                    if isinstance(m, dict)
+                    else m
+                )
+                if existing_id == merchant_id:
                     return jsonify({'success': False, 'error': 'Merchant already exists'}), 400
             IFOOD_CONFIG['merchants'].append(merchant_payload)
             IFoodConfig.save_config(IFOOD_CONFIG, str(CONFIG_FILE))
@@ -5661,7 +5849,12 @@ def api_add_merchant():
             except Exception:
                 merchants = []
         for m in merchants:
-            if m.get('merchant_id') == merchant_id:
+            existing_id = normalize_merchant_id(
+                m.get('merchant_id') or m.get('id')
+                if isinstance(m, dict)
+                else m
+            )
+            if existing_id == merchant_id:
                 return jsonify({'success': False, 'error': 'Merchant already exists'}), 400
         merchants.append(merchant_payload)
         db.update_org_ifood_config(org_id, merchants=merchants)
@@ -5684,6 +5877,10 @@ def api_add_merchant():
 def api_remove_merchant(merchant_id):
     """Remove a merchant from org config (or legacy global config for platform admins)."""
     try:
+        target_merchant_id = normalize_merchant_id(merchant_id)
+        if not target_merchant_id:
+            return jsonify({'success': False, 'error': 'Merchant not found'}), 404
+
         if is_platform_admin_user(session.get('user', {})):
             if 'merchants' not in IFOOD_CONFIG:
                 return jsonify({'success': False, 'error': 'No merchants configured'}), 404
@@ -5691,7 +5888,11 @@ def api_remove_merchant(merchant_id):
             original_count = len(IFOOD_CONFIG['merchants'])
             IFOOD_CONFIG['merchants'] = [
                 m for m in IFOOD_CONFIG['merchants'] 
-                if m.get('merchant_id') != merchant_id
+                if normalize_merchant_id(
+                    m.get('merchant_id') or m.get('id')
+                    if isinstance(m, dict)
+                    else m
+                ) != target_merchant_id
             ]
             if len(IFOOD_CONFIG['merchants']) == original_count:
                 return jsonify({'success': False, 'error': 'Merchant not found'}), 404
@@ -5715,7 +5916,14 @@ def api_remove_merchant(merchant_id):
             except Exception:
                 merchants = []
         original_count = len(merchants)
-        merchants = [m for m in merchants if m.get('merchant_id') != merchant_id]
+        merchants = [
+            m for m in merchants
+            if normalize_merchant_id(
+                m.get('merchant_id') or m.get('id')
+                if isinstance(m, dict)
+                else m
+            ) != target_merchant_id
+        ]
         if len(merchants) == original_count:
             return jsonify({'success': False, 'error': 'Merchant not found'}), 404
         db.update_org_ifood_config(org_id, merchants=merchants)
