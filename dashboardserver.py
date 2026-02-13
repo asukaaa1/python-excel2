@@ -368,6 +368,21 @@ def get_current_org_restaurants():
         if org_restaurants:
             return org_restaurants
 
+        # If this org has no scoped iFood source, prefer legacy global data.
+        # This avoids stale org cache shadowing live legacy refresh/keepalive data.
+        has_scoped_source = bool(org.get('api'))
+        if not has_scoped_source:
+            org_config = org.get('config') or db.get_org_ifood_config(org_id) or {}
+            scoped_merchants = org_config.get('merchants') if isinstance(org_config, dict) else []
+            if isinstance(scoped_merchants, str):
+                try:
+                    scoped_merchants = json.loads(scoped_merchants)
+                except Exception:
+                    scoped_merchants = []
+            has_scoped_source = bool(scoped_merchants)
+        if not has_scoped_source and ENABLE_LEGACY_FALLBACK and RESTAURANTS_DATA:
+            return RESTAURANTS_DATA
+
         # Load tenant cache on-demand so newly selected orgs immediately show stores.
         cached_org_data = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=12)
         if isinstance(cached_org_data, list) and cached_org_data:
@@ -2035,6 +2050,14 @@ def run_ifood_keepalive_poll_once():
     finally:
         release_keepalive_lock(lock_token)
 
+    if summary['orders_cached'] > 0:
+        # New orders were merged in-memory; drop response cache so UI reflects changes immediately.
+        invalidate_cache()
+        try:
+            _save_data_snapshot()
+        except Exception:
+            pass
+
     _KEEPALIVE_POLL_CYCLE += 1
     if summary['errors'] > 0:
         print(
@@ -2699,8 +2722,23 @@ def initialize_ifood_api():
 def load_restaurants_from_ifood():
     """Load all restaurants from iFood API"""
     global RESTAURANTS_DATA, LAST_DATA_REFRESH
-    
-    RESTAURANTS_DATA = []
+
+    previous_restaurants = [r for r in (RESTAURANTS_DATA or []) if isinstance(r, dict)]
+    existing_orders_by_merchant = {}
+    for existing in previous_restaurants:
+        existing_mid = (
+            existing.get('merchant_id')
+            or existing.get('_resolved_merchant_id')
+            or existing.get('id')
+        )
+        existing_orders = [
+            normalize_order_payload(o)
+            for o in (existing.get('_orders_cache') or [])
+            if isinstance(o, dict)
+        ]
+        if existing_mid and existing_orders:
+            existing_orders_by_merchant[str(existing_mid)] = existing_orders
+    new_restaurants = []
     
     if not IFOOD_API:
         print("Ã¢ÂÅ’ iFood API not initialized")
@@ -2754,7 +2792,32 @@ def load_restaurants_from_ifood():
                 }
             
             # Get orders
-            orders = IFOOD_API.get_orders(merchant_id, start_date, end_date)
+            fetched_orders = IFOOD_API.get_orders(merchant_id, start_date, end_date) or []
+            fetched_orders = [
+                normalize_order_payload(order)
+                for order in fetched_orders
+                if isinstance(order, dict)
+            ]
+            previous_orders = existing_orders_by_merchant.get(str(merchant_id), [])
+            if previous_orders:
+                if fetched_orders:
+                    merged = {}
+                    for order in previous_orders + fetched_orders:
+                        if not isinstance(order, dict):
+                            continue
+                        normalized = normalize_order_payload(order)
+                        order_key = str(
+                            normalized.get('id')
+                            or normalized.get('orderId')
+                            or normalized.get('displayId')
+                            or f"{normalized.get('createdAt')}:{normalized.get('orderStatus')}"
+                        )
+                        merged[order_key] = normalized
+                    orders = list(merged.values())
+                else:
+                    orders = previous_orders
+            else:
+                orders = fetched_orders
             print(f"      Found {len(orders)} orders")
             
             # Get financial data if available
@@ -2787,13 +2850,19 @@ def load_restaurants_from_ifood():
             restaurant_data['closed_until'] = closure.get('closed_until')
             restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
             
-            RESTAURANTS_DATA.append(restaurant_data)
+            new_restaurants.append(restaurant_data)
             print(f"      Ã¢Å“â€¦ {restaurant_data['name']}")
             
         except Exception as e:
             print(f"      Ã¢ÂÅ’ Failed to process {name}: {e}")
             log_exception("request_exception", e)
-    
+
+    if new_restaurants:
+        RESTAURANTS_DATA = new_restaurants
+    elif previous_restaurants:
+        # Safety fallback: do not wipe dashboard on transient upstream failures.
+        RESTAURANTS_DATA = previous_restaurants
+
     LAST_DATA_REFRESH = datetime.now()
     print(f"\nÃ¢Å“â€¦ Loaded {len(RESTAURANTS_DATA)} restaurant(s) from iFood")
 
@@ -4323,6 +4392,9 @@ def api_restaurants():
                     restaurant['isSuperRestaurant'] = is_super
                     restaurant['isSuper'] = is_super
                     restaurant['super'] = is_super
+                    if isinstance(restaurant.get('metrics'), dict):
+                        # Avoid mutating the shared in-memory metrics dict.
+                        restaurant['metrics'] = copy.deepcopy(restaurant.get('metrics') or {})
                     # Reset metrics to zero
                     if 'metrics' in restaurant:
                         for key in restaurant['metrics']:
