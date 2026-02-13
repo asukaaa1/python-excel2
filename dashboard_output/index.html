@@ -1638,6 +1638,13 @@ let sharedViewToken = null;
         const formatCurrency = (v) => v ? 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'R$ 0,00';
         const formatNumber = (v) => v ? v.toLocaleString('pt-BR', {maximumFractionDigits: 0}) : '0';
         const formatTrend = (v) => v ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '+0.00%';
+        const pickNumber = (...values) => {
+            for (const value of values) {
+                const n = Number(value);
+                if (Number.isFinite(n)) return n;
+            }
+            return 0;
+        };
         const escapeHtml = (value) => {
             const str = String(value ?? '');
             return str.replace(/[&<>"']/g, (ch) => ({
@@ -1657,6 +1664,33 @@ let sharedViewToken = null;
             }
             return false;
         };
+
+        function getEffectiveMetrics(record) {
+            const m = (record && typeof record.metrics === 'object') ? record.metrics : {};
+            const totals = (m && typeof m.totals === 'object') ? m.totals : {};
+            const trends = (m && typeof m.trends === 'object') ? m.trends : {};
+
+            const vendasRaw = pickNumber(totals.vendas, m.total_pedidos, m.vendas, record?.orders);
+            const ticketRaw = pickNumber(totals.ticket_medio, m.ticket_medio, record?.ticket);
+            const valorBrutoRaw = pickNumber(totals.valorBruto, m.valor_bruto);
+            const liquidoRaw = pickNumber(totals.liquido, m.liquido, record?.revenue);
+
+            const inferredFromTicket = (vendasRaw > 0 && ticketRaw > 0) ? (vendasRaw * ticketRaw) : 0;
+            const valorBruto = valorBrutoRaw > 0 ? valorBrutoRaw : (liquidoRaw > 0 ? liquidoRaw : inferredFromTicket);
+            const liquido = liquidoRaw > 0 ? liquidoRaw : (valorBrutoRaw > 0 ? valorBrutoRaw : inferredFromTicket);
+            const ticketMedio = ticketRaw > 0 ? ticketRaw : ((liquido > 0 && vendasRaw > 0) ? (liquido / vendasRaw) : 0);
+
+            return {
+                vendas: vendasRaw,
+                ticketMedio,
+                valorBruto,
+                liquido,
+                trendVendas: pickNumber(trends.vendas),
+                trendTicket: pickNumber(trends.ticket_medio),
+                trendBruto: pickNumber(trends.valorBruto, trends.valor_bruto),
+                trendLiquido: pickNumber(trends.liquido),
+            };
+        }
 
         function renderDataQualitySummary(summary) {
             const storeCount = Number(summary?.store_count ?? 0);
@@ -2064,9 +2098,9 @@ let sharedViewToken = null;
 
         function updateOverviewKPIs() {
             const data = restaurantsData.filter(r => !hiddenStores.includes(r.id));
-            const totalRev = data.reduce((s, r) => s + (r.metrics?.liquido ?? r.metrics?.valor_bruto ?? r.revenue ?? 0), 0);
-            const totalOrd = data.reduce((s, r) => s + (r.metrics?.total_pedidos ?? r.metrics?.vendas ?? r.orders ?? 0), 0);
-            const avgTrend = data.length ? data.reduce((s, r) => s + (r.metrics?.trends?.vendas ?? 0), 0) / data.length : 0;
+            const totalRev = data.reduce((s, r) => s + getEffectiveMetrics(r).liquido, 0);
+            const totalOrd = data.reduce((s, r) => s + getEffectiveMetrics(r).vendas, 0);
+            const avgTrend = data.length ? data.reduce((s, r) => s + getEffectiveMetrics(r).trendVendas, 0) / data.length : 0;
             document.getElementById('overviewRevenue').textContent = formatCurrency(totalRev);
             document.getElementById('overviewOrders').textContent = formatNumber(totalOrd);
             document.getElementById('overviewStores').textContent = data.length;
@@ -2089,12 +2123,14 @@ let sharedViewToken = null;
 
             // Sort - Using same logic as index.html
             filtered.sort((a, b) => {
+                const aEff = getEffectiveMetrics(a);
+                const bEff = getEffectiveMetrics(b);
                 switch(currentSortOrder) {
                     case 'name-asc': return a.name.localeCompare(b.name);
                     case 'name-desc': return b.name.localeCompare(a.name);
-                    case 'vendas': return (b.metrics?.totals?.vendas ?? b.metrics?.total_pedidos ?? b.metrics?.vendas ?? b.orders ?? 0) - (a.metrics?.totals?.vendas ?? a.metrics?.total_pedidos ?? a.metrics?.vendas ?? a.orders ?? 0);
-                    case 'valor-bruto': return (b.metrics?.totals?.valorBruto ?? b.metrics?.valor_bruto ?? b.revenue ?? 0) - (a.metrics?.totals?.valorBruto ?? a.metrics?.valor_bruto ?? a.revenue ?? 0);
-                    case 'liquido': return (b.metrics?.totals?.liquido ?? b.metrics?.liquido ?? b.revenue ?? 0) - (a.metrics?.totals?.liquido ?? a.metrics?.liquido ?? a.revenue ?? 0);
+                    case 'vendas': return bEff.vendas - aEff.vendas;
+                    case 'valor-bruto': return bEff.valorBruto - aEff.valorBruto;
+                    case 'liquido': return bEff.liquido - aEff.liquido;
                     default: return 0;
                 }
             });
@@ -2115,22 +2151,17 @@ let sharedViewToken = null;
             }
 
             list.innerHTML = filtered.map((r, i) => {
-                // Better fallback handling for metrics - matching index.html
-                const m = r.metrics || {};
-                const totals = m.totals || {};
-                const trends = m.trends || {};
+                const eff = getEffectiveMetrics(r);
+                const vendas = eff.vendas;
+                const ticketMedio = eff.ticketMedio;
+                const valorBruto = eff.valorBruto;
+                const liquido = eff.liquido;
                 
-                // Use metrics values, fallback to top-level values if needed
-                const vendas = totals.vendas ?? m.total_pedidos ?? m.vendas ?? r.orders ?? 0;
-                const ticketMedio = totals.ticket_medio ?? m.ticket_medio ?? r.ticket ?? 0;
-                const valorBruto = totals.valorBruto ?? m.valor_bruto ?? r.revenue ?? 0;
-                const liquido = totals.liquido ?? m.liquido ?? r.revenue ?? 0;
-                
-                const trend = trends.vendas ?? m.trend ?? r.trend ?? 0;
-                const trendVendas = trends.vendas ?? 0;
-                const trendTicket = trends.ticket_medio ?? 0;
-                const trendBruto = trends.valorBruto ?? m.trends?.valor_bruto ?? 0;
-                const trendLiquido = trends.liquido ?? m.trends?.liquido ?? 0;
+                const trend = eff.trendVendas;
+                const trendVendas = eff.trendVendas;
+                const trendTicket = eff.trendTicket;
+                const trendBruto = eff.trendBruto;
+                const trendLiquido = eff.trendLiquido;
                 const safeName = escapeHtml(r.name || 'Restaurante');
                 const safeManager = escapeHtml(r.manager || 'Sem gerente');
                 const safeNeighborhood = escapeHtml(r.neighborhood || 'Sem bairro');
