@@ -895,13 +895,82 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
         if isinstance(o, dict)
     ]
     if normalized_existing:
-        has_known_status = any(
-            str(o.get('orderStatus') or '').strip().upper() not in ('', 'UNKNOWN')
+        # Keep any normalized cache that has identifiable orders.
+        has_identifiable_orders = any(
+            str(
+                o.get('id')
+                or o.get('orderId')
+                or o.get('order_id')
+                or ''
+            ).strip()
             for o in normalized_existing
         )
-        if has_known_status:
+        if has_identifiable_orders:
             restaurant['_orders_cache'] = normalized_existing
             return normalized_existing
+
+    # Cross-process resilience: in Railway split deployments, worker and web keep separate
+    # memory. Pull latest restaurant cache from DB before attempting API rehydration.
+    org_id = org_id_override or get_current_org_id()
+    if org_id:
+        try:
+            cached_org_data = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=12)
+        except Exception:
+            cached_org_data = []
+        if isinstance(cached_org_data, list) and cached_org_data:
+            candidate_ids = []
+            seen_ids = set()
+
+            def _push_candidate(value):
+                text = str(value or '').strip()
+                if text and text not in seen_ids:
+                    seen_ids.add(text)
+                    candidate_ids.append(text)
+
+            _push_candidate(restaurant_id)
+            _push_candidate(restaurant.get('merchant_id'))
+            _push_candidate(restaurant.get('merchantId'))
+            _push_candidate(restaurant.get('ifood_merchant_id'))
+            _push_candidate(restaurant.get('_resolved_merchant_id'))
+            _push_candidate(restaurant.get('id'))
+
+            cached_match = None
+            for candidate_id in candidate_ids:
+                cached_match = find_restaurant_by_identifier(candidate_id, restaurants=cached_org_data)
+                if cached_match:
+                    break
+
+            if isinstance(cached_match, dict):
+                cached_orders = [
+                    normalize_order_payload(o)
+                    for o in (cached_match.get('_orders_cache') or [])
+                    if isinstance(o, dict)
+                ]
+                has_identifiable_cached_orders = any(
+                    str(
+                        o.get('id')
+                        or o.get('orderId')
+                        or o.get('order_id')
+                        or ''
+                    ).strip()
+                    for o in cached_orders
+                )
+                if has_identifiable_cached_orders:
+                    restaurant['_orders_cache'] = cached_orders
+                    resolved_merchant_id = (
+                        cached_match.get('_resolved_merchant_id')
+                        or cached_match.get('merchant_id')
+                        or cached_match.get('merchantId')
+                        or restaurant.get('_resolved_merchant_id')
+                        or restaurant.get('merchant_id')
+                        or restaurant.get('merchantId')
+                        or restaurant_id
+                    )
+                    if resolved_merchant_id:
+                        restaurant['_resolved_merchant_id'] = str(resolved_merchant_id)
+                        if not restaurant.get('merchant_id'):
+                            restaurant['merchant_id'] = str(resolved_merchant_id)
+                    return cached_orders
 
     api = get_resilient_api_client()
     if not api or not restaurant_id:
