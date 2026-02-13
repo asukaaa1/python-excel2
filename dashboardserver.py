@@ -1817,9 +1817,9 @@ def _extract_status_from_poll_event(api_client, event: dict):
     return None
 
 
-def _merge_orders_into_restaurant_cache(restaurant: dict, incoming_orders: list) -> int:
+def _merge_orders_into_restaurant_cache(restaurant: dict, incoming_orders: list) -> Dict[str, int]:
     if not isinstance(restaurant, dict):
-        return 0
+        return {'added': 0, 'updated': 0, 'total': 0}
 
     merged = {}
     for existing in (restaurant.get('_orders_cache') or []):
@@ -1830,17 +1830,85 @@ def _merge_orders_into_restaurant_cache(restaurant: dict, incoming_orders: list)
         if key:
             merged[key] = normalized_existing
 
-    before = len(merged)
+    added = 0
+    updated = 0
     for order in (incoming_orders or []):
         if not isinstance(order, dict):
             continue
         normalized_order = normalize_order_payload(order)
         key = _order_cache_key(normalized_order)
         if key:
+            if key in merged:
+                if merged.get(key) != normalized_order:
+                    updated += 1
+            else:
+                added += 1
             merged[key] = normalized_order
 
     restaurant['_orders_cache'] = list(merged.values())
-    return max(0, len(merged) - before)
+    return {
+        'added': max(0, int(added)),
+        'updated': max(0, int(updated)),
+        'total': len(merged),
+    }
+
+
+def _refresh_restaurant_metrics_from_cache(restaurant: dict, merchant_id: str) -> bool:
+    if not isinstance(restaurant, dict):
+        return False
+    orders = [
+        normalize_order_payload(o)
+        for o in (restaurant.get('_orders_cache') or [])
+        if isinstance(o, dict)
+    ]
+    if not orders:
+        return False
+
+    merchant_lookup_id = str(
+        merchant_id
+        or restaurant.get('_resolved_merchant_id')
+        or restaurant.get('merchant_id')
+        or restaurant.get('merchantId')
+        or restaurant.get('id')
+        or ''
+    ).strip()
+    if not merchant_lookup_id:
+        return False
+
+    closure_snapshot = {
+        'is_closed': restaurant.get('is_closed'),
+        'closure_reason': restaurant.get('closure_reason'),
+        'closed_until': restaurant.get('closed_until'),
+        'active_interruptions_count': restaurant.get('active_interruptions_count'),
+    }
+
+    merchant_details = {
+        'id': merchant_lookup_id,
+        'name': restaurant.get('name', 'Unknown Restaurant'),
+        'merchantManager': {'name': restaurant.get('manager', 'Gerente')},
+        'address': {'neighborhood': restaurant.get('neighborhood', 'Centro')},
+        'isSuperRestaurant': bool(
+            restaurant.get('isSuperRestaurant')
+            or restaurant.get('isSuper')
+            or restaurant.get('super')
+        ),
+    }
+    refreshed = IFoodDataProcessor.process_restaurant_data(merchant_details, orders, None)
+    if not isinstance(refreshed, dict):
+        return False
+
+    for key, value in refreshed.items():
+        if str(key).startswith('_'):
+            continue
+        restaurant[key] = value
+    restaurant['_orders_cache'] = orders
+    restaurant['_resolved_merchant_id'] = merchant_lookup_id
+    if not restaurant.get('merchant_id'):
+        restaurant['merchant_id'] = merchant_lookup_id
+    for closure_key, closure_value in closure_snapshot.items():
+        if closure_value is not None:
+            restaurant[closure_key] = closure_value
+    return True
 
 
 def _refresh_restaurant_closure(org_data: dict, api_client, merchant_id: str) -> bool:
@@ -1864,6 +1932,8 @@ def run_ifood_keepalive_poll_once():
         'events_received': 0,
         'events_acknowledged': 0,
         'orders_cached': 0,
+        'orders_updated': 0,
+        'metrics_refreshed': 0,
         'errors': 0
     }
 
@@ -1915,6 +1985,7 @@ def run_ifood_keepalive_poll_once():
             summary['merchants_polled'] += len(merchant_ids)
             merchant_set = {str(mid) for mid in merchant_ids}
             events = []
+            org_data_changed = False
 
             try:
                 if hasattr(api, 'poll_events'):
@@ -2008,13 +2079,23 @@ def run_ifood_keepalive_poll_once():
                         for event in merchant_events:
                             if not isinstance(event, dict):
                                 continue
-                            if 'orderStatus' not in event and 'totalPrice' not in event and 'total' not in event:
+                            fallback_order_id = _extract_order_id_from_poll_event(api, event)
+                            status_candidate = _extract_status_from_poll_event(api, event)
+                            has_order_payload = (
+                                ('orderStatus' in event)
+                                or ('totalPrice' in event)
+                                or ('total' in event)
+                                or bool(status_candidate)
+                            )
+                            if not has_order_payload or not fallback_order_id:
                                 continue
                             event_order = dict(event)
-                            fallback_order_id = _extract_order_id_from_poll_event(api, event_order)
-                            if fallback_order_id:
-                                # Polling event id is usually the event id, not the order id.
-                                event_order['id'] = str(fallback_order_id)
+                            # Polling event id is usually the event id, not the order id.
+                            event_order['id'] = str(fallback_order_id)
+                            if status_candidate and not event_order.get('orderStatus'):
+                                event_order['orderStatus'] = status_candidate
+                            if not event_order.get('merchantId'):
+                                event_order['merchantId'] = str(merchant_id)
                             direct_orders.append(normalize_order_payload(event_order))
 
                         merged_orders = {}
@@ -2029,12 +2110,41 @@ def run_ifood_keepalive_poll_once():
                         if incoming_orders:
                             restaurant_record = _find_org_restaurant_record(org_data, merchant_id)
                             if restaurant_record:
-                                added = _merge_orders_into_restaurant_cache(restaurant_record, incoming_orders)
-                                summary['orders_cached'] += int(added)
+                                merge_result = _merge_orders_into_restaurant_cache(restaurant_record, incoming_orders)
+                                added_count = int((merge_result or {}).get('added') or 0)
+                                updated_count = int((merge_result or {}).get('updated') or 0)
+                                summary['orders_cached'] += added_count
+                                summary['orders_updated'] += updated_count
+                                if added_count > 0 or updated_count > 0:
+                                    org_data_changed = True
+                                    try:
+                                        if _refresh_restaurant_metrics_from_cache(restaurant_record, merchant_id):
+                                            summary['metrics_refreshed'] += 1
+                                            org_data_changed = True
+                                    except Exception:
+                                        summary['errors'] += 1
                 except Exception:
                     summary['errors'] += 1
                 try:
                     _refresh_restaurant_closure(org_data, api, merchant_id)
+                except Exception:
+                    summary['errors'] += 1
+
+            if org_data_changed and org_id is not None:
+                try:
+                    cache_order_limit = max(
+                        1,
+                        int(str(os.environ.get('ORDERS_CACHE_LIMIT', '300')).strip() or '300')
+                    )
+                    db.save_org_data_cache(
+                        org_id,
+                        'restaurants',
+                        [
+                            build_restaurant_cache_record(r, max_orders=cache_order_limit)
+                            for r in (org_data.get('restaurants') or [])
+                            if isinstance(r, dict)
+                        ]
+                    )
                 except Exception:
                     summary['errors'] += 1
 
@@ -2050,8 +2160,9 @@ def run_ifood_keepalive_poll_once():
     finally:
         release_keepalive_lock(lock_token)
 
-    if summary['orders_cached'] > 0:
-        # New orders were merged in-memory; drop response cache so UI reflects changes immediately.
+    if (summary['orders_cached'] > 0) or (summary['orders_updated'] > 0) or (summary['metrics_refreshed'] > 0):
+        # New/updated orders or recomputed metrics were merged in-memory.
+        # Drop response cache so UI reflects changes immediately.
         invalidate_cache()
         try:
             _save_data_snapshot()
@@ -2064,7 +2175,8 @@ def run_ifood_keepalive_poll_once():
             f"iFood keepalive polling completed with errors "
             f"(orgs={summary['orgs_checked']}, merchants={summary['merchants_polled']}, "
             f"events={summary['events_received']}, acked={summary['events_acknowledged']}, "
-            f"orders_cached={summary['orders_cached']}, errors={summary['errors']})"
+            f"orders_cached={summary['orders_cached']}, orders_updated={summary['orders_updated']}, "
+            f"metrics_refreshed={summary['metrics_refreshed']}, errors={summary['errors']})"
         )
     elif summary['merchants_polled'] > 0 and (_KEEPALIVE_POLL_CYCLE % 20 == 0):
         # avoid noisy logs: once every ~10 minutes at 30s interval
@@ -2072,7 +2184,8 @@ def run_ifood_keepalive_poll_once():
             f"iFood keepalive polling active "
             f"(orgs={summary['orgs_checked']}, merchants={summary['merchants_polled']}, "
             f"events={summary['events_received']}, acked={summary['events_acknowledged']}, "
-            f"orders_cached={summary['orders_cached']})"
+            f"orders_cached={summary['orders_cached']}, orders_updated={summary['orders_updated']}, "
+            f"metrics_refreshed={summary['metrics_refreshed']})"
         )
     return summary
 
@@ -2304,7 +2417,7 @@ def _do_data_refresh():
     # Save snapshot to DB for fast cold starts
     _save_data_snapshot()
     
-    print(f"Ã°Å¸â€â€ž Refreshed {len(RESTAURANTS_DATA)} restaurant(s) at {LAST_DATA_REFRESH.strftime('%H:%M:%S')}")
+    print(f"Refreshed {len(RESTAURANTS_DATA)} restaurant(s) at {LAST_DATA_REFRESH.strftime('%H:%M:%S')}")
 
 
 # Track last seen order IDs per restaurant for new order detection

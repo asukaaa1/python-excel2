@@ -80,6 +80,15 @@ class IFoodAPI:
         if self.use_mock_data:
             print("ðŸŽ­ Running in MOCK DATA mode - using sample data for testing")
 
+    def _should_suppress_http_error_log(self, endpoint: str, status_code: int) -> bool:
+        endpoint_text = str(endpoint or '').strip()
+        try:
+            status = int(status_code or 0)
+        except Exception:
+            status = 0
+        # Optional fallback endpoint: unsupported scope is expected for many tenants.
+        return endpoint_text == '/order/v1.0/orders' and status in (404, 405)
+
     def _ensure_mock_merchant(self, merchant_id: str):
         """Create deterministic mock merchant payload when absent."""
         key = str(merchant_id or '').strip()
@@ -242,13 +251,26 @@ class IFoodAPI:
         # Some providers return order-like payloads directly; keep them too.
         direct_orders = []
         for item in events:
-            if isinstance(item, dict) and ('orderStatus' in item or 'totalPrice' in item):
-                direct_item = dict(item)
-                direct_order_id = self._extract_order_id_from_event(direct_item)
-                if direct_order_id:
-                    # Polling event id is usually the event id, not the order id.
-                    direct_item['id'] = str(direct_order_id)
-                direct_orders.append(direct_item)
+            if not isinstance(item, dict):
+                continue
+            direct_item = dict(item)
+            direct_order_id = self._extract_order_id_from_event(direct_item)
+            direct_status = self._extract_order_status_from_event(direct_item)
+            has_order_payload = (
+                ('orderStatus' in direct_item)
+                or ('totalPrice' in direct_item)
+                or ('total' in direct_item)
+                or bool(direct_status)
+            )
+            if not has_order_payload or not direct_order_id:
+                continue
+            # Polling event id is usually the event id, not the order id.
+            direct_item['id'] = str(direct_order_id)
+            if direct_status and not direct_item.get('orderStatus'):
+                direct_item['orderStatus'] = direct_status
+            if not direct_item.get('merchantId'):
+                direct_item['merchantId'] = str(merchant_id)
+            direct_orders.append(self._normalize_order_payload(direct_item))
 
         order_ids = []
         for event in events:
@@ -292,7 +314,7 @@ class IFoodAPI:
                     # Avoid noisy repeated 404 logs for tenants that do not expose this route.
                     self._order_list_fallback_supported = False
                     if not self._order_list_fallback_disabled_logged:
-                        print("Order list fallback disabled: /order/v1.0/orders not supported for this credential scope")
+                        print("iFood info: /order/v1.0/orders is not available for this credential scope; using events/details only")
                         self._order_list_fallback_disabled_logged = True
 
         return self._filter_orders(candidate_orders, merchant_id, start_date, end_date, status)
@@ -740,7 +762,8 @@ class IFoodAPI:
                 raw = resp.read()
                 if status not in (200, 201, 202, 204):
                     self._last_http_error = {'status': status, 'endpoint': endpoint, 'detail': ''}
-                    print(f"API Error (urllib): {status} - {endpoint}")
+                    if not self._should_suppress_http_error_log(endpoint, status):
+                        print(f"API Error (urllib): {status} - {endpoint}")
                     return None
                 self._last_http_error = None
                 if not raw:
@@ -759,7 +782,8 @@ class IFoodAPI:
             except Exception:
                 pass
             self._last_http_error = {'status': status_code, 'endpoint': endpoint, 'detail': detail or ''}
-            print(f"API Error (urllib): {getattr(http_err, 'code', '?')} - {detail}")
+            if not self._should_suppress_http_error_log(endpoint, status_code):
+                print(f"API Error (urllib): {getattr(http_err, 'code', '?')} - {detail}")
             return None
         except Exception as err:
             self._last_http_error = {'status': 0, 'endpoint': endpoint, 'detail': str(err)}
@@ -820,7 +844,8 @@ class IFoodAPI:
                     return None
 
                 self._last_http_error = {'status': int(response.status_code or 0), 'endpoint': endpoint, 'detail': response.text}
-                print(f"API Error: {response.status_code} - {response.text}")
+                if not self._should_suppress_http_error_log(endpoint, response.status_code):
+                    print(f"API Error: {response.status_code} - {response.text}")
                 return None
 
             except RecursionError:
