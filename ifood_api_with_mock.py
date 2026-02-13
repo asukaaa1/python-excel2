@@ -739,10 +739,7 @@ class IFoodAPI:
                 status = int(getattr(resp, 'status', 200) or 200)
                 raw = resp.read()
                 if status not in (200, 201, 202, 204):
-<<<<<<< Updated upstream
                     self._last_http_error = {'status': status, 'endpoint': endpoint, 'detail': ''}
-=======
->>>>>>> Stashed changes
                     print(f"API Error (urllib): {status} - {endpoint}")
                     return None
                 self._last_http_error = None
@@ -805,7 +802,6 @@ class IFoodAPI:
                     return None
 
                 if response.status_code in (200, 201, 202, 204):
-<<<<<<< Updated upstream
                     self._last_http_error = None
                     if not response.content:
                         return {}
@@ -813,9 +809,6 @@ class IFoodAPI:
                         return response.json()
                     except Exception:
                         return {}
-=======
-                    return response.json() if response.content else {}
->>>>>>> Stashed changes
 
                 if response.status_code == 401:
                     self._last_http_error = {'status': 401, 'endpoint': endpoint, 'detail': response.text}

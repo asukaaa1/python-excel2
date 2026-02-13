@@ -1167,22 +1167,8 @@ def detect_restaurant_closure(api_client, merchant_id):
         status_payload = {'state': str(status_payload)}
 
     state_raw = str(status_payload.get('state') or status_payload.get('status') or '').strip().upper()
-<<<<<<< Updated upstream
     message = _extract_status_message_text(status_payload.get('message'))
-=======
-    message_field = status_payload.get('message')
-    if isinstance(message_field, dict):
-        message = str(
-            message_field.get('title')
-            or message_field.get('status')
-            or message_field.get('subtitle')
-            or message_field.get('description')
-            or ''
-        ).strip()
-    else:
-        message = str(message_field or '').strip()
     available_flag = status_payload.get('available')
->>>>>>> Stashed changes
 
     open_status_values = {'OK', 'OPEN', 'AVAILABLE', 'ONLINE', 'TRUE'}
     closed_status_values = {
@@ -1201,22 +1187,6 @@ def detect_restaurant_closure(api_client, merchant_id):
             for validation in validations:
                 if not isinstance(validation, dict):
                     continue
-<<<<<<< Updated upstream
-                code = str(validation.get('code') or '').strip().lower()
-                validation_status = str(validation.get('status') or validation.get('state') or '').strip().upper()
-                if code in ('opening-hours', 'opening_hours', 'is-open', 'is_open'):
-                    validation_message = _extract_status_message_text(
-                        validation.get('message') or validation.get('description')
-                    )
-                    validation_message_lower = validation_message.lower()
-                    message_suggests_closed = any(
-                        token in validation_message_lower for token in ('fechad', 'closed', 'indispon', 'offline')
-                    )
-                    if validation_status in closed_validation_statuses or message_suggests_closed:
-                        closed_by_state = True
-                        if not active_reason:
-                            active_reason = validation_message or 'Fora do horario de funcionamento'
-=======
                 code = str(validation.get('id') or validation.get('code') or '').strip().lower()
                 raw_validation_status = validation.get('status')
                 if raw_validation_status in (None, ''):
@@ -1225,6 +1195,7 @@ def detect_restaurant_closure(api_client, merchant_id):
                     validation_status = 'TRUE' if raw_validation_status else 'FALSE'
                 else:
                     validation_status = str(raw_validation_status or '').strip().upper()
+
                 is_connectivity_check = code in ('is-connected', 'is_connected', 'is.connected.config')
                 is_opening_check = code in (
                     'opening-hours', 'opening_hours', 'is-open', 'is_open',
@@ -1233,29 +1204,27 @@ def detect_restaurant_closure(api_client, merchant_id):
                 is_availability_check = code in ('is-available', 'is_available')
 
                 if is_connectivity_check or is_opening_check or is_availability_check:
-                    if validation_status in closed_status_values or (
-                        validation_status and validation_status not in open_status_values
+                    validation_message = _extract_status_message_text(
+                        validation.get('message') or validation.get('description')
+                    )
+                    validation_message_lower = validation_message.lower()
+                    message_suggests_closed = any(
+                        token in validation_message_lower for token in ('fechad', 'closed', 'indispon', 'offline')
+                    )
+                    if (
+                        validation_status in closed_validation_statuses
+                        or (validation_status and validation_status not in open_validation_statuses)
+                        or message_suggests_closed
                     ):
                         closed_by_state = True
                         if not active_reason:
-                            validation_message = validation.get('message')
-                            if isinstance(validation_message, dict):
-                                validation_message = (
-                                    validation_message.get('title')
-                                    or validation_message.get('status')
-                                    or validation_message.get('subtitle')
-                                    or validation_message.get('description')
-                                )
                             fallback_reason = 'Loja indisponivel no iFood'
                             if is_connectivity_check:
                                 fallback_reason = 'Integracao iFood desconectada'
                             elif is_opening_check:
                                 fallback_reason = 'Fora do horario de funcionamento'
-                            active_reason = str(validation_message or validation.get('description') or '').strip() or fallback_reason
->>>>>>> Stashed changes
+                            active_reason = validation_message or fallback_reason
                         break
-                    if validation_status in open_validation_statuses:
-                        continue
 
     if not closed_by_state and message:
         msg_lower = message.lower()
@@ -4090,38 +4059,11 @@ def api_restaurants():
             is_closed = to_bool_flag(record.get('is_closed')) or to_bool_flag(record.get('isClosed'))
             reason = record.get('closure_reason') or record.get('closureReason')
             closed_until = record.get('closed_until') or record.get('closedUntil')
-            status_message = None
             try:
                 active_interruptions = int(record.get('active_interruptions_count') or record.get('activeInterruptionsCount') or 0)
             except Exception:
                 active_interruptions = 0
 
-<<<<<<< Updated upstream
-=======
-            status_field = record.get('status')
-            state_candidates = [record.get('state'), record.get('operational_status')]
-            if isinstance(status_field, dict):
-                state_candidates.append(status_field.get('state') or status_field.get('status'))
-                status_message = status_field.get('message') or status_field.get('description')
-                if not reason:
-                    reason = status_message
-            elif isinstance(status_field, str):
-                state_candidates.append(status_field)
-
-            state_raw = ' '.join(str(v or '') for v in state_candidates).strip().lower()
-            if not is_closed and state_raw:
-                if any(token in state_raw for token in ('closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
-                    is_closed = True
-
-            message_text = str(status_message or '').strip().lower()
-            if not is_closed and message_text:
-                if any(token in message_text for token in ('closed', 'close', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
-                    is_closed = True
-
-            if active_interruptions > 0:
-                is_closed = True
-
->>>>>>> Stashed changes
             has_explicit_closure_fields = any(
                 key in record
                 for key in (
@@ -4138,10 +4080,14 @@ def api_restaurants():
 
             status_field = record.get('status')
             state_candidates = [record.get('state'), record.get('operational_status')]
+            status_message = ''
             if isinstance(status_field, dict):
                 state_candidates.append(status_field.get('state') or status_field.get('status'))
+                status_message = _extract_status_message_text(
+                    status_field.get('message') or status_field.get('description')
+                )
                 if not reason:
-                    reason = status_field.get('message') or status_field.get('description')
+                    reason = status_message or reason
             elif isinstance(status_field, str):
                 state_candidates.append(status_field)
 
@@ -4150,9 +4096,9 @@ def api_restaurants():
                 if any(token in state_raw for token in ('closed', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
                     is_closed = True
 
-            reason_text = str(reason or '').strip().lower()
-            if not has_explicit_closure_fields and not is_closed and reason_text:
-                if any(token in reason_text for token in ('closed', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
+            message_text = str(status_message or '').strip().lower()
+            if not has_explicit_closure_fields and not is_closed and message_text:
+                if any(token in message_text for token in ('closed', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
                     is_closed = True
 
             if active_interruptions > 0:
