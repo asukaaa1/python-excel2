@@ -216,12 +216,62 @@ def get_redis_client():
 # In-memory cache for processed API responses
 _api_cache = {}  # key: (org_id, month) -> {'data': [...], 'timestamp': datetime}
 _API_CACHE_TTL = 30  # seconds
+_DASHBOARD_SUMMARY_CACHE = {}
+_DASHBOARD_SUMMARY_CACHE_LOCK = threading.Lock()
+try:
+    _DASHBOARD_SUMMARY_CACHE_TTL = int(os.environ.get('DASHBOARD_SUMMARY_CACHE_TTL_SECONDS', '20') or 20)
+except Exception:
+    _DASHBOARD_SUMMARY_CACHE_TTL = 20
+_DASHBOARD_SUMMARY_CACHE_TTL = max(5, _DASHBOARD_SUMMARY_CACHE_TTL)
 
 
 def _restaurants_cache_key(org_id, month_filter):
     safe_org = org_id if org_id is not None else 'global'
     safe_month = month_filter if month_filter is not None else 'all'
     return f"{REDIS_CACHE_PREFIX}:{safe_org}:{safe_month}"
+
+
+def _dashboard_summary_cache_key(org_id, month_filter):
+    safe_org = org_id if org_id is not None else 'global'
+    safe_month = month_filter if month_filter is not None else 'all'
+    return (safe_org, safe_month)
+
+
+def get_cached_dashboard_summary(org_id, month_filter, last_refresh_iso):
+    """Get cached dashboard summary payload for current org/month."""
+    key = _dashboard_summary_cache_key(org_id, month_filter)
+    with _DASHBOARD_SUMMARY_CACHE_LOCK:
+        cached = _DASHBOARD_SUMMARY_CACHE.get(key)
+    if not cached:
+        return None
+    age_seconds = (datetime.now() - cached['timestamp']).total_seconds()
+    if age_seconds > _DASHBOARD_SUMMARY_CACHE_TTL:
+        return None
+    if cached.get('last_refresh') != last_refresh_iso:
+        return None
+    return cached.get('payload')
+
+
+def set_cached_dashboard_summary(org_id, month_filter, last_refresh_iso, payload):
+    """Cache dashboard summary payload for short-lived hot-path reuse."""
+    key = _dashboard_summary_cache_key(org_id, month_filter)
+    with _DASHBOARD_SUMMARY_CACHE_LOCK:
+        _DASHBOARD_SUMMARY_CACHE[key] = {
+            'payload': payload,
+            'last_refresh': last_refresh_iso,
+            'timestamp': datetime.now(),
+        }
+
+
+def invalidate_dashboard_summary_cache(org_id=None):
+    """Invalidate dashboard summary cache globally or for one org."""
+    with _DASHBOARD_SUMMARY_CACHE_LOCK:
+        if org_id is None:
+            _DASHBOARD_SUMMARY_CACHE.clear()
+            return
+        for key in list(_DASHBOARD_SUMMARY_CACHE.keys()):
+            if key[0] == org_id:
+                _DASHBOARD_SUMMARY_CACHE.pop(key, None)
 
 
 def get_cached_restaurants(org_id, month_filter):
@@ -233,8 +283,8 @@ def get_cached_restaurants(org_id, month_filter):
                 raw = r.get(_restaurants_cache_key(org_id, month_filter))
                 if raw:
                     return json.loads(raw)
-            except Exception:
-                pass
+            except Exception as cache_read_error:
+                logger.debug("Redis restaurants cache read failed: %s", cache_read_error)
     key = (org_id, month_filter)
     cached = _api_cache.get(key)
     if cached and (datetime.now() - cached['timestamp']).total_seconds() < _API_CACHE_TTL:
@@ -248,8 +298,8 @@ def set_cached_restaurants(org_id, month_filter, data):
         if r:
             try:
                 r.setex(_restaurants_cache_key(org_id, month_filter), _API_CACHE_TTL, json.dumps(data, ensure_ascii=False, default=str))
-            except Exception:
-                pass
+            except Exception as cache_write_error:
+                logger.debug("Redis restaurants cache write failed: %s", cache_write_error)
     key = (org_id, month_filter)
     _api_cache[key] = {'data': data, 'timestamp': datetime.now()}
 
@@ -274,6 +324,7 @@ def invalidate_cache(org_id=None):
         for key in list(_api_cache.keys()):
             if key[0] == org_id:
                 _api_cache.pop(key, None)
+    invalidate_dashboard_summary_cache(org_id=org_id)
 
 # Per-org data store: {org_id: {'restaurants': [], 'api': IFoodAPI, 'last_refresh': datetime, 'config': {}}}
 ORG_DATA = {}
@@ -285,9 +336,13 @@ LAST_DATA_REFRESH = None
 APP_STARTED_AT = datetime.utcnow()
 APP_INITIALIZED = False
 _INIT_LOCK = threading.Lock()
+_ORG_DATA_LOCK = threading.RLock()
+_GLOBAL_STATE_LOCK = threading.RLock()
 
 _RATE_LIMIT_LOCAL = {}
 _RATE_LIMIT_LOCK = threading.Lock()
+_TABLE_COLUMNS_CACHE = {}
+_TABLE_COLUMNS_CACHE_LOCK = threading.Lock()
 
 # Marketing metadata for plan cards in admin UI.
 PLAN_CATALOG_UI = {
@@ -329,15 +384,27 @@ PLAN_CATALOG_UI = {
 def get_org_data(org_id):
     """Get or initialize org data container"""
     if org_id not in ORG_DATA:
-        ORG_DATA[org_id] = {
-            'restaurants': [],
-            'api': None,
-            'last_refresh': None,
-            'config': {},
-            'init_attempted_at': None,
-            '_cache_sync_checked_at': 0.0
-        }
+        with _ORG_DATA_LOCK:
+            if org_id not in ORG_DATA:
+                ORG_DATA[org_id] = {
+                    'restaurants': [],
+                    'api': None,
+                    'last_refresh': None,
+                    'config': {},
+                    'init_attempted_at': None,
+                    '_cache_sync_checked_at': 0.0
+                }
     return ORG_DATA[org_id]
+
+
+def _org_data_items_snapshot():
+    with _ORG_DATA_LOCK:
+        return list(ORG_DATA.items())
+
+
+def _org_data_values_snapshot():
+    with _ORG_DATA_LOCK:
+        return list(ORG_DATA.values())
 
 
 def get_current_org_id():
@@ -625,16 +692,20 @@ def find_restaurant_by_identifier(restaurant_id: str, restaurants: Optional[List
     return None
 
 
-def find_restaurant_in_org(restaurant_id: str, org_id: int):
-    """Find restaurant by identifier within a specific org's data (no session required)."""
+def _get_org_restaurant_pool(org_id: int):
+    """Load org-scoped restaurant pool with cache fallback."""
     org = get_org_data(org_id)
     _sync_org_restaurants_from_cache(org_id, org, max_age_hours=12)
     source_restaurants = org.get('restaurants') or []
-    if not source_restaurants:
-        cached = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=12)
-        if isinstance(cached, list):
-            source_restaurants = cached
-    return find_restaurant_by_identifier(restaurant_id, restaurants=source_restaurants)
+    if source_restaurants:
+        return source_restaurants
+    cached = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=12)
+    return cached if isinstance(cached, list) else []
+
+
+def find_restaurant_in_org(restaurant_id: str, org_id: int):
+    """Find restaurant by identifier within a specific org's data (no session required)."""
+    return find_restaurant_by_identifier(restaurant_id, restaurants=_get_org_restaurant_pool(org_id))
 
 
 def enrich_plan_payload(plan_row):
@@ -843,19 +914,29 @@ def csrf_protect():
 
 
 def parse_month_filter(raw_month):
-    """Validate month query parameter."""
+    """Validate month query parameter.
+
+    Returns:
+        0 for "all" months,
+        1..12 for a specific month,
+        None for invalid input.
+    """
     if raw_month in (None, '', 'all'):
-        return 'all'
-    if isinstance(raw_month, int):
-        month_value = raw_month
-    else:
-        raw_str = str(raw_month).strip()
-        if not raw_str.isdigit():
-            return None
-        month_value = int(raw_str)
+        return 0
+    raw_str = str(raw_month).strip()
+    if not raw_str.isdigit():
+        return None
+    month_value = int(raw_str)
     if 1 <= month_value <= 12:
-        return f"{month_value:02d}"
+        return month_value
     return None
+
+
+def month_filter_label(month_filter):
+    """Serialize internal month filter value for API responses."""
+    if month_filter in (None, 0):
+        return 'all'
+    return f"{int(month_filter):02d}"
 
 
 def get_json_payload():
@@ -1012,7 +1093,13 @@ def _order_needs_detail_enrichment(order: dict) -> bool:
     return amount <= 0 or status in ('UNKNOWN', '')
 
 
-def _enrich_orders_with_details(api_client, merchant_id: str, orders: list, max_lookups: int = 20):
+def _enrich_orders_with_details(
+    api_client,
+    merchant_id: str,
+    orders: list,
+    max_lookups: int = 20,
+    orders_already_normalized: bool = False
+):
     if not api_client or not hasattr(api_client, 'get_order_details'):
         return orders, 0, 0
     if not isinstance(orders, list) or not orders:
@@ -1025,7 +1112,10 @@ def _enrich_orders_with_details(api_client, merchant_id: str, orders: list, max_
     merchant_text = str(merchant_id or '').strip()
 
     for raw_order in orders:
-        order = normalize_order_payload(raw_order) if isinstance(raw_order, dict) else raw_order
+        if orders_already_normalized:
+            order = raw_order
+        else:
+            order = normalize_order_payload(raw_order) if isinstance(raw_order, dict) else raw_order
         if not isinstance(order, dict):
             continue
 
@@ -1068,10 +1158,14 @@ def _enrich_orders_with_details(api_client, merchant_id: str, orders: list, max_
 
 
 def normalize_order_payload(order):
-    """Best-effort normalization so downstream metrics use consistent fields."""
+    """Best-effort normalization so downstream metrics use consistent fields.
+
+    Returns a shallow copy with normalized fields — does not mutate the original.
+    """
     if not isinstance(order, dict):
         return order
 
+    order = order.copy()
     normalized_status = get_order_status(order)
     order['orderStatus'] = normalized_status
 
@@ -1108,7 +1202,7 @@ def normalize_order_payload(order):
 
 
 def filter_orders_by_month(orders, month_filter):
-    if month_filter == 'all':
+    if month_filter in (0, 'all'):
         return orders
     target_month = int(month_filter)
     filtered = []
@@ -1155,178 +1249,128 @@ def resolve_current_org_fetch_days(default_days=30):
     return max(1, min(int(days or default_days), 365))
 
 
-def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_override: int = None):
-    """
-    Ensure a store has raw orders cached for detail screens.
-    DB snapshots intentionally strip internal cache fields, so this may need
-    to rehydrate orders on demand from iFood API.
-    """
-    existing = restaurant.get('_orders_cache') if isinstance(restaurant, dict) else []
-    normalized_existing = [
-        normalize_order_payload(o)
-        for o in (existing or [])
+def _normalize_orders_list(orders_payload):
+    return [normalize_order_payload(o) for o in (orders_payload or []) if isinstance(o, dict)]
+
+
+def _orders_have_identifiable_ids(orders_payload):
+    return any(
+        str(o.get('id') or o.get('orderId') or o.get('order_id') or '').strip()
+        for o in (orders_payload or [])
         if isinstance(o, dict)
-    ]
-    api = get_resilient_api_client()
+    )
 
-    def _maybe_enrich_orders(orders_payload: list, merchant_hint: str):
-        if not isinstance(orders_payload, list) or not orders_payload:
-            return orders_payload
-        if not api:
-            return orders_payload
-        if not any(_order_needs_detail_enrichment(o) for o in orders_payload if isinstance(o, dict)):
-            return orders_payload
 
-        now_ts = time.time()
-        last_enriched_at = 0.0
-        try:
-            last_enriched_at = float((restaurant or {}).get('_orders_enriched_at') or 0)
-        except Exception:
-            last_enriched_at = 0.0
-        # Avoid hammering detail endpoint on every request.
-        if (now_ts - last_enriched_at) < 45:
-            return orders_payload
-
-        enriched_orders, _, _ = _enrich_orders_with_details(
-            api,
-            merchant_hint,
-            orders_payload,
-            max_lookups=25
-        )
-        restaurant['_orders_enriched_at'] = now_ts
-        return enriched_orders if isinstance(enriched_orders, list) else orders_payload
-
-    if normalized_existing:
-        # Keep any normalized cache that has identifiable orders.
-        has_identifiable_orders = any(
-            str(
-                o.get('id')
-                or o.get('orderId')
-                or o.get('order_id')
-                or ''
-            ).strip()
-            for o in normalized_existing
-        )
-        if has_identifiable_orders:
-            normalized_existing = _maybe_enrich_orders(
-                normalized_existing,
-                normalize_merchant_id(
-                    restaurant.get('_resolved_merchant_id')
-                    or restaurant.get('merchant_id')
-                    or restaurant.get('merchantId')
-                    or restaurant_id
-                ) or str(restaurant_id or '').strip()
-            )
-            restaurant['_orders_cache'] = normalized_existing
-            return normalized_existing
-
-    # Cross-process resilience: in Railway split deployments, worker and web keep separate
-    # memory. Pull latest restaurant cache from DB before attempting API rehydration.
-    org_id = org_id_override or get_current_org_id()
-    if org_id:
-        try:
-            cached_org_data = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=12)
-        except Exception:
-            cached_org_data = []
-        if isinstance(cached_org_data, list) and cached_org_data:
-            candidate_ids = []
-            seen_ids = set()
-
-            def _push_candidate(value):
-                text = normalize_merchant_id(value)
-                if text and text not in seen_ids:
-                    seen_ids.add(text)
-                    candidate_ids.append(text)
-
-            _push_candidate(restaurant_id)
-            _push_candidate(restaurant.get('merchant_id'))
-            _push_candidate(restaurant.get('merchantId'))
-            _push_candidate(restaurant.get('ifood_merchant_id'))
-            _push_candidate(restaurant.get('_resolved_merchant_id'))
-            _push_candidate(restaurant.get('id'))
-
-            cached_match = None
-            for candidate_id in candidate_ids:
-                cached_match = find_restaurant_by_identifier(candidate_id, restaurants=cached_org_data)
-                if cached_match:
-                    break
-
-            if isinstance(cached_match, dict):
-                cached_orders = [
-                    normalize_order_payload(o)
-                    for o in (cached_match.get('_orders_cache') or [])
-                    if isinstance(o, dict)
-                ]
-                has_identifiable_cached_orders = any(
-                    str(
-                        o.get('id')
-                        or o.get('orderId')
-                        or o.get('order_id')
-                        or ''
-                    ).strip()
-                    for o in cached_orders
-                )
-                if has_identifiable_cached_orders:
-                    cached_orders = _maybe_enrich_orders(
-                        cached_orders,
-                        normalize_merchant_id(
-                            cached_match.get('_resolved_merchant_id')
-                            or cached_match.get('merchant_id')
-                            or cached_match.get('merchantId')
-                            or restaurant.get('_resolved_merchant_id')
-                            or restaurant.get('merchant_id')
-                            or restaurant.get('merchantId')
-                            or restaurant_id
-                        ) or str(restaurant_id or '').strip()
-                    )
-                    restaurant['_orders_cache'] = cached_orders
-                    resolved_merchant_id = (
-                        cached_match.get('_resolved_merchant_id')
-                        or cached_match.get('merchant_id')
-                        or cached_match.get('merchantId')
-                        or restaurant.get('_resolved_merchant_id')
-                        or restaurant.get('merchant_id')
-                        or restaurant.get('merchantId')
-                        or restaurant_id
-                    )
-                    if resolved_merchant_id:
-                        resolved_merchant_id = (
-                            normalize_merchant_id(resolved_merchant_id)
-                            or str(resolved_merchant_id).strip()
-                        )
-                        restaurant['_resolved_merchant_id'] = str(resolved_merchant_id)
-                        if not restaurant.get('merchant_id'):
-                            restaurant['merchant_id'] = str(resolved_merchant_id)
-                    return cached_orders
-
-    if not api or not restaurant_id:
-        if normalized_existing:
-            restaurant['_orders_cache'] = normalized_existing
-            return normalized_existing
-        restaurant['_orders_cache'] = []
-        return []
-
-    days = resolve_current_org_fetch_days(default_days=30)
-    end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-
-    def _add_candidate(candidate_list, seen_set, value):
-        candidate = normalize_merchant_id(value)
-        if candidate and candidate not in seen_set:
-            candidate_list.append(candidate)
-            seen_set.add(candidate)
-
-    candidate_ids = []
+def _normalized_candidate_id_list(*values):
+    candidates = []
     seen_ids = set()
-    _add_candidate(candidate_ids, seen_ids, restaurant_id)
-    _add_candidate(candidate_ids, seen_ids, restaurant.get('merchant_id'))
-    _add_candidate(candidate_ids, seen_ids, restaurant.get('merchantId'))
-    _add_candidate(candidate_ids, seen_ids, restaurant.get('ifood_merchant_id'))
-    _add_candidate(candidate_ids, seen_ids, restaurant.get('_resolved_merchant_id'))
+    for value in values:
+        text = normalize_merchant_id(value)
+        if text and text not in seen_ids:
+            seen_ids.add(text)
+            candidates.append(text)
+    return candidates
+
+
+def _set_restaurant_resolved_merchant_id(restaurant: dict, resolved_merchant_id):
+    if not isinstance(restaurant, dict):
+        return
+    if not resolved_merchant_id:
+        return
+    normalized = normalize_merchant_id(resolved_merchant_id) or str(resolved_merchant_id).strip()
+    if not normalized:
+        return
+    restaurant['_resolved_merchant_id'] = str(normalized)
+    if not restaurant.get('merchant_id'):
+        restaurant['merchant_id'] = str(normalized)
+
+
+def _maybe_enrich_restaurant_orders(restaurant: dict, api, orders_payload: list, merchant_hint: str):
+    if not isinstance(orders_payload, list) or not orders_payload or not api:
+        return orders_payload
+    if not any(_order_needs_detail_enrichment(o) for o in orders_payload if isinstance(o, dict)):
+        return orders_payload
+
+    now_ts = time.time()
+    try:
+        last_enriched_at = float((restaurant or {}).get('_orders_enriched_at') or 0)
+    except Exception:
+        last_enriched_at = 0.0
+    if (now_ts - last_enriched_at) < 45:
+        return orders_payload
+
+    enriched_orders, _, _ = _enrich_orders_with_details(
+        api,
+        merchant_hint,
+        orders_payload,
+        max_lookups=25,
+        orders_already_normalized=True
+    )
+    if isinstance(restaurant, dict):
+        restaurant['_orders_enriched_at'] = now_ts
+    return enriched_orders if isinstance(enriched_orders, list) else orders_payload
+
+
+def _load_cached_org_restaurant_orders(org_id: int, restaurant: dict, restaurant_id: str):
+    """Try to recover cached raw orders from persisted org snapshot."""
+    try:
+        cached_org_data = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=12)
+    except Exception:
+        cached_org_data = []
+    if not (isinstance(cached_org_data, list) and cached_org_data):
+        return None, None
+
+    candidate_ids = _normalized_candidate_id_list(
+        restaurant_id,
+        restaurant.get('merchant_id'),
+        restaurant.get('merchantId'),
+        restaurant.get('ifood_merchant_id'),
+        restaurant.get('_resolved_merchant_id'),
+        restaurant.get('id'),
+    )
+
+    cached_match = None
+    for candidate_id in candidate_ids:
+        cached_match = find_restaurant_by_identifier(candidate_id, restaurants=cached_org_data)
+        if cached_match:
+            break
+    if not isinstance(cached_match, dict):
+        return None, None
+
+    cached_orders = _normalize_orders_list(cached_match.get('_orders_cache'))
+    if not _orders_have_identifiable_ids(cached_orders):
+        return None, None
+
+    resolved_merchant_id = (
+        cached_match.get('_resolved_merchant_id')
+        or cached_match.get('merchant_id')
+        or cached_match.get('merchantId')
+        or restaurant.get('_resolved_merchant_id')
+        or restaurant.get('merchant_id')
+        or restaurant.get('merchantId')
+        or restaurant_id
+    )
+    return cached_orders, resolved_merchant_id
+
+
+def _collect_candidate_merchant_ids(api, restaurant: dict, restaurant_id: str, org_id_override: int = None):
+    candidate_ids = _normalized_candidate_id_list(
+        restaurant_id,
+        restaurant.get('merchant_id'),
+        restaurant.get('merchantId'),
+        restaurant.get('ifood_merchant_id'),
+        restaurant.get('_resolved_merchant_id'),
+    )
+    seen_ids = set(candidate_ids)
+
+    def _add_candidate(value):
+        candidate = normalize_merchant_id(value)
+        if candidate and candidate not in seen_ids:
+            seen_ids.add(candidate)
+            candidate_ids.append(candidate)
 
     restaurant_name = str(restaurant.get('name') or '').strip().lower()
 
-    # Try to infer merchant id from configured merchants (org/local config).
     try:
         org_id = org_id_override or get_current_org_id()
         config = {}
@@ -1344,11 +1388,7 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
                 configured_merchants = []
         if isinstance(configured_merchants, list):
             if len(configured_merchants) == 1 and isinstance(configured_merchants[0], dict):
-                _add_candidate(
-                    candidate_ids,
-                    seen_ids,
-                    configured_merchants[0].get('merchant_id') or configured_merchants[0].get('id')
-                )
+                _add_candidate(configured_merchants[0].get('merchant_id') or configured_merchants[0].get('id'))
             for merchant in configured_merchants:
                 if not isinstance(merchant, dict):
                     continue
@@ -1359,11 +1399,10 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
                     or merchant_name in restaurant_name
                     or restaurant_name in merchant_name
                 ):
-                    _add_candidate(candidate_ids, seen_ids, merchant_id_value)
+                    _add_candidate(merchant_id_value)
     except Exception:
         pass
 
-    # Last resort: infer from live merchant list.
     merchants_from_api = []
     if hasattr(api, 'get_merchants'):
         try:
@@ -1372,11 +1411,7 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
             merchants_from_api = []
     if isinstance(merchants_from_api, list):
         if len(merchants_from_api) == 1 and isinstance(merchants_from_api[0], dict):
-            _add_candidate(
-                candidate_ids,
-                seen_ids,
-                merchants_from_api[0].get('id') or merchants_from_api[0].get('merchantId')
-            )
+            _add_candidate(merchants_from_api[0].get('id') or merchants_from_api[0].get('merchantId'))
         for merchant in merchants_from_api:
             if not isinstance(merchant, dict):
                 continue
@@ -1387,10 +1422,14 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
                 or merchant_name in restaurant_name
                 or restaurant_name in merchant_name
             ):
-                _add_candidate(candidate_ids, seen_ids, merchant_id_value)
+                _add_candidate(merchant_id_value)
 
+    return candidate_ids
+
+
+def _fetch_orders_from_candidate_merchants(api, candidate_ids, start_date, end_date, default_restaurant_id):
     fetched_orders = []
-    resolved_merchant_id = str(restaurant_id)
+    resolved_merchant_id = str(default_restaurant_id or '')
     for candidate_id in candidate_ids:
         try:
             candidate_orders = api.get_orders(candidate_id, start_date, end_date) or []
@@ -1401,23 +1440,75 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
             fetched_orders = candidate_orders
             resolved_merchant_id = str(candidate_id)
             break
-
     if not fetched_orders and candidate_ids:
         resolved_merchant_id = str(candidate_ids[0])
+    return fetched_orders, resolved_merchant_id
 
-    normalized_fetched = [
-        normalize_order_payload(o)
-        for o in (fetched_orders or [])
-        if isinstance(o, dict)
-    ]
-    normalized_fetched = _maybe_enrich_orders(
-        normalized_fetched,
-        normalize_merchant_id(resolved_merchant_id) or str(resolved_merchant_id or '').strip()
+
+def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_override: int = None):
+    """
+    Ensure a store has raw orders cached for detail screens.
+    DB snapshots intentionally strip internal cache fields, so this may need
+    to rehydrate orders on demand from iFood API.
+    """
+    if not isinstance(restaurant, dict):
+        return []
+
+    normalized_existing = _normalize_orders_list(restaurant.get('_orders_cache'))
+    api = get_resilient_api_client()
+    current_merchant_hint = (
+        normalize_merchant_id(
+            restaurant.get('_resolved_merchant_id')
+            or restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or restaurant_id
+        )
+        or str(restaurant_id or '').strip()
     )
-    if resolved_merchant_id:
-        restaurant['_resolved_merchant_id'] = resolved_merchant_id
-        if not restaurant.get('merchant_id'):
-            restaurant['merchant_id'] = resolved_merchant_id
+
+    if _orders_have_identifiable_ids(normalized_existing):
+        normalized_existing = _maybe_enrich_restaurant_orders(
+            restaurant, api, normalized_existing, current_merchant_hint
+        )
+        restaurant['_orders_cache'] = normalized_existing
+        return normalized_existing
+
+    org_id = org_id_override or get_current_org_id()
+    if org_id:
+        cached_orders, resolved_from_cache = _load_cached_org_restaurant_orders(org_id, restaurant, restaurant_id)
+        if _orders_have_identifiable_ids(cached_orders):
+            cache_hint = normalize_merchant_id(resolved_from_cache) or str(restaurant_id or '').strip()
+            cached_orders = _maybe_enrich_restaurant_orders(restaurant, api, cached_orders, cache_hint)
+            restaurant['_orders_cache'] = cached_orders
+            _set_restaurant_resolved_merchant_id(restaurant, resolved_from_cache)
+            return cached_orders
+
+    if not api or not restaurant_id:
+        restaurant['_orders_cache'] = normalized_existing if normalized_existing else []
+        return restaurant['_orders_cache']
+
+    days = resolve_current_org_fetch_days(default_days=30)
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+    candidate_ids = _collect_candidate_merchant_ids(api, restaurant, restaurant_id, org_id_override=org_id_override)
+    fetched_orders, resolved_merchant_id = _fetch_orders_from_candidate_merchants(
+        api,
+        candidate_ids,
+        start_date,
+        end_date,
+        default_restaurant_id=restaurant_id,
+    )
+
+    normalized_fetched = _normalize_orders_list(fetched_orders)
+    normalized_fetched = _maybe_enrich_restaurant_orders(
+        restaurant,
+        api,
+        normalized_fetched,
+        normalize_merchant_id(resolved_merchant_id) or str(resolved_merchant_id or '').strip(),
+    )
+    _set_restaurant_resolved_merchant_id(restaurant, resolved_merchant_id)
+
     if normalized_fetched:
         restaurant['_orders_cache'] = normalized_fetched
         return normalized_fetched
@@ -1990,63 +2081,70 @@ class BackgroundRefresher:
 bg_refresher = BackgroundRefresher()
 
 
+def _acquire_redis_lock(lock_key: str, ttl_seconds: int, *, fallback_token=None, require_redis=False):
+    """Acquire a distributed lock with shared semantics for refresh/keepalive loops."""
+    r = get_redis_client()
+    if not r:
+        return None if require_redis else fallback_token
+    token = str(uuid.uuid4())
+    try:
+        ok = r.set(lock_key, token, nx=True, ex=max(1, int(ttl_seconds)))
+        return token if ok else None
+    except Exception:
+        return None if require_redis else fallback_token
+
+
+def _release_redis_lock(lock_key: str, token, *, ignored_tokens=None):
+    """Release a distributed lock only when owned by the current token."""
+    if not token:
+        return
+    ignored = set(ignored_tokens or [])
+    if token in ignored:
+        return
+    r = get_redis_client()
+    if not r:
+        return
+    try:
+        current = r.get(lock_key)
+        if current == token:
+            r.delete(lock_key)
+    except Exception:
+        pass
+
+
 def acquire_refresh_lock(ttl_seconds=600):
     """Acquire distributed refresh lock when Redis queue is enabled."""
     if not USE_REDIS_QUEUE:
         return REDIS_INSTANCE_ID
-    r = get_redis_client()
-    if not r:
-        return None
-    token = str(uuid.uuid4())
-    try:
-        ok = r.set(REDIS_REFRESH_LOCK_KEY, token, nx=True, ex=ttl_seconds)
-        return token if ok else None
-    except Exception:
-        return None
+    return _acquire_redis_lock(
+        REDIS_REFRESH_LOCK_KEY,
+        ttl_seconds,
+        fallback_token=None,
+        require_redis=True,
+    )
 
 
 def release_refresh_lock(token):
     """Release distributed refresh lock owned by token."""
-    if not (USE_REDIS_QUEUE and token):
+    if not USE_REDIS_QUEUE:
         return
-    r = get_redis_client()
-    if not r:
-        return
-    try:
-        current = r.get(REDIS_REFRESH_LOCK_KEY)
-        if current == token:
-            r.delete(REDIS_REFRESH_LOCK_KEY)
-    except Exception:
-        pass
+    _release_redis_lock(REDIS_REFRESH_LOCK_KEY, token)
 
 
 def acquire_keepalive_lock():
     """Acquire keepalive polling lock to avoid duplicate polling across instances."""
-    r = get_redis_client()
-    if not r:
-        return REDIS_INSTANCE_ID
-    token = str(uuid.uuid4())
     ttl_seconds = max(20, int(IFOOD_POLL_INTERVAL_SECONDS or 30) * 2)
-    try:
-        ok = r.set(REDIS_KEEPALIVE_LOCK_KEY, token, nx=True, ex=ttl_seconds)
-        return token if ok else None
-    except Exception:
-        return REDIS_INSTANCE_ID
+    return _acquire_redis_lock(
+        REDIS_KEEPALIVE_LOCK_KEY,
+        ttl_seconds,
+        fallback_token=REDIS_INSTANCE_ID,
+        require_redis=False,
+    )
 
 
 def release_keepalive_lock(token):
     """Release keepalive polling lock owned by token."""
-    if not token or token == REDIS_INSTANCE_ID:
-        return
-    r = get_redis_client()
-    if not r:
-        return
-    try:
-        current = r.get(REDIS_KEEPALIVE_LOCK_KEY)
-        if current == token:
-            r.delete(REDIS_KEEPALIVE_LOCK_KEY)
-    except Exception:
-        pass
+    _release_redis_lock(REDIS_KEEPALIVE_LOCK_KEY, token, ignored_tokens={REDIS_INSTANCE_ID})
 
 
 def set_refresh_status(status_payload: dict):
@@ -2382,7 +2480,7 @@ def run_ifood_keepalive_poll_once():
         return summary
 
     try:
-        org_items = list(ORG_DATA.items())
+        org_items = _org_data_items_snapshot()
         has_org_api = any(
             isinstance(org_data, dict) and org_data.get('api')
             for _, org_data in org_items
@@ -2467,6 +2565,10 @@ def run_ifood_keepalive_poll_once():
                 try:
                     merchant_events = events_by_merchant.get(str(merchant_id), [])
                     if merchant_events:
+                        max_status_entries = max(
+                            100,
+                            int(str(os.environ.get('KEEPALIVE_ORDER_STATUS_CACHE_MAX', '2000')).strip() or '2000')
+                        )
                         latest_event_status_by_order = {}
                         order_ids = []
                         for event in merchant_events:
@@ -2481,16 +2583,19 @@ def run_ifood_keepalive_poll_once():
                             if normalized_status == 'UNKNOWN':
                                 continue
                             event_created_at = _parse_generic_datetime(event.get('createdAt'))
-                            existing = latest_event_status_by_order.get(str(order_id))
+                            order_key = str(order_id)
+                            existing = latest_event_status_by_order.get(order_key)
                             if not existing:
-                                latest_event_status_by_order[str(order_id)] = {
+                                if len(latest_event_status_by_order) >= max_status_entries:
+                                    continue
+                                latest_event_status_by_order[order_key] = {
                                     'status': normalized_status,
                                     'created_at': event_created_at
                                 }
                                 continue
                             existing_created = existing.get('created_at')
                             if existing_created is None or (event_created_at and event_created_at >= existing_created):
-                                latest_event_status_by_order[str(order_id)] = {
+                                latest_event_status_by_order[order_key] = {
                                     'status': normalized_status,
                                     'created_at': event_created_at
                                 }
@@ -2743,7 +2848,7 @@ def _do_data_refresh():
     global RESTAURANTS_DATA, LAST_DATA_REFRESH
     
     # Refresh per-org data (SaaS mode)
-    for org_id, od in ORG_DATA.items():
+    for org_id, od in _org_data_items_snapshot():
         if od.get('api'):
             try:
                 _load_org_restaurants(org_id)
@@ -2830,8 +2935,8 @@ def _do_data_refresh():
             if hasattr(IFOOD_API, 'get_financial_data'):
                 try:
                     financial_data = IFOOD_API.get_financial_data(merchant_id, start_date, end_date)
-                except:
-                    pass
+                except Exception as financial_error:
+                    logger.debug("iFood financial data unavailable for %s: %s", merchant_id, financial_error)
             
             restaurant_data = IFoodDataProcessor.process_restaurant_data(merchant_details, orders, financial_data)
             closure = detect_restaurant_closure(IFOOD_API, merchant_id)
@@ -2856,8 +2961,9 @@ def _do_data_refresh():
             print(f"   Ã¢ÂÅ’ Failed to refresh {name}: {e}")
     
     # Atomic swap
-    RESTAURANTS_DATA = new_data
-    LAST_DATA_REFRESH = datetime.now()
+    with _GLOBAL_STATE_LOCK:
+        RESTAURANTS_DATA = new_data
+        LAST_DATA_REFRESH = datetime.now()
     
     # Invalidate API response caches since data changed
     invalidate_cache()
@@ -2865,7 +2971,7 @@ def _do_data_refresh():
     # Save snapshot to DB for fast cold starts
     _save_data_snapshot()
     
-    print(f"Refreshed {len(RESTAURANTS_DATA)} restaurant(s) at {LAST_DATA_REFRESH.strftime('%H:%M:%S')}")
+    print(f"Refreshed {len(new_data)} restaurant(s) at {LAST_DATA_REFRESH.strftime('%H:%M:%S')}")
 
 
 # Track last seen order IDs per restaurant for new order detection
@@ -2965,8 +3071,9 @@ def _load_data_snapshot():
             # Only use snapshot if it's less than 2 hours old
             age = datetime.now() - created_at
             if age < timedelta(hours=2):
-                RESTAURANTS_DATA = data
-                LAST_DATA_REFRESH = created_at
+                with _GLOBAL_STATE_LOCK:
+                    RESTAURANTS_DATA = data
+                    LAST_DATA_REFRESH = created_at
                 print(f"Ã¢Å¡Â¡ Loaded {len(data)} restaurants from DB snapshot ({age.seconds // 60} min old)")
                 return True
             else:
@@ -3042,8 +3149,8 @@ def _load_org_restaurants(org_id):
             if merchants:
                 merchants_config = [{'merchant_id': m.get('id'), 'name': m.get('name', 'Restaurant')} for m in merchants]
                 db.update_org_ifood_config(org_id, merchants=merchants_config)
-        except:
-            pass
+        except Exception as merchants_error:
+            logger.debug("Org %s merchants bootstrap skipped: %s", org_id, merchants_error)
     if not merchants_config:
         return
     settings = config.get('settings') if isinstance(config, dict) else {}
@@ -3248,12 +3355,15 @@ def initialize_all_orgs():
             if api:
                 _load_org_restaurants(org_id)
     # Set legacy globals for backward compat (use first org's data)
-    if orgs and orgs[0]['id'] in ORG_DATA:
-        first = ORG_DATA[orgs[0]['id']]
-        RESTAURANTS_DATA = first['restaurants']
-        IFOOD_API = first.get('api')
-        LAST_DATA_REFRESH = first.get('last_refresh')
-        IFOOD_CONFIG = first.get('config', {})
+    if orgs:
+        first_org_id = orgs[0].get('id')
+        first = get_org_data(first_org_id) if first_org_id is not None else None
+        if isinstance(first, dict):
+            with _GLOBAL_STATE_LOCK:
+                RESTAURANTS_DATA = first.get('restaurants') or []
+                IFOOD_API = first.get('api')
+                LAST_DATA_REFRESH = first.get('last_refresh')
+                IFOOD_CONFIG = first.get('config', {})
 
 
 def _init_and_refresh_org(org_id):
@@ -3268,16 +3378,18 @@ def initialize_ifood_api():
     global IFOOD_API, IFOOD_CONFIG
     
     # Load configuration
-    IFOOD_CONFIG = IFoodConfig.load_config(str(CONFIG_FILE))
+    loaded_config = IFoodConfig.load_config(str(CONFIG_FILE))
+    with _GLOBAL_STATE_LOCK:
+        IFOOD_CONFIG = loaded_config or {}
     
-    if not IFOOD_CONFIG:
+    if not loaded_config:
         print("Ã¢Å¡Â Ã¯Â¸Â  No iFood configuration found")
         print(f"   Creating sample config at {CONFIG_FILE}")
         IFoodConfig.create_sample_config(str(CONFIG_FILE))
         return False
     
-    client_id = IFOOD_CONFIG.get('client_id')
-    client_secret = IFOOD_CONFIG.get('client_secret')
+    client_id = loaded_config.get('client_id')
+    client_secret = loaded_config.get('client_secret')
     
     if not client_id or client_id == 'your_ifood_client_id_here':
         print("Ã¢Å¡Â Ã¯Â¸Â  iFood API credentials not configured")
@@ -3285,11 +3397,13 @@ def initialize_ifood_api():
         return False
     
     # Initialize API
-    use_mock_data = bool(IFOOD_CONFIG.get('use_mock_data')) or str(client_id).strip().upper() == 'MOCK_DATA_MODE'
-    IFOOD_API = IFoodAPI(client_id, client_secret, use_mock_data=use_mock_data)
+    use_mock_data = bool(loaded_config.get('use_mock_data')) or str(client_id).strip().upper() == 'MOCK_DATA_MODE'
+    created_api = IFoodAPI(client_id, client_secret, use_mock_data=use_mock_data)
     
     # Authenticate
-    if IFOOD_API.authenticate():
+    if created_api.authenticate():
+        with _GLOBAL_STATE_LOCK:
+            IFOOD_API = created_api
         print("Ã¢Å“â€¦ iFood API initialized successfully")
         return True
     else:
@@ -3414,8 +3528,8 @@ def load_restaurants_from_ifood():
             if hasattr(IFOOD_API, 'get_financial_data'):
                 try:
                     financial_data = IFOOD_API.get_financial_data(merchant_id, start_date, end_date)
-                except:
-                    pass
+                except Exception as financial_error:
+                    logger.debug("iFood financial data unavailable for %s: %s", merchant_id, financial_error)
             
             # Process into dashboard format
             restaurant_data = IFoodDataProcessor.process_restaurant_data(
@@ -3447,12 +3561,15 @@ def load_restaurants_from_ifood():
             log_exception("request_exception", e)
 
     if new_restaurants:
-        RESTAURANTS_DATA = new_restaurants
+        with _GLOBAL_STATE_LOCK:
+            RESTAURANTS_DATA = new_restaurants
     elif previous_restaurants:
         # Safety fallback: do not wipe dashboard on transient upstream failures.
-        RESTAURANTS_DATA = previous_restaurants
+        with _GLOBAL_STATE_LOCK:
+            RESTAURANTS_DATA = previous_restaurants
 
-    LAST_DATA_REFRESH = datetime.now()
+    with _GLOBAL_STATE_LOCK:
+        LAST_DATA_REFRESH = datetime.now()
     print(f"\nÃ¢Å“â€¦ Loaded {len(RESTAURANTS_DATA)} restaurant(s) from iFood")
 
 
@@ -3460,19 +3577,38 @@ def load_restaurants_from_ifood():
 # AUTHENTICATION & SESSION MANAGEMENT
 # ============================================================================
 
-def login_required(f):
-    """Decorator to require login for routes"""
+def _is_api_like_request():
+    return (
+        request.is_json
+        or request.path.startswith('/api/')
+        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        or 'application/json' in (request.headers.get('Accept', ''))
+    )
+
+
+def _authentication_required_response():
+    if _is_api_like_request():
+        return jsonify({'error': 'Authentication required', 'redirect': url_for('login_page')}), 401
+    return redirect(url_for('login_page'))
+
+
+def _require_authenticated_user():
+    user = session.get('user')
+    if user:
+        return user, None
+    return None, _authentication_required_response()
+
+
+def _guard_with_authenticated_user(f, check_fn):
+    """Run auth/session check once, then run a role-specific validator."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user' not in session:
-            # Check if this is an API/AJAX request
-            is_api = (request.is_json or 
-                      request.path.startswith('/api/') or
-                      request.headers.get('X-Requested-With') == 'XMLHttpRequest' or
-                      'application/json' in (request.headers.get('Accept', '')))
-            if is_api:
-                return jsonify({'error': 'Authentication required', 'redirect': '/login'}), 401
-            return redirect('/login')
+        user, error_response = _require_authenticated_user()
+        if error_response:
+            return error_response
+        denial_response = check_fn(user or {})
+        if denial_response is not None:
+            return denial_response
         return f(*args, **kwargs)
     return decorated_function
 
@@ -3487,54 +3623,41 @@ def is_platform_admin_user(user: dict) -> bool:
     return bool(db.is_platform_admin(user_id))
 
 
+def _check_login_access(_user):
+    return None
+
+
+def _check_admin_access(user):
+    if is_platform_admin_user(user):
+        return None
+    org_id = get_current_org_id()
+    if not org_id:
+        return jsonify({'error': 'Organization context required'}), 403
+    org_role = db.get_org_member_role(org_id, user.get('id'))
+    if org_role not in ('owner', 'admin'):
+        return jsonify({'error': 'Admin access required'}), 403
+    return None
+
+
+def _check_platform_admin_access(user):
+    if not is_platform_admin_user(user):
+        return jsonify({'error': 'Platform admin access required'}), 403
+    return None
+
+
+def login_required(f):
+    """Decorator to require login for routes"""
+    return _guard_with_authenticated_user(f, _check_login_access)
+
+
 def admin_required(f):
     """Decorator to require admin privileges in current org or platform."""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user' not in session:
-            is_api = (request.is_json or 
-                      request.path.startswith('/api/') or
-                      request.headers.get('X-Requested-With') == 'XMLHttpRequest' or
-                      'application/json' in (request.headers.get('Accept', '')))
-            if is_api:
-                return jsonify({'error': 'Authentication required', 'redirect': '/login'}), 401
-            return redirect('/login')
-
-        user = session.get('user', {})
-        if is_platform_admin_user(user):
-            return f(*args, **kwargs)
-
-        org_id = get_current_org_id()
-        if not org_id:
-            return jsonify({'error': 'Organization context required'}), 403
-
-        org_role = db.get_org_member_role(org_id, user.get('id'))
-        if org_role not in ('owner', 'admin'):
-            return jsonify({'error': 'Admin access required'}), 403
-        return f(*args, **kwargs)
-    return decorated_function
+    return _guard_with_authenticated_user(f, _check_admin_access)
 
 
 def platform_admin_required(f):
     """Decorator to require global platform-admin privileges."""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user' not in session:
-            is_api = (
-                request.is_json
-                or request.path.startswith('/api/')
-                or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-                or 'application/json' in (request.headers.get('Accept', ''))
-            )
-            if is_api:
-                return jsonify({'error': 'Authentication required', 'redirect': '/login'}), 401
-            return redirect('/login')
-
-        user = session.get('user', {})
-        if not is_platform_admin_user(user):
-            return jsonify({'error': 'Platform admin access required'}), 403
-        return f(*args, **kwargs)
-    return decorated_function
+    return _guard_with_authenticated_user(f, _check_platform_admin_access)
 
 
 def org_owner_required(f):
@@ -3542,7 +3665,7 @@ def org_owner_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user' not in session:
-            return jsonify({'error': 'Authentication required', 'redirect': '/login'}), 401
+            return jsonify({'error': 'Authentication required', 'redirect': url_for('login_page')}), 401
 
         user = session.get('user', {})
         org_id = get_current_org_id()
@@ -3589,7 +3712,7 @@ def require_feature(feature_name):
             )
             if is_api:
                 return jsonify(payload), 403
-            return redirect('/dashboard')
+            return redirect(url_for('dashboard'))
         return decorated_function
     return decorator
 
@@ -3602,8 +3725,8 @@ def require_feature(feature_name):
 def index():
     """Redirect to login or dashboard based on session"""
     if 'user' in session:
-        return redirect('/dashboard')
-    return redirect('/login')
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login_page'))
 
 
 @app.route('/login')
@@ -3626,10 +3749,10 @@ def invite_page(token):
         result = db.accept_invite(invite_token, session['user']['id'])
         if result and result.get('success'):
             session['org_id'] = result['org_id']
-            return redirect('/dashboard')
-        return redirect(f"/login?invite={invite_token}&invite_error=1")
+            return redirect(url_for('dashboard'))
+        return redirect(url_for('login_page', invite=invite_token, invite_error=1))
 
-    return redirect(f"/login?invite={invite_token}")
+    return redirect(url_for('login_page', invite=invite_token))
 
 
 @app.route('/dashboard')
@@ -3743,109 +3866,6 @@ def restaurant_page(restaurant_id):
 # API ROUTES - AUTHENTICATION
 # ============================================================================
 
-@app.route('/api/login', methods=['POST'])
-@rate_limit(limit=10, window_seconds=60, scope='login')
-def api_login():
-    """Handle login requests"""
-    try:
-        data = get_json_payload()
-        if not data:
-            return jsonify({'success': False, 'error': 'Invalid JSON payload'}), 400
-        email = data.get('email', '').strip()
-        password = data.get('password', '')
-        
-        if not email or not password:
-            return jsonify({
-                'success': False,
-                'error': 'Email and password required'
-            }), 400
-        
-        # Authenticate using email
-        user = db.authenticate_user_by_email(email, password)
-        
-        if user:
-            user['is_platform_admin'] = bool(db.is_platform_admin(user.get('id')))
-            session['user'] = user
-            session.permanent = True
-            ensure_csrf_token()
-            
-            # Set org context
-            orgs = db.get_user_orgs(user['id'])
-            if orgs:
-                session['org_id'] = orgs[0]['id']
-                session['org_name'] = orgs[0]['name']
-                session['org_plan'] = orgs[0]['plan']
-            elif user.get('is_platform_admin'):
-                all_orgs = db.list_all_organizations()
-                if all_orgs:
-                    first_org = all_orgs[0]
-                    session['org_id'] = first_org.get('id')
-                    session['org_name'] = first_org.get('name')
-                    session['org_plan'] = first_org.get('plan')
-            
-            redirect_url = '/dashboard'
-            
-            return jsonify({
-                'success': True,
-                'user': user,
-                'redirect': redirect_url
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Invalid email or password'
-            }), 401
-            
-    except Exception as e:
-        print(f"Login error: {e}")
-        log_exception("request_exception", e)
-        return jsonify({
-            'success': False,
-            'error': 'Server error during login'
-        }), 500
-
-
-@app.route('/api/logout', methods=['POST'])
-def api_logout():
-    """Logout user and clear session"""
-    session.clear()
-    return jsonify({'success': True, 'message': 'Logged out successfully'})
-
-
-@app.route('/api/me')
-@login_required
-def api_me():
-    """Get current user info with org context"""
-    user = session.get('user') or {}
-    org_id = get_current_org_id()
-    org_info = None
-    org_role = None
-    if org_id:
-        org_info = db.get_org_details(org_id)
-        org_role = db.get_org_member_role(org_id, user.get('id'))
-
-    user_payload = dict(user)
-    user_payload['is_platform_admin'] = bool(is_platform_admin_user(user))
-    if user_payload.get('is_platform_admin'):
-        # Keep legacy frontend role checks working for global admins.
-        user_payload['role'] = 'admin'
-    user_payload['org_role'] = org_role
-    if (not user_payload.get('is_platform_admin')) and org_role in ('owner', 'admin'):
-        user_payload['role'] = 'admin'
-
-    return jsonify({
-        'success': True,
-        'user': user_payload,
-        'org_id': org_id,
-        'org': org_info,
-        'csrf_token': ensure_csrf_token()
-    })
-
-
-# ============================================================================
-# SaaS API ROUTES
-# ============================================================================
-
 @app.route('/api/register', methods=['POST'])
 @rate_limit(limit=5, window_seconds=3600, scope='register')
 def api_register():
@@ -3878,596 +3898,10 @@ def api_register():
         session.permanent = True
         ensure_csrf_token()
         db.log_action('user.registered', org_id=result['org_id'], user_id=result['user_id'], details={'email': email, 'org_name': org_name}, ip_address=request.remote_addr)
-        return jsonify({'success': True, 'user_id': result['user_id'], 'org_id': result['org_id'], 'redirect': '/dashboard'})
+        return jsonify({'success': True, 'user_id': result['user_id'], 'org_id': result['org_id'], 'redirect': url_for('dashboard')})
     except Exception as e:
         print(f"Registration error: {e}")
         return jsonify({'success': False, 'error': 'Internal server error'}), 500
-
-
-@app.route('/api/orgs', methods=['GET', 'POST'])
-@login_required
-def api_user_orgs():
-    """Get or create organizations for the current user."""
-    user = session.get('user') or {}
-    user_id = user.get('id')
-    if not user_id:
-        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-
-    platform_admin = is_platform_admin_user(user)
-
-    if request.method == 'GET':
-        if platform_admin:
-            orgs = db.list_all_organizations()
-        else:
-            orgs = db.get_user_orgs(user_id)
-        return jsonify({'success': True, 'organizations': orgs})
-
-    data = get_json_payload()
-    if not data:
-        return jsonify({'success': False, 'error': 'Invalid payload'}), 400
-
-    org_name = (data.get('org_name') or data.get('name') or '').strip()
-    if not org_name:
-        return jsonify({'success': False, 'error': 'Organization name is required'}), 400
-
-    current_org_id = get_current_org_id()
-    copy_users = bool(data.get('copy_users', True))
-    current_org = db.get_org_details(current_org_id) if current_org_id else None
-
-    plan = (data.get('plan') or '').strip().lower()
-    if not plan:
-        plan = (current_org or {}).get('plan') or 'free'
-
-    source_members = []
-    if copy_users and current_org_id:
-        if not platform_admin:
-            current_member_role = db.get_org_member_role(current_org_id, user_id)
-            if current_member_role not in ('owner', 'admin'):
-                return jsonify({'success': False, 'error': 'Owner/admin role required to copy users'}), 403
-        source_members = db.get_org_users(current_org_id)
-
-    created = db.create_organization(
-        org_name,
-        user_id,
-        plan=plan,
-        billing_email=(user.get('email') or None)
-    )
-    if not created:
-        return jsonify({'success': False, 'error': 'Unable to create organization'}), 400
-
-    # Ensure in-memory org bucket exists for the new org context.
-    get_org_data(created['id'])
-
-    copied_users = 0
-    copy_errors = []
-    if copy_users and source_members:
-        for member in source_members:
-            member_id = member.get('id')
-            if not member_id or member_id == user_id:
-                continue
-            member_org_role = str(member.get('org_role') or 'viewer').strip().lower()
-            if member_org_role not in ('owner', 'admin', 'viewer'):
-                member_org_role = 'viewer'
-
-            assign_result = db.assign_user_to_org(created['id'], member_id, member_org_role)
-            if assign_result.get('success'):
-                copied_users += 1
-                continue
-
-            if assign_result.get('error') == 'already_member':
-                continue
-
-            copy_errors.append({
-                'user_id': member_id,
-                'error': assign_result.get('error') or 'assign_failed'
-            })
-
-    # Switch active organization so the sidebar/current page updates immediately.
-    session['org_id'] = created['id']
-    session['org_name'] = created['name']
-    session['org_plan'] = created['plan']
-    if session.get('user'):
-        session['user']['primary_org_id'] = created['id']
-
-    db.log_action(
-        'org.created',
-        org_id=created['id'],
-        user_id=user_id,
-        details={
-            'name': created['name'],
-            'plan': created.get('plan'),
-            'copy_users': copy_users,
-            'copied_users': copied_users,
-            'copy_errors': copy_errors[:10],
-            'source_org_id': current_org_id
-        },
-        ip_address=request.remote_addr
-    )
-
-    organizations_payload = db.list_all_organizations() if platform_admin else db.get_user_orgs(user_id)
-
-    return jsonify({
-        'success': True,
-        'organization': created,
-        'org_id': created['id'],
-        'copied_users': copied_users,
-        'copy_errors': copy_errors,
-        'organizations': organizations_payload
-    }), 201
-
-
-@app.route('/api/orgs/switch', methods=['POST'])
-@login_required
-def api_switch_org():
-    """Switch active organization"""
-    data = get_json_payload()
-    if not data:
-        return jsonify({'success': False, 'error': 'Payload invalido'}), 400
-    org_id = data.get('org_id')
-    # Normalize org_id to int if it's a numeric string
-    if isinstance(org_id, str):
-        org_id_str = org_id.strip()
-        if org_id_str.isdigit():
-            org_id = int(org_id_str)
-    current_user = session.get('user', {})
-    if is_platform_admin_user(current_user):
-        details = db.get_org_details(org_id)
-        if not details:
-            return jsonify({'success': False, 'error': 'Organization not found'}), 404
-        session['org_id'] = org_id
-        session['org_name'] = details.get('name')
-        session['org_plan'] = details.get('plan')
-        return jsonify({'success': True, 'org_id': org_id})
-
-    orgs = db.get_user_orgs(current_user['id'])
-    if not any(o['id'] == org_id for o in orgs):
-        return jsonify({'success': False, 'error': 'Not a member'}), 403
-    session['org_id'] = org_id
-    for o in orgs:
-        if o['id'] == org_id:
-            session['org_name'] = o['name']
-            session['org_plan'] = o['plan']
-    return jsonify({'success': True, 'org_id': org_id})
-
-
-@app.route('/api/org/details')
-@login_required
-def api_org_details():
-    """Get current org details"""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-    details = db.get_org_details(org_id)
-    return jsonify({'success': True, 'organization': details})
-
-
-@app.route('/api/org/ifood-config', methods=['GET', 'POST'])
-@login_required
-@org_owner_required
-def api_org_ifood_config():
-    """Get or update iFood credentials for current org"""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization'}), 403
-    if request.method == 'GET':
-        config = db.get_org_ifood_config(org_id) or {}
-        client_id = config.get('client_id')
-        client_secret = config.get('client_secret')
-        merchants = config.get('merchants', []) or []
-
-        org_has_credentials = bool((client_id or '').strip() and (client_secret or '').strip())
-        org_mode = 'none'
-        if org_has_credentials:
-            org_mode = 'mock' if str(client_id).strip().upper() == 'MOCK_DATA_MODE' else 'live'
-
-        # Current org API instance (if initialized for this tenant)
-        org_api = None
-        if org_id in ORG_DATA:
-            org_api = ORG_DATA[org_id].get('api')
-        org_connected = bool(org_api)
-
-        # Legacy global fallback (single-tenant/mock mode)
-        legacy_client_id = (IFOOD_CONFIG or {}).get('client_id') if isinstance(IFOOD_CONFIG, dict) else None
-        legacy_mode = 'none'
-        if legacy_client_id:
-            legacy_mode = 'mock' if str(legacy_client_id).strip().upper() == 'MOCK_DATA_MODE' else 'live'
-        legacy_available = bool(IFOOD_API and legacy_client_id)
-        env_credentials_available = bool(
-            str(os.environ.get('IFOOD_CLIENT_ID') or '').strip() and
-            str(os.environ.get('IFOOD_CLIENT_SECRET') or '').strip()
-        )
-
-        using_legacy_fallback = (not org_has_credentials) and legacy_available
-        using_env_fallback = (not org_has_credentials) and env_credentials_available
-        credentials_available = bool(org_has_credentials or using_env_fallback or using_legacy_fallback)
-        if not org_connected and credentials_available:
-            # Opportunistic init so status reflects real connectivity (not only env presence).
-            org_api = _init_org_ifood(org_id)
-            org_connected = bool(org_api)
-
-        connection_active = bool(org_connected)
-        effective_mode = org_mode if org_mode != 'none' else legacy_mode
-        source = 'org'
-        if not org_has_credentials:
-            if using_env_fallback:
-                source = 'env'
-            elif using_legacy_fallback:
-                source = 'legacy'
-            else:
-                source = 'none'
-
-        masked = None
-        if client_secret:
-            s = client_secret
-            masked = s[:4] + '****' + s[-4:] if len(s) > 8 else '****'
-        return jsonify({
-            'success': True,
-            'config': {
-                'client_id': client_id,
-                'client_secret_masked': masked,
-                'merchants': merchants,
-                'has_credentials': org_has_credentials,
-                'credentials_available': credentials_available,
-                'connection_active': bool(connection_active),
-                'mode': effective_mode,
-                'source': source,
-                'using_env_fallback': bool(using_env_fallback),
-                'using_legacy_fallback': bool(using_legacy_fallback),
-                'use_mock_data': effective_mode == 'mock'
-            }
-        })
-    # POST
-    data = get_json_payload()
-    if not data:
-        return jsonify({'success': False, 'error': 'Payload invalido'}), 400
-    client_id_payload = data.get('client_id') if 'client_id' in data else None
-    client_secret_payload = data.get('client_secret') if 'client_secret' in data else None
-    merchants_payload = data.get('merchants') if 'merchants' in data else None
-
-    client_id_update = client_id_payload if isinstance(client_id_payload, str) and client_id_payload.strip() else None
-    client_secret_update = None
-    if isinstance(client_secret_payload, str) and client_secret_payload.strip() and client_secret_payload != '****':
-        client_secret_update = client_secret_payload.strip()
-
-    db.update_org_ifood_config(
-        org_id,
-        client_id=client_id_update,
-        client_secret=client_secret_update,
-        merchants=merchants_payload
-    )
-    db.log_action('org.ifood_config_updated', org_id=org_id, user_id=session['user']['id'], ip_address=request.remote_addr)
-    # Reinitialize this org's API connection
-    api = _init_org_ifood(org_id)
-    if api:
-        _load_org_restaurants(org_id)
-    return jsonify({'success': True, 'connection_active': bool(api), 'restaurant_count': len(ORG_DATA.get(org_id, {}).get('restaurants') or [])})
-
-
-@app.route('/api/org/invite', methods=['POST'])
-@login_required
-@org_owner_required
-@rate_limit(limit=20, window_seconds=3600, scope='org_invite')
-def api_create_invite():
-    """Create a team invite"""
-    org_id = get_current_org_id()
-    if not org_id: return jsonify({'success': False}), 403
-    data = get_json_payload()
-    if not data:
-        return jsonify({'success': False, 'error': 'Payload invalido'}), 400
-    email = (data.get('email') or '').strip().lower()
-    role = (data.get('role') or 'viewer').strip().lower()
-    if role not in ('viewer', 'admin'):
-        return jsonify({'success': False, 'error': 'Invalid role'}), 400
-    if not email: return jsonify({'success': False, 'error': 'Email obrigatorio'}), 400
-    token = db.create_invite(org_id, email, role, session['user']['id'])
-    if not token: return jsonify({'success': False, 'error': 'Limite de membros atingido'}), 400
-    invite_url = f"{get_public_base_url()}/invite/{token}"
-    db.log_action('org.member_invited', org_id=org_id, user_id=session['user']['id'], details={'email': email, 'role': role}, ip_address=request.remote_addr)
-    return jsonify({'success': True, 'invite_url': invite_url, 'token': token})
-
-
-@app.route('/api/invite/<token>/accept', methods=['POST'])
-@login_required
-@rate_limit(limit=20, window_seconds=3600, scope='invite_accept')
-def api_accept_invite(token):
-    """Accept a team invite"""
-    result = db.accept_invite(token, session['user']['id'])
-    if not result or not result.get('success'):
-        code = (result or {}).get('error')
-        if code == 'invite_email_mismatch':
-            return jsonify({'success': False, 'error': 'Este convite pertence a outro e-mail'}), 403
-        if code == 'invite_already_accepted':
-            return jsonify({'success': False, 'error': 'Convite já foi utilizado'}), 409
-        return jsonify({'success': False, 'error': 'Convite inválido ou expirado'}), 400
-    session['org_id'] = result['org_id']
-    return jsonify({'success': True, 'org_id': result['org_id'], 'redirect': '/dashboard'})
-
-
-@app.route('/api/plans')
-def api_get_plans():
-    """Get available subscription plans"""
-    include_free = str(request.args.get('include_free', '')).lower() in ('1', 'true', 'yes')
-    plans = db.list_active_plans(include_free=include_free)
-    if not plans:
-        return jsonify({'success': True, 'plans': []})
-    return jsonify({'success': True, 'plans': [enrich_plan_payload(p) for p in plans]})
-
-
-@app.route('/api/org/subscription')
-@login_required
-def api_get_org_subscription():
-    """Return current org subscription details, usage and available plans."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    current_subscription = db.get_org_subscription(org_id)
-    plan_options = []
-
-    user_limit = db.check_user_limit(org_id)
-    restaurant_limit = db.check_restaurant_limit(org_id)
-
-    for plan in db.list_active_plans(include_free=False):
-        plan_payload = enrich_plan_payload(plan)
-        users_ok = int(user_limit.get('current') or 0) <= int(plan_payload.get('max_users') or 0)
-        restaurants_ok = int(restaurant_limit.get('current') or 0) <= int(plan_payload.get('max_restaurants') or 0)
-        plan_payload['eligible'] = bool(users_ok and restaurants_ok)
-        plan_payload['eligibility'] = {
-            'users_ok': users_ok,
-            'restaurants_ok': restaurants_ok
-        }
-        plan_options.append(plan_payload)
-
-    history = db.list_org_subscription_history(org_id, limit=12)
-
-    return jsonify({
-        'success': True,
-        'subscription': current_subscription,
-        'plans': plan_options,
-        'usage': {
-            'users': user_limit,
-            'restaurants': restaurant_limit
-        },
-        'history': history
-    })
-
-
-@app.route('/api/org/subscription', methods=['POST'])
-@login_required
-@org_owner_required
-def api_change_org_subscription():
-    """Change current organization plan and persist a subscription record."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    data = get_json_payload()
-    target_plan = (data.get('plan') or '').strip().lower()
-    if not target_plan:
-        return jsonify({'success': False, 'error': 'plan is required'}), 400
-
-    if target_plan not in PLAN_CATALOG_UI:
-        return jsonify({'success': False, 'error': 'Unsupported plan'}), 400
-
-    reason = (data.get('reason') or 'admin_portal').strip()[:120]
-    change = db.change_org_plan(org_id, target_plan, changed_by=session['user']['id'], reason=reason)
-    if not change.get('success'):
-        status = 409 if str(change.get('error', '')).endswith('_limit_exceeded') else 400
-        return jsonify(change), status
-
-    session['org_plan'] = target_plan
-    db.log_action(
-        'org.plan_changed',
-        org_id=org_id,
-        user_id=session['user']['id'],
-        details={
-            'target_plan': target_plan,
-            'previous_plan': change.get('previous_plan'),
-            'reason': reason,
-            'usage': change.get('usage', {})
-        },
-        ip_address=request.remote_addr
-    )
-
-    return jsonify({
-        'success': True,
-        'change': change,
-        'subscription': db.get_org_subscription(org_id),
-        'organization': db.get_org_details(org_id)
-    })
-
-
-@app.route('/api/org/limits')
-@login_required
-def api_org_limits():
-    """Get current org usage vs limits"""
-    org_id = get_current_org_id()
-    if not org_id: return jsonify({'success': False}), 403
-    limits = db.check_restaurant_limit(org_id)
-    details = db.get_org_details(org_id)
-    return jsonify({'success': True, 'restaurants': limits, 'plan': details.get('plan') if details else 'free', 'plan_display': details.get('plan_display') if details else 'Gratuito'})
-
-
-@app.route('/api/org/users')
-@login_required
-def api_org_users():
-    """Get users in current org"""
-    org_id = get_current_org_id()
-    if not org_id: return jsonify({'success': False}), 403
-    users = db.get_org_users(org_id)
-    return jsonify({'success': True, 'users': users})
-
-
-@app.route('/api/org/users/candidates')
-@login_required
-@org_owner_required
-def api_org_user_candidates():
-    """List users that are not yet members of the current org."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-    users = db.list_users_not_in_org(org_id)
-    return jsonify({'success': True, 'users': users})
-
-
-@app.route('/api/org/users/assign', methods=['POST'])
-@login_required
-@org_owner_required
-def api_org_user_assign():
-    """Assign an existing user to the current organization."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    data = get_json_payload()
-    user_id = data.get('user_id')
-    if isinstance(user_id, str) and user_id.strip().isdigit():
-        user_id = int(user_id.strip())
-    org_role = (data.get('org_role') or 'viewer').strip().lower()
-
-    if not isinstance(user_id, int):
-        return jsonify({'success': False, 'error': 'user_id is required'}), 400
-
-    result = db.assign_user_to_org(org_id, user_id, org_role)
-    if not result.get('success'):
-        code = str(result.get('error') or '')
-        if code in ('user_not_found', 'org_not_found'):
-            status = 404
-        elif code in ('already_member', 'user_limit_exceeded'):
-            status = 409
-        else:
-            status = 400
-        return jsonify(result), status
-
-    db.log_action(
-        'org.member_assigned',
-        org_id=org_id,
-        user_id=session['user']['id'],
-        details={'assigned_user_id': user_id, 'org_role': result.get('org_role')},
-        ip_address=request.remote_addr
-    )
-    return jsonify({'success': True, 'user_id': user_id, 'org_role': result.get('org_role')})
-
-
-@app.route('/api/org/users/<int:user_id>/role', methods=['PATCH'])
-@login_required
-@org_owner_required
-def api_org_user_role_update(user_id):
-    """Update a member role inside current organization."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    data = get_json_payload()
-    org_role = (data.get('org_role') or '').strip().lower()
-    if not org_role:
-        return jsonify({'success': False, 'error': 'org_role is required'}), 400
-
-    result = db.update_org_member_role(
-        org_id,
-        user_id,
-        org_role,
-        acting_user_id=session.get('user', {}).get('id')
-    )
-    if not result.get('success'):
-        code = str(result.get('error') or '')
-        if code == 'admin_cannot_self_promote_to_owner':
-            return jsonify({
-                'success': False,
-                'error': 'Admins cannot promote themselves to owner'
-            }), 403
-        status = 404 if code == 'member_not_found' else 400
-        return jsonify(result), status
-
-    db.log_action(
-        'org.member_role_updated',
-        org_id=org_id,
-        user_id=session['user']['id'],
-        details={'target_user_id': user_id, 'org_role': result.get('org_role')},
-        ip_address=request.remote_addr
-    )
-    return jsonify({'success': True, 'user_id': user_id, 'org_role': result.get('org_role')})
-
-
-@app.route('/api/org/users/<int:user_id>', methods=['DELETE'])
-@login_required
-@org_owner_required
-def api_org_user_remove(user_id):
-    """Remove a user from current organization (keeps account intact)."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    if session.get('user', {}).get('id') == user_id:
-        return jsonify({'success': False, 'error': 'Cannot remove your own membership from active org'}), 400
-
-    result = db.remove_user_from_org(org_id, user_id)
-    if not result.get('success'):
-        code = str(result.get('error') or '')
-        status = 404 if code == 'member_not_found' else 400
-        return jsonify(result), status
-
-    db.log_action(
-        'org.member_removed',
-        org_id=org_id,
-        user_id=session['user']['id'],
-        details={'removed_user_id': user_id},
-        ip_address=request.remote_addr
-    )
-    return jsonify({'success': True, 'user_id': user_id})
-
-
-@app.route('/api/org/capabilities')
-@login_required
-def api_org_capabilities():
-    """Get tenant plan, enabled features and usage health."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False}), 403
-
-    details = db.get_org_details(org_id) or {}
-    features = details.get('features') or []
-    if isinstance(features, str):
-        try:
-            features = json.loads(features)
-        except Exception:
-            features = []
-
-    restaurant_limit = db.check_restaurant_limit(org_id)
-    users = db.get_org_users(org_id)
-    user_count = len(users)
-    max_users = int(details.get('max_users') or 0)
-    restaurant_current = int(restaurant_limit.get('current') or 0)
-    restaurant_max = int(restaurant_limit.get('max') or 0)
-
-    users_pct = (user_count / max_users * 100) if max_users > 0 else 0
-    restaurants_pct = (restaurant_current / restaurant_max * 100) if restaurant_max > 0 else 0
-    near_limit = users_pct >= 80 or restaurants_pct >= 80
-
-    return jsonify({
-        'success': True,
-        'plan': details.get('plan', 'free'),
-        'plan_display': details.get('plan_display', 'Gratuito'),
-        'subscription': db.get_org_subscription(org_id),
-        'features': features,
-        'limits': {
-            'users': {
-                'current': user_count,
-                'max': max_users,
-                'usage_pct': round(users_pct, 1)
-            },
-            'restaurants': {
-                'current': restaurant_current,
-                'max': restaurant_max,
-                'usage_pct': round(restaurants_pct, 1)
-            }
-        },
-        'health': {
-            'near_limit': near_limit,
-            'users_near_limit': users_pct >= 80,
-            'restaurants_near_limit': restaurants_pct >= 80
-        }
-    })
 
 
 @app.route('/api/onboarding', methods=['GET'])
@@ -4532,77 +3966,6 @@ def api_data_quality():
     payload['last_refresh'] = last_refresh.isoformat() if isinstance(last_refresh, datetime) else None
     return jsonify({'success': True, 'quality': payload})
 
-
-@app.route('/api/ops/summary')
-@platform_admin_required
-def api_ops_summary():
-    """Operations summary for Railway/production diagnostics."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    refresh_payload = get_refresh_status()
-    redis_client = get_redis_client()
-    queue_depth = 0
-    lock_present = False
-    redis_ok = bool(redis_client)
-    if redis_client:
-        try:
-            queue_depth = int(redis_client.llen(REDIS_REFRESH_QUEUE) or 0)
-            lock_present = bool(redis_client.get(REDIS_REFRESH_LOCK_KEY))
-        except Exception:
-            redis_ok = False
-            queue_depth = 0
-            lock_present = False
-
-    org_details = db.get_org_details(org_id) or {}
-    last_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') or LAST_DATA_REFRESH
-    restaurants = get_current_org_restaurants()
-    quality = build_data_quality_payload(restaurants, reference_last_refresh=last_refresh).get('summary', {})
-
-    return jsonify({
-        'success': True,
-        'ops': {
-            'instance_id': REDIS_INSTANCE_ID,
-            'uptime_seconds': int((datetime.utcnow() - APP_STARTED_AT).total_seconds()),
-            'started_at': APP_STARTED_AT.isoformat(),
-            'org': {
-                'id': org_id,
-                'name': org_details.get('name'),
-                'plan': org_details.get('plan'),
-                'plan_display': org_details.get('plan_display')
-            },
-            'refresh': {
-                'status': refresh_payload.get('status'),
-                'payload': refresh_payload,
-                'last_refresh': last_refresh.isoformat() if isinstance(last_refresh, datetime) else None,
-                'is_refreshing_local': bool(bg_refresher.is_refreshing)
-            },
-            'queue': {
-                'enabled': bool(USE_REDIS_QUEUE),
-                'redis_connected': redis_ok,
-                'pending_jobs': queue_depth,
-                'lock_present': lock_present
-            },
-            'cache': {
-                'redis_cache_enabled': bool(USE_REDIS_CACHE),
-                'local_keys': len(_api_cache)
-            },
-            'realtime': {
-                'redis_pubsub_enabled': bool(USE_REDIS_PUBSUB),
-                'connected_clients': sse_manager.client_count
-            },
-            'stores': {
-                'count': len(restaurants),
-                'quality': quality
-            }
-        }
-    })
-
-
-# ============================================================================
-# API ROUTES - SAVED VIEWS
-# ============================================================================
 
 @app.route('/api/saved-views', methods=['GET'])
 @login_required
@@ -4739,802 +4102,6 @@ def api_saved_view_share_resolve(token):
 # API ROUTES - RESTAURANT DATA
 # ============================================================================
 
-@app.route('/api/restaurants')
-@login_required
-def api_restaurants():
-    """Get list of all restaurants with optional month filtering and squad-based access control"""
-    try:
-        def to_bool_flag(value):
-            if isinstance(value, bool):
-                return value
-            if isinstance(value, (int, float)):
-                return value != 0
-            if isinstance(value, str):
-                return value.strip().lower() in ('1', 'true', 'yes', 'y', 'sim')
-            return False
-
-        def get_super_flag(record):
-            return (
-                to_bool_flag(record.get('isSuperRestaurant'))
-                or to_bool_flag(record.get('isSuper'))
-                or to_bool_flag(record.get('super'))
-            )
-
-        def normalize_closure(record, api_client=None):
-            if not isinstance(record, dict):
-                return {
-                    'is_closed': False,
-                    'closure_reason': None,
-                    'closed_until': None,
-                    'active_interruptions_count': 0
-                }
-
-            is_closed = to_bool_flag(record.get('is_closed')) or to_bool_flag(record.get('isClosed'))
-            reason = record.get('closure_reason') or record.get('closureReason')
-            closed_until = record.get('closed_until') or record.get('closedUntil')
-            try:
-                active_interruptions = int(record.get('active_interruptions_count') or record.get('activeInterruptionsCount') or 0)
-            except Exception:
-                active_interruptions = 0
-
-            has_explicit_closure_fields = any(
-                key in record
-                for key in (
-                    'is_closed',
-                    'isClosed',
-                    'closure_reason',
-                    'closureReason',
-                    'closed_until',
-                    'closedUntil',
-                    'active_interruptions_count',
-                    'activeInterruptionsCount'
-                )
-            )
-
-            status_field = record.get('status')
-            state_candidates = [record.get('state'), record.get('operational_status')]
-            status_message = ''
-            if isinstance(status_field, dict):
-                state_candidates.append(status_field.get('state') or status_field.get('status'))
-                status_message = _extract_status_message_text(
-                    status_field.get('message') or status_field.get('description')
-                )
-                if not reason:
-                    reason = status_message or reason
-            elif isinstance(status_field, str):
-                state_candidates.append(status_field)
-
-            state_raw = ' '.join(str(v or '') for v in state_candidates).strip().lower()
-            if not has_explicit_closure_fields and not is_closed and state_raw:
-                if any(token in state_raw for token in ('closed', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
-                    is_closed = True
-
-            message_text = str(status_message or '').strip().lower()
-            if not has_explicit_closure_fields and not is_closed and message_text:
-                if any(token in message_text for token in ('closed', 'offline', 'unavailable', 'paused', 'stopped', 'fechad', 'indispon')):
-                    is_closed = True
-
-            if active_interruptions > 0:
-                is_closed = True
-
-            # Backfill stale cached records that predate closure fields.
-            if not has_explicit_closure_fields and api_client and record.get('id'):
-                fetched = detect_restaurant_closure(api_client, record.get('id'))
-                if isinstance(fetched, dict):
-                    is_closed = to_bool_flag(fetched.get('is_closed')) or is_closed
-                    reason = fetched.get('closure_reason') or reason
-                    closed_until = fetched.get('closed_until') or closed_until
-                    try:
-                        active_interruptions = int(fetched.get('active_interruptions_count') or active_interruptions or 0)
-                    except Exception:
-                        pass
-                    if active_interruptions > 0:
-                        is_closed = True
-
-            if not is_closed:
-                reason = None
-                closed_until = None
-
-            return {
-                'is_closed': bool(is_closed),
-                'closure_reason': reason,
-                'closed_until': closed_until,
-                'active_interruptions_count': int(active_interruptions or 0)
-            }
-
-        # Get month filter from query parameters
-        month_filter = parse_month_filter(request.args.get('month', 'all'))
-        if month_filter is None:
-            return jsonify({'success': False, 'error': 'Invalid month filter'}), 400
-        
-        # Check in-memory cache first (avoids re-processing orders every request)
-        org_id = get_current_org_id()
-        cached = get_cached_restaurants(org_id, month_filter)
-        if cached:
-            cached_restaurants = cached.get('restaurants') if isinstance(cached, dict) else None
-            has_closure_payload = True
-            if isinstance(cached_restaurants, list):
-                for store in cached_restaurants:
-                    if not isinstance(store, dict):
-                        continue
-                    if (
-                        'is_closed' not in store
-                        and 'isClosed' not in store
-                        and 'closure_reason' not in store
-                        and 'active_interruptions_count' not in store
-                        and 'activeInterruptionsCount' not in store
-                    ):
-                        has_closure_payload = False
-                        break
-            if has_closure_payload:
-                return jsonify(cached)
-            # Drop stale cache entries that predate closure indicators.
-            invalidate_cache(org_id)
-        
-        # Get user's allowed restaurants based on squad membership
-        user = session.get('user', {})
-        allowed_ids = get_user_allowed_restaurant_ids(user.get('id'), user.get('role'))
-        org_last_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') if org_id else LAST_DATA_REFRESH
-        org_api = ORG_DATA.get(org_id, {}).get('api') if org_id else IFOOD_API
-        
-        # Return data without internal caches
-        restaurants = []
-        for r in get_current_org_restaurants():
-            # Skip if user doesn't have access to this restaurant (squad filtering)
-            if allowed_ids is not None and r['id'] not in allowed_ids:
-                continue
-            merchant_lookup_id = (
-                r.get('_resolved_merchant_id')
-                or r.get('merchant_id')
-                or r.get('merchantId')
-                or r.get('id')
-            )
-
-            # Always hydrate raw orders when cache is missing.
-            # This prevents "all months" from serving stale snapshot-only metrics.
-            if not (r.get('_orders_cache') or []):
-                hydrated_orders = ensure_restaurant_orders_cache(r, merchant_lookup_id)
-                if hydrated_orders:
-                    resolved_lookup_id = (
-                        r.get('_resolved_merchant_id')
-                        or r.get('merchant_id')
-                        or r.get('merchantId')
-                        or merchant_lookup_id
-                    )
-                    try:
-                        merchant_details = {
-                            'id': resolved_lookup_id,
-                            'name': r.get('name', 'Unknown Restaurant'),
-                            'merchantManager': {'name': r.get('manager', 'Gerente')},
-                            'address': {'neighborhood': r.get('neighborhood', 'Centro')},
-                            'isSuperRestaurant': get_super_flag(r),
-                        }
-                        refreshed = IFoodDataProcessor.process_restaurant_data(
-                            merchant_details,
-                            hydrated_orders,
-                            None
-                        )
-                        refreshed['name'] = r.get('name', refreshed.get('name'))
-                        refreshed['manager'] = r.get('manager', refreshed.get('manager'))
-                        refreshed['merchant_id'] = resolved_lookup_id
-                        for key, value in (refreshed or {}).items():
-                            if not str(key).startswith('_'):
-                                r[key] = value
-                    except Exception:
-                        pass
-            merchant_lookup_id = (
-                r.get('_resolved_merchant_id')
-                or r.get('merchant_id')
-                or r.get('merchantId')
-                or merchant_lookup_id
-            )
-            is_super = get_super_flag(r)
-            closure = normalize_closure(r, api_client=org_api)
-            # Persist normalized closure fields in-memory for subsequent requests.
-            r['is_closed'] = bool(closure.get('is_closed'))
-            r['closure_reason'] = closure.get('closure_reason')
-            r['closed_until'] = closure.get('closed_until')
-            r['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
-            
-            # If month filter is specified, reprocess with filtered orders
-            if month_filter != 'all':
-                # Get cached orders
-                orders = ensure_restaurant_orders_cache(
-                    r,
-                    merchant_lookup_id
-                )
-                
-                # Filter orders by month
-                filtered_orders = filter_orders_by_month(orders, month_filter)
-                
-                # Reprocess restaurant data with filtered orders
-                if filtered_orders or month_filter != 'all':
-                    restaurant_name = r.get('name', 'Unknown Restaurant')
-                    restaurant_manager = r.get('manager', 'Gerente')
-                    # Get merchant details (reconstruct basic structure)
-                    merchant_details = {
-                        'id': r['id'],
-                        'name': restaurant_name,
-                        'merchantManager': {'name': restaurant_manager},
-                        'address': {'neighborhood': r.get('neighborhood', 'Centro')},
-                        'isSuperRestaurant': is_super,
-                    }
-                    
-                    # Reprocess with filtered orders
-                    restaurant_data = IFoodDataProcessor.process_restaurant_data(
-                        merchant_details,
-                        filtered_orders,
-                        None
-                    )
-                    
-                    # Keep original name and manager
-                    restaurant_data['name'] = restaurant_name
-                    restaurant_data['manager'] = restaurant_manager
-                    restaurant_data['isSuperRestaurant'] = is_super
-                    restaurant_data['isSuper'] = is_super
-                    restaurant_data['super'] = is_super
-                    restaurant_data['is_closed'] = bool(closure.get('is_closed'))
-                    restaurant_data['closure_reason'] = closure.get('closure_reason')
-                    restaurant_data['closed_until'] = closure.get('closed_until')
-                    restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
-                    
-                    # Remove internal caches before sending
-                    restaurant = {k: v for k, v in restaurant_data.items() if not k.startswith('_')}
-                    restaurant['quality'] = evaluate_restaurant_quality(r, reference_last_refresh=org_last_refresh)
-                    restaurants.append(restaurant)
-                else:
-                    # No orders for this month, return empty metrics
-                    restaurant = {k: v for k, v in r.items() if not k.startswith('_')}
-                    restaurant['isSuperRestaurant'] = is_super
-                    restaurant['isSuper'] = is_super
-                    restaurant['super'] = is_super
-                    if isinstance(restaurant.get('metrics'), dict):
-                        # Avoid mutating the shared in-memory metrics dict.
-                        restaurant['metrics'] = copy.deepcopy(restaurant.get('metrics') or {})
-                    # Reset metrics to zero
-                    if 'metrics' in restaurant:
-                        for key in restaurant['metrics']:
-                            if isinstance(restaurant['metrics'][key], (int, float)):
-                                restaurant['metrics'][key] = 0
-                            elif isinstance(restaurant['metrics'][key], dict):
-                                for subkey in restaurant['metrics'][key]:
-                                    restaurant['metrics'][key][subkey] = 0
-                    restaurant['revenue'] = 0
-                    restaurant['orders'] = 0
-                    restaurant['ticket'] = 0
-                    restaurant['trend'] = 0
-                    restaurant['quality'] = evaluate_restaurant_quality(r, reference_last_refresh=org_last_refresh)
-                    restaurants.append(restaurant)
-            else:
-                # No filter, return all data
-                restaurant = {k: v for k, v in r.items() if not k.startswith('_')}
-                restaurant['isSuperRestaurant'] = is_super
-                restaurant['isSuper'] = is_super
-                restaurant['super'] = is_super
-                restaurant['quality'] = evaluate_restaurant_quality(r, reference_last_refresh=org_last_refresh)
-                restaurants.append(restaurant)
-        
-        org_id = get_current_org_id()
-        org_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') if org_id else None
-        quality_summary = {'store_count': len(restaurants), 'average_score': 100.0, 'poor_count': 0, 'warning_count': 0, 'good_count': 0, 'issue_buckets': {}}
-        if restaurants:
-            score_sum = 0
-            for store in restaurants:
-                q = store.get('quality') or {}
-                score_sum += float(q.get('score') or 0)
-                status = q.get('status')
-                if status == 'poor':
-                    quality_summary['poor_count'] += 1
-                elif status == 'warning':
-                    quality_summary['warning_count'] += 1
-                else:
-                    quality_summary['good_count'] += 1
-                for issue in (q.get('issues') or []):
-                    code = issue.get('code', 'unknown')
-                    quality_summary['issue_buckets'][code] = quality_summary['issue_buckets'].get(code, 0) + 1
-            quality_summary['average_score'] = round(score_sum / len(restaurants), 1)
-        
-        result = {
-            'success': True,
-            'restaurants': restaurants,
-            'last_refresh': (org_refresh or LAST_DATA_REFRESH).isoformat() if (org_refresh or LAST_DATA_REFRESH) else None,
-            'month_filter': month_filter,
-            'data_quality': quality_summary
-        }
-        
-        # Cache the processed result
-        set_cached_restaurants(org_id, month_filter, result)
-        
-        return jsonify(result)
-    except Exception as e:
-        print(f"Error getting restaurants: {e}")
-        import traceback
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-
-@app.route('/api/restaurant/<restaurant_id>')
-@login_required
-def api_restaurant_detail(restaurant_id):
-    """Get detailed data for a specific restaurant with optional date filtering"""
-    try:
-        # Get date filter parameters
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        
-        # Find restaurant in org data (supports alias IDs).
-        restaurant = find_restaurant_by_identifier(restaurant_id)
-        
-        if not restaurant:
-            return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
-
-        merchant_lookup_id = (
-            restaurant.get('_resolved_merchant_id')
-            or restaurant.get('merchant_id')
-            or restaurant.get('merchantId')
-            or restaurant_id
-        )
-        
-        # Ensure orders cache is present even when loaded from DB snapshots.
-        all_orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id)
-        merchant_lookup_id = (
-            restaurant.get('_resolved_merchant_id')
-            or restaurant.get('merchant_id')
-            or restaurant.get('merchantId')
-            or merchant_lookup_id
-        )
-        
-        # Filter orders by date range if provided
-        filtered_orders = all_orders
-        if start_date or end_date:
-            filtered_orders = []
-            for order in all_orders:
-                try:
-                    order_date_str = normalize_order_payload(order).get('createdAt', '')
-                    if order_date_str:
-                        # Parse order date
-                        order_date = datetime.fromisoformat(order_date_str.replace('Z', '+00:00')).date()
-                        
-                        # Check date range
-                        include_order = True
-                        if start_date:
-                            start = datetime.strptime(start_date, '%Y-%m-%d').date()
-                            if order_date < start:
-                                include_order = False
-                        if end_date:
-                            end = datetime.strptime(end_date, '%Y-%m-%d').date()
-                            if order_date > end:
-                                include_order = False
-                        
-                        if include_order:
-                            filtered_orders.append(order)
-                except:
-                    continue
-        
-        metrics_snapshot = restaurant.get('metrics') if isinstance(restaurant.get('metrics'), dict) else {}
-        try:
-            snapshot_orders_total = int(
-                (metrics_snapshot or {}).get('total_pedidos')
-                or (metrics_snapshot or {}).get('vendas')
-                or restaurant.get('orders')
-                or 0
-            )
-        except Exception:
-            snapshot_orders_total = 0
-        try:
-            snapshot_revenue_total = float(
-                (metrics_snapshot or {}).get('liquido')
-                or (metrics_snapshot or {}).get('valor_bruto')
-                or restaurant.get('revenue')
-                or 0
-            )
-        except Exception:
-            snapshot_revenue_total = 0.0
-        has_snapshot_totals = (snapshot_orders_total > 0) or (snapshot_revenue_total > 0)
-
-        # Reprocess restaurant data with filtered orders if date filtering is applied.
-        # If raw order cache is unavailable but snapshot metrics exist, keep snapshot metrics
-        # instead of forcing a misleading all-zero payload.
-        if start_date or end_date:
-            if not filtered_orders and not all_orders and has_snapshot_totals:
-                response_data = {k: v for k, v in restaurant.items() if not k.startswith('_')}
-            else:
-                # Get merchant details
-                merchant_details = {
-                    'id': merchant_lookup_id,
-                    'name': restaurant.get('name', 'Unknown'),
-                    'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
-                }
-                
-                # Reprocess with filtered orders
-                response_data = IFoodDataProcessor.process_restaurant_data(
-                    merchant_details,
-                    filtered_orders,
-                    None
-                )
-                
-                # Keep original name and manager
-                response_data['name'] = restaurant['name']
-                response_data['manager'] = restaurant['manager']
-        else:
-            # No explicit filter: prefer recalculating from cached orders when available.
-            if all_orders:
-                merchant_details = {
-                    'id': merchant_lookup_id,
-                    'name': restaurant.get('name', 'Unknown'),
-                    'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
-                }
-                response_data = IFoodDataProcessor.process_restaurant_data(
-                    merchant_details,
-                    all_orders,
-                    None
-                )
-                response_data['name'] = restaurant.get('name', response_data.get('name'))
-                response_data['manager'] = restaurant.get('manager', response_data.get('manager'))
-                for closure_key in ('is_closed', 'closure_reason', 'closed_until', 'active_interruptions_count'):
-                    if closure_key in restaurant:
-                        response_data[closure_key] = restaurant.get(closure_key)
-            else:
-                # Clean data for response (no date filtering)
-                response_data = {k: v for k, v in restaurant.items() if not k.startswith('_')}
-        
-        # Generate chart data from filtered orders
-        chart_data = {}
-        interruptions = []
-        
-        api = get_resilient_api_client()
-        if api:
-            # Get interruptions
-            try:
-                interruptions = api.get_interruptions(merchant_lookup_id) or []
-            except:
-                pass
-        
-        # Generate charts from filtered orders
-        orders_for_charts = filtered_orders if (start_date or end_date) else all_orders
-        top_n = request.args.get('top_n', default=10, type=int)
-        top_n = max(1, min(top_n or 10, 50))
-        menu_performance = IFoodDataProcessor.calculate_menu_item_performance(orders_for_charts, top_n=top_n)
-
-        if orders_for_charts:
-            if hasattr(IFoodDataProcessor, 'generate_charts_data_with_interruptions'):
-                chart_data = IFoodDataProcessor.generate_charts_data_with_interruptions(
-                    orders_for_charts,
-                    interruptions
-                )
-            else:
-                chart_data = IFoodDataProcessor.generate_charts_data(orders_for_charts)
-                chart_data['interruptions'] = []
-        
-        # Extract reviews from orders
-        reviews_list = []
-        rating_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        for order in orders_for_charts:
-            fb = order.get('feedback')
-            if fb and fb.get('rating'):
-                r = fb['rating']
-                if r in rating_counts:
-                    rating_counts[r] += 1
-                reviews_list.append({
-                    'rating': r,
-                    'comment': fb.get('comment'),
-                    'compliments': fb.get('compliments', []),
-                    'complaints': fb.get('complaints', []),
-                    'customer_name': order.get('customer', {}).get('name', 'Cliente'),
-                    'date': order.get('createdAt'),
-                    'order_id': order.get('displayId', order.get('id', ''))
-                })
-
-        total_reviews = sum(rating_counts.values())
-        avg_review_rating = round(
-            sum(k * v for k, v in rating_counts.items()) / total_reviews, 1
-        ) if total_reviews else 0
-
-        return jsonify({
-            'success': True,
-            'restaurant': response_data,
-            'charts': chart_data,
-            'menu_performance': menu_performance,
-            'interruptions': interruptions,
-            'reviews': {
-                'average_rating': avg_review_rating,
-                'total_reviews': total_reviews,
-                'rating_distribution': rating_counts,
-                'items': sorted(reviews_list, key=lambda x: x['date'] or '', reverse=True)
-            },
-            'filter': {
-                'start_date': start_date,
-                'end_date': end_date,
-                'total_orders_filtered': len(filtered_orders) if (start_date or end_date) else len(all_orders)
-            }
-        })
-
-    except Exception as e:
-        print(f"Error getting restaurant detail: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-@app.route('/api/restaurant/<restaurant_id>/orders')
-@login_required
-def api_restaurant_orders(restaurant_id):
-    """Get orders for a specific restaurant"""
-    try:
-        # Find restaurant (supports alias IDs).
-        restaurant = find_restaurant_by_identifier(restaurant_id)
-        
-        if not restaurant:
-            return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
-
-        merchant_lookup_id = (
-            restaurant.get('_resolved_merchant_id')
-            or restaurant.get('merchant_id')
-            or restaurant.get('merchantId')
-            or restaurant_id
-        )
-        
-        # Get parameters
-        try:
-            per_page = int(request.args.get('per_page', 100))
-            page = int(request.args.get('page', 1))
-        except ValueError:
-            return jsonify({'success': False, 'error': 'Invalid pagination parameters'}), 400
-
-        per_page = max(1, min(per_page, 500))
-        page = max(1, page)
-        status = request.args.get('status')
-        
-        # Ensure order cache is present (DB cache snapshots may not include raw orders).
-        orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id)
-        merchant_lookup_id = (
-            restaurant.get('_resolved_merchant_id')
-            or restaurant.get('merchant_id')
-            or restaurant.get('merchantId')
-            or merchant_lookup_id
-        )
-        
-        # Filter by status if provided
-        if status:
-            wanted_status = normalize_order_status_value(status)
-            orders = [o for o in orders if get_order_status(o) == wanted_status]
-        
-        # Paginate
-        start_idx = (page - 1) * per_page
-        end_idx = start_idx + per_page
-        paginated_orders = orders[start_idx:end_idx]
-        
-        return jsonify({
-            'success': True,
-            'orders': paginated_orders,
-            'total': len(orders),
-            'page': page,
-            'per_page': per_page,
-            'total_pages': (len(orders) + per_page - 1) // per_page
-        })
-        
-    except Exception as e:
-        print(f"Error getting restaurant orders: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-@app.route('/api/restaurant/<restaurant_id>/menu-performance')
-@login_required
-def api_restaurant_menu_performance(restaurant_id):
-    """Get menu item performance for a specific restaurant."""
-    try:
-        restaurant = find_restaurant_by_identifier(restaurant_id)
-
-        if not restaurant:
-            return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
-
-        merchant_lookup_id = (
-            restaurant.get('_resolved_merchant_id')
-            or restaurant.get('merchant_id')
-            or restaurant.get('merchantId')
-            or restaurant_id
-        )
-
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        top_n = request.args.get('top_n', default=10, type=int)
-        top_n = max(1, min(top_n or 10, 50))
-
-        orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id)
-        merchant_lookup_id = (
-            restaurant.get('_resolved_merchant_id')
-            or restaurant.get('merchant_id')
-            or restaurant.get('merchantId')
-            or merchant_lookup_id
-        )
-        if start_date or end_date:
-            filtered = []
-            for order in orders:
-                try:
-                    created_at = order.get('createdAt', '')
-                    if not created_at:
-                        continue
-                    order_date = datetime.fromisoformat(str(created_at).replace('Z', '+00:00')).date()
-                    include_order = True
-                    if start_date:
-                        if order_date < datetime.strptime(start_date, '%Y-%m-%d').date():
-                            include_order = False
-                    if end_date:
-                        if order_date > datetime.strptime(end_date, '%Y-%m-%d').date():
-                            include_order = False
-                    if include_order:
-                        filtered.append(order)
-                except Exception:
-                    continue
-            orders = filtered
-
-        performance = IFoodDataProcessor.calculate_menu_item_performance(orders, top_n=top_n)
-        return jsonify({
-            'success': True,
-            'restaurant_id': merchant_lookup_id,
-            'menu_performance': performance,
-            'filter': {
-                'start_date': start_date,
-                'end_date': end_date,
-                'top_n': top_n,
-                'orders_considered': len(orders)
-            }
-        })
-    except Exception as e:
-        print(f"Error getting menu performance: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-
-
-
-# ============================================================================
-# API ROUTES - RESTAURANT INTERRUPTIONS
-# ============================================================================
-
-@app.route('/api/restaurant/<restaurant_id>/interruptions')
-@login_required
-def api_restaurant_interruptions(restaurant_id):
-    """Get interruptions for a specific restaurant"""
-    try:
-        api = get_resilient_api_client()
-        if not api:
-            return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-        restaurant = find_restaurant_by_identifier(restaurant_id)
-        merchant_lookup_id = (
-            (restaurant or {}).get('_resolved_merchant_id')
-            or (restaurant or {}).get('merchant_id')
-            or (restaurant or {}).get('merchantId')
-            or restaurant_id
-        )
-        
-        # Get interruptions
-        interruptions = api.get_interruptions(merchant_lookup_id)
-        
-        return jsonify({
-            'success': True,
-            'interruptions': interruptions or []
-        })
-        
-    except Exception as e:
-        print(f"Error getting interruptions: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-@app.route('/api/restaurant/<restaurant_id>/status')
-@login_required
-def api_restaurant_status(restaurant_id):
-    """Get operational status for a specific restaurant"""
-    try:
-        api = get_resilient_api_client()
-        if not api:
-            return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-        restaurant = find_restaurant_by_identifier(restaurant_id)
-        merchant_lookup_id = (
-            (restaurant or {}).get('_resolved_merchant_id')
-            or (restaurant or {}).get('merchant_id')
-            or (restaurant or {}).get('merchantId')
-            or restaurant_id
-        )
-        
-        # Get status
-        status = api.get_merchant_status(merchant_lookup_id)
-        
-        return jsonify({
-            'success': True,
-            'status': status or {'state': 'UNKNOWN', 'message': 'Unable to fetch status'}
-        })
-        
-    except Exception as e:
-        print(f"Error getting status: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-@app.route('/api/restaurant/<restaurant_id>/interruptions', methods=['POST'])
-@admin_required
-def api_create_interruption(restaurant_id):
-    """Create a new interruption (close store temporarily)"""
-    try:
-        api = get_resilient_api_client()
-        if not api:
-            return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-        restaurant = find_restaurant_by_identifier(restaurant_id)
-        merchant_lookup_id = (
-            (restaurant or {}).get('_resolved_merchant_id')
-            or (restaurant or {}).get('merchant_id')
-            or (restaurant or {}).get('merchantId')
-            or restaurant_id
-        )
-        
-        data = get_json_payload()
-        start = data.get('start')
-        end = data.get('end')
-        description = data.get('description', '')
-        
-        if not start or not end:
-            return jsonify({'success': False, 'error': 'Start and end times required'}), 400
-        
-        # Create interruption
-        result = api.create_interruption(merchant_lookup_id, start, end, description)
-        
-        if result:
-            return jsonify({
-                'success': True,
-                'interruption': result,
-                'message': 'Interruption created successfully'
-            })
-        else:
-            return jsonify({'success': False, 'error': 'Failed to create interruption'}), 500
-        
-    except Exception as e:
-        print(f"Error creating interruption: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-@app.route('/api/restaurant/<restaurant_id>/interruptions/<interruption_id>', methods=['DELETE'])
-@admin_required
-def api_delete_interruption(restaurant_id, interruption_id):
-    """Delete an interruption (reopen store)"""
-    try:
-        api = get_resilient_api_client()
-        if not api:
-            return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
-
-        restaurant = find_restaurant_by_identifier(restaurant_id)
-        merchant_lookup_id = (
-            (restaurant or {}).get('_resolved_merchant_id')
-            or (restaurant or {}).get('merchant_id')
-            or (restaurant or {}).get('merchantId')
-            or restaurant_id
-        )
-        
-        # Delete interruption
-        success = api.delete_interruption(merchant_lookup_id, interruption_id)
-        
-        if success:
-            return jsonify({
-                'success': True,
-                'message': 'Interruption removed successfully'
-            })
-        else:
-            return jsonify({'success': False, 'error': 'Failed to remove interruption'}), 500
-        
-    except Exception as e:
-        print(f"Error deleting interruption: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-
-
-
 @app.route('/api/refresh-data', methods=['POST'])
 @admin_required
 @rate_limit(limit=20, window_seconds=60, scope='refresh_data')
@@ -5547,7 +4114,7 @@ def api_refresh_data():
             if not current_org.get('api'):
                 _init_org_ifood(org_id)
 
-        has_org_api = any(od.get('api') for od in ORG_DATA.values())
+        has_org_api = any(od.get('api') for od in _org_data_values_snapshot())
         if not IFOOD_API and not has_org_api:
             return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
 
@@ -5631,11 +4198,12 @@ def api_refresh_status():
     """Get current refresh status and system info"""
     refresh_payload = get_refresh_status()
     refresh_status = refresh_payload.get('status')
+    last_refresh = get_current_org_last_refresh()
     return jsonify({
         'success': True,
         'is_refreshing': refresh_status in ('refreshing', 'queued'),
         'refresh_status': refresh_payload,
-        'last_refresh': get_current_org_last_refresh().isoformat() if get_current_org_last_refresh() else None,
+        'last_refresh': last_refresh.isoformat() if last_refresh else None,
         'restaurant_count': len(get_current_org_restaurants()),
         'connected_clients': sse_manager.client_count,
         'refresh_interval_minutes': IFOOD_CONFIG.get('refresh_interval_minutes', 30)
@@ -5649,10 +4217,17 @@ def api_dashboard_summary():
     month_filter = parse_month_filter(request.args.get('month', 'all'))
     if month_filter is None:
         return jsonify({'success': False, 'error': 'Invalid month filter'}), 400
+    org_id = get_current_org_id()
+    last_refresh = get_current_org_last_refresh()
+    last_refresh_iso = last_refresh.isoformat() if last_refresh else None
+    cached_payload = get_cached_dashboard_summary(org_id, month_filter, last_refresh_iso)
+    if cached_payload:
+        return jsonify(cached_payload)
+
     restaurants = []
     for r in get_current_org_restaurants():
         orders = r.get('_orders_cache', [])
-        if month_filter != 'all':
+        if month_filter != 0:
             orders = filter_orders_by_month(orders, month_filter)
         if not orders:
             continue
@@ -5665,8 +4240,10 @@ def api_dashboard_summary():
         restaurant_data['manager'] = r.get('manager', 'Gerente')
         restaurants.append(restaurant_data)
     summary = aggregate_dashboard_summary(restaurants)
-    summary['last_refresh'] = get_current_org_last_refresh().isoformat() if get_current_org_last_refresh() else None
-    return jsonify({'success': True, 'summary': summary, 'month_filter': month_filter})
+    summary['last_refresh'] = last_refresh_iso
+    payload = {'success': True, 'summary': summary, 'month_filter': month_filter_label(month_filter)}
+    set_cached_dashboard_summary(org_id, month_filter, last_refresh_iso, payload)
+    return jsonify(payload)
 
 
 @app.route('/api/health')
@@ -5676,12 +4253,13 @@ def api_health():
     ok = bool(conn)
     if conn:
         conn.close()
+    last_refresh = get_current_org_last_refresh()
     return jsonify({
         'success': ok,
         'status': 'ok' if ok else 'degraded',
         'uptime_seconds': int((datetime.utcnow() - APP_STARTED_AT).total_seconds()),
         'restaurants_loaded': len(get_current_org_restaurants()),
-        'last_refresh': get_current_org_last_refresh().isoformat() if get_current_org_last_refresh() else None
+        'last_refresh': last_refresh.isoformat() if last_refresh else None
     }), (200 if ok else 503)
 
 
@@ -5784,7 +4362,10 @@ def api_compare_periods():
         if restaurant_id == 'all':
             targets = get_current_org_restaurants()
         else:
-            targets = [r for r in get_current_org_restaurants() if r['id'] == restaurant_id]
+            targets = [
+                r for r in get_current_org_restaurants()
+                if str((r or {}).get('id') or '') == str(restaurant_id or '')
+            ]
             if not targets:
                 return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
         
@@ -5814,7 +4395,7 @@ def api_compare_periods():
                     }
             
             comparisons.append({
-                'restaurant_id': restaurant['id'],
+                'restaurant_id': restaurant.get('id'),
                 'restaurant_name': restaurant.get('name', 'Unknown'),
                 'period_a': metrics_a,
                 'period_b': metrics_b,
@@ -5893,7 +4474,7 @@ def api_daily_comparison():
                 all_orders.extend(r.get('_orders_cache', []))
         else:
             for r in get_current_org_restaurants():
-                if r['id'] == restaurant_id:
+                if str((r or {}).get('id') or '') == str(restaurant_id or ''):
                     all_orders = r.get('_orders_cache', [])
                     break
         
@@ -5909,6 +4490,8 @@ def api_daily_comparison():
             'period_b': {'start': period_b_start.strftime('%Y-%m-%d'), 'end': period_b_end.strftime('%Y-%m-%d'), 'daily': daily_b}
         })
         
+    except ValueError as e:
+        return jsonify({'success': False, 'error': f'Invalid date format: {e}'}), 400
     except Exception as e:
         print(f"Error in daily comparison: {e}")
         log_exception("request_exception", e)
@@ -5932,7 +4515,8 @@ def _filter_orders_by_date(orders, start_dt, end_dt):
                 order_date = datetime.fromisoformat(created.replace('Z', '+00:00')).date()
                 if start_d <= order_date <= end_d:
                     filtered.append(order)
-        except:
+        except Exception as filter_err:
+            logger.debug("Skipping order during date filter: %s", filter_err)
             continue
     return filtered
 
@@ -5989,7 +4573,8 @@ def _aggregate_daily(orders, start_dt, end_dt):
                         days[d]['orders'] += 1
                     elif status == 'CANCELLED':
                         days[d]['cancelled'] += 1
-        except:
+        except Exception as breakdown_err:
+            logger.debug("Skipping order during daily breakdown: %s", breakdown_err)
             continue
     
     # Round revenue
@@ -6379,7 +4964,7 @@ def api_cancel_restaurant():
         # Find restaurant
         restaurant = None
         for r in get_current_org_restaurants():
-            if r['id'] == restaurant_id:
+            if str((r or {}).get('id') or '') == str(restaurant_id or ''):
                 restaurant = r
                 break
         
@@ -6403,7 +4988,11 @@ def api_cancel_restaurant():
         CANCELLED_RESTAURANTS.append(cancelled_entry)
         
         # Remove from active restaurants
-        RESTAURANTS_DATA = [r for r in get_current_org_restaurants() if r['id'] != restaurant_id]
+        with _GLOBAL_STATE_LOCK:
+            RESTAURANTS_DATA = [
+                r for r in get_current_org_restaurants()
+                if str((r or {}).get('id') or '') != str(restaurant_id or '')
+            ]
         
         return jsonify({
             'success': True,
@@ -6638,7 +5227,8 @@ def api_delete_user(user_id):
             return jsonify({'success': False, 'error': 'Platform admin access required'}), 403
 
         # Prevent self-deletion
-        if session['user'].get('id') == user_id:
+        current_user_id = (session.get('user') or {}).get('id')
+        if str(current_user_id or '').strip() == str(user_id):
             return jsonify({
                 'success': False,
                 'error': 'Cannot delete your own account'
@@ -6687,13 +5277,69 @@ def api_delete_user(user_id):
 
 def _table_has_column(cursor, table_name, column_name):
     """Return True when a table has the requested column."""
+    columns = _get_table_columns(cursor, table_name)
+    return str(column_name or '').strip().lower() in columns
+
+
+def _get_table_columns(cursor, table_name):
+    """Return cached column names for a table (lower-case)."""
+    key = str(table_name or '').strip().lower()
+    if not key:
+        return set()
+
+    with _TABLE_COLUMNS_CACHE_LOCK:
+        cached = _TABLE_COLUMNS_CACHE.get(key)
+    if cached is not None:
+        return cached
+
     cursor.execute("""
-        SELECT 1
+        SELECT column_name
         FROM information_schema.columns
-        WHERE table_name = %s AND column_name = %s
-        LIMIT 1
-    """, (table_name, column_name))
-    return cursor.fetchone() is not None
+        WHERE table_name = %s
+    """, (key,))
+    columns = {str(row[0]).strip().lower() for row in (cursor.fetchall() or []) if row and row[0]}
+
+    with _TABLE_COLUMNS_CACHE_LOCK:
+        _TABLE_COLUMNS_CACHE[key] = columns
+    return columns
+
+
+def _clear_table_columns_cache(table_name=None):
+    """Clear schema cache for one table (or all tables)."""
+    with _TABLE_COLUMNS_CACHE_LOCK:
+        if table_name is None:
+            _TABLE_COLUMNS_CACHE.clear()
+            return
+        _TABLE_COLUMNS_CACHE.pop(str(table_name or '').strip().lower(), None)
+
+
+def _prime_table_columns_cache(table_names):
+    """Prime table-column cache at startup to avoid metadata lookups on hot routes."""
+    names = [str(name or '').strip().lower() for name in (table_names or []) if str(name or '').strip()]
+    if not names:
+        return
+    conn = None
+    cursor = None
+    try:
+        conn = db.get_connection()
+        if not conn:
+            return
+        cursor = conn.cursor()
+        for table_name in names:
+            _get_table_columns(cursor, table_name)
+    except Exception:
+        pass
+    finally:
+        try:
+            if cursor:
+                cursor.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
 
 
 def _table_has_org_id(cursor, table_name):
@@ -6914,6 +5560,14 @@ def _squad_belongs_to_org(cursor, squad_id, org_id):
     return cursor.fetchone() is not None
 
 
+def _get_squads_schema_flags(cursor):
+    """Return cached squads schema capabilities."""
+    columns = _get_table_columns(cursor, 'squads')
+    has_old_schema = ('squad_id' in columns) and ('leader' in columns)
+    has_org_id = 'org_id' in columns
+    return has_old_schema, has_org_id
+
+
 @app.route('/api/squads', methods=['GET'])
 @login_required
 def api_get_squads():
@@ -6926,17 +5580,8 @@ def api_get_squads():
         conn = db.get_connection()
         cursor = conn.cursor()
 
-        # Check which schema we have by inspecting columns
-        cursor.execute("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'squads'
-            ORDER BY ordinal_position
-        """)
-        columns = [row[0] for row in cursor.fetchall()]
-
-        # Determine schema type
-        has_old_schema = 'squad_id' in columns and 'leader' in columns
-        has_org_id = 'org_id' in columns
+        # Check which schema we have (cached; avoids repeated information_schema hits)
+        has_old_schema, has_org_id = _get_squads_schema_flags(cursor)
 
         if has_old_schema:
             # Old schema: id, squad_id, name, leader, members, restaurants, active, created_at
@@ -7073,14 +5718,8 @@ def api_create_squad():
             conn.close()
             return jsonify({'success': False, 'error': 'Ja existe um squad com este nome'}), 400
 
-        # Create squad - check which schema we have
-        cursor.execute("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'squads'
-            ORDER BY ordinal_position
-        """)
-        columns = [row[0] for row in cursor.fetchall()]
-        has_old_schema = 'squad_id' in columns and 'leader' in columns
+        # Create squad - check which schema we have (cached metadata)
+        has_old_schema, _ = _get_squads_schema_flags(cursor)
 
         if has_old_schema:
             squad_uid = str(uuid.uuid4())[:8]
@@ -7357,25 +5996,33 @@ def api_add_squad_restaurants(squad_id):
             conn.close()
             return jsonify({'success': False, 'error': 'Squad nao encontrado'}), 404
 
+        restaurants_index = {}
+        for restaurant in get_current_org_restaurants():
+            if not isinstance(restaurant, dict):
+                continue
+            rid = str(restaurant.get('id') or '').strip()
+            if rid:
+                restaurants_index[rid] = restaurant.get('name', 'Unknown')
+
         added_count = 0
+        seen_restaurant_ids = set()
         for restaurant_id in restaurant_ids:
-            # Find restaurant name from current org data
-            restaurant_name = 'Unknown'
-            for r in get_current_org_restaurants():
-                if r['id'] == restaurant_id:
-                    restaurant_name = r.get('name', 'Unknown')
-                    break
+            rid = str(restaurant_id or '').strip()
+            if not rid or rid in seen_restaurant_ids:
+                continue
+            seen_restaurant_ids.add(rid)
+            restaurant_name = restaurants_index.get(rid, 'Unknown')
 
             try:
                 cursor.execute("""
                     INSERT INTO squad_restaurants (squad_id, restaurant_id, restaurant_name)
                     VALUES (%s, %s, %s)
                     ON CONFLICT (squad_id, restaurant_id) DO NOTHING
-                """, (squad_id, restaurant_id, restaurant_name))
+                """, (squad_id, rid, restaurant_name))
                 if cursor.rowcount > 0:
                     added_count += 1
             except Exception as e:
-                print(f"Error adding restaurant {restaurant_id}: {e}")
+                print(f"Error adding restaurant {rid}: {e}")
 
         conn.commit()
         cursor.close()
@@ -7438,1140 +6085,6 @@ def api_remove_squad_restaurant(squad_id, restaurant_id):
 # ============================================================================
 # GROUPS (CLIENT GROUPS) ROUTES
 # ============================================================================
-
-
-def _group_belongs_to_org(cursor, group_id, org_id):
-    if _table_has_org_id(cursor, 'client_groups'):
-        cursor.execute("SELECT 1 FROM client_groups WHERE id=%s AND org_id=%s", (group_id, org_id))
-    else:
-        cursor.execute("SELECT 1 FROM client_groups WHERE id=%s", (group_id,))
-    return cursor.fetchone() is not None
-
-# Page route for grupos
-@app.route('/grupos')
-@login_required
-def grupos_page():
-    """Serve client groups management page"""
-    grupos_file = DASHBOARD_OUTPUT / 'grupos.html'
-    if grupos_file.exists():
-        return send_file(grupos_file)
-    return "Grupos page not found", 404
-
-
-@app.route('/grupos/comparativo')
-@login_required
-def grupos_comparativo_page():
-    """Serve multi-store comparison page for groups."""
-    comp_file = DASHBOARD_OUTPUT / 'grupos_comparativo.html'
-    if comp_file.exists():
-        return send_file(comp_file)
-    return "Grupos comparativo page not found", 404
-
-
-# Public group page
-@app.route('/grupo/<slug>')
-def public_group_page(slug):
-    """Serve group dashboard with token-gated public access."""
-    try:
-        group_token = (request.args.get('token') or '').strip()
-        shared = None
-        if group_token:
-            shared = db.get_group_by_share_token(group_token)
-            if not shared:
-                return "Shared group link not found or expired", 404
-            if str(shared.get('group_slug') or '') != str(slug):
-                return "Shared group link not found or expired", 404
-            if not shared.get('group_active'):
-                return "Group is inactive", 404
-
-        conn = db.get_connection()
-        cursor = conn.cursor()
-
-        # Get group by slug
-        has_group_org = _table_has_org_id(cursor, 'client_groups')
-        if has_group_org:
-            cursor.execute("""
-                SELECT id, name, slug, active, org_id
-                FROM client_groups
-                WHERE slug = %s AND active = true
-            """, (slug,))
-        else:
-            cursor.execute("""
-                SELECT id, name, slug, active, NULL::INTEGER as org_id
-                FROM client_groups
-                WHERE slug = %s AND active = true
-            """, (slug,))
-
-        group = cursor.fetchone()
-        if not group:
-            cursor.close()
-            conn.close()
-            return "Group not found", 404
-
-        group_id = group[0]
-        group_name = group[1]
-        group_org_id = group[4]
-
-        # Without token, only authenticated members of the same org (or platform admins) can view.
-        if not shared:
-            if 'user' not in session:
-                cursor.close()
-                conn.close()
-                return "Shared group link not found or expired", 404
-            current_user = session.get('user', {})
-            if not is_platform_admin_user(current_user):
-                current_org_id = get_current_org_id()
-                if group_org_id and current_org_id != group_org_id:
-                    cursor.close()
-                    conn.close()
-                    return "Access denied", 403
-
-        # Get stores in this group
-        cursor.execute("""
-            SELECT store_id, store_name
-            FROM group_stores
-            WHERE group_id = %s
-            ORDER BY store_name
-        """, (group_id,))
-
-        store_rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-
-        # Resolve store data using the group's organization when available.
-        source_restaurants = get_current_org_restaurants()
-        if group_org_id:
-            source_restaurants = ORG_DATA.get(group_org_id, {}).get('restaurants') or []
-            if not source_restaurants:
-                cached_org_data = db.load_org_data_cache(group_org_id, 'restaurants', max_age_hours=12)
-                if isinstance(cached_org_data, list):
-                    source_restaurants = cached_org_data
-
-        # Get store data from the resolved org source
-        stores_data = []
-        for store_row in store_rows:
-            store_id = store_row[0]
-            store_name = store_row[1]
-
-            # Find in resolved org data
-            for r in source_restaurants:
-                if r['id'] == store_id:
-                    # Clean data (remove internal caches)
-                    store_data = {k: v for k, v in r.items() if not k.startswith('_')}
-                    stores_data.append(store_data)
-                    break
-            else:
-                # Store not found in data, add placeholder
-                stores_data.append({
-                    'id': store_id,
-                    'name': store_name,
-                    'metrics': {}
-                })
-
-        # Prepare group data
-        group_data = {
-            'id': group_id,
-            'name': group_name,
-            'slug': slug,
-            'stores': stores_data
-        }
-
-        # Load template
-        template_file = DASHBOARD_OUTPUT / 'grupo_public.html'
-        if template_file.exists():
-            with open(template_file, 'r', encoding='utf-8') as f:
-                template = f.read()
-
-            # Replace placeholders
-            rendered = template.replace('{{group_name}}', escape_html_text(group_name))
-            rendered = rendered.replace('{{group_initial}}', escape_html_text(group_name[0].upper() if group_name else 'G'))
-            rendered = rendered.replace('{{group_data}}', safe_json_for_script(group_data))
-
-            return Response(rendered, mimetype='text/html')
-
-        return "Template not found", 404
-
-    except Exception as e:
-        log_exception("public_group_page_failed", e)
-        return "Error loading group", 500
-
-
-@app.route('/grupo/share/<token>')
-def public_group_share_page(token):
-    """Resolve expirable token and redirect to public group page."""
-    shared = db.get_group_by_share_token((token or '').strip())
-    if not shared:
-        return "Shared group link not found or expired", 404
-    if not shared.get('group_active'):
-        return "Group is inactive", 404
-    return redirect(f"/grupo/{shared.get('group_slug')}?token={token}")
-
-
-# ============================================================================
-# PUBLIC RESTAURANT SHARE LINKS
-# ============================================================================
-
-@app.route('/r/<token>')
-@rate_limit(limit=30, window_seconds=60, scope='public_restaurant')
-def public_restaurant_share_page(token):
-    """Serve restaurant dashboard via share token -- no login required."""
-    try:
-        shared = db.get_restaurant_by_share_token((token or '').strip())
-        if not shared:
-            return "Restaurant link not found or expired", 404
-
-        org_id = shared['org_id']
-        restaurant_id = shared['restaurant_id']
-
-        restaurant = find_restaurant_in_org(restaurant_id, org_id)
-        if not restaurant:
-            return "Restaurant data not available", 404
-
-        merchant_lookup_id = (
-            restaurant.get('_resolved_merchant_id')
-            or restaurant.get('merchant_id')
-            or restaurant.get('merchantId')
-            or restaurant_id
-        )
-        try:
-            ensure_restaurant_orders_cache(restaurant, merchant_lookup_id, org_id_override=org_id)
-        except Exception:
-            pass
-
-        template_file = DASHBOARD_OUTPUT / 'restaurant_template.html'
-        if not template_file.exists():
-            return "Restaurant template not found", 404
-
-        with open(template_file, 'r', encoding='utf-8') as f:
-            template = f.read()
-
-        resolved_id = (
-            restaurant.get('_resolved_merchant_id')
-            or restaurant.get('merchant_id')
-            or restaurant.get('merchantId')
-            or restaurant.get('id')
-            or restaurant_id
-        )
-
-        rendered = template.replace('{{restaurant_name}}', escape_html_text(restaurant.get('name', 'Restaurante')))
-        rendered = rendered.replace('{{restaurant_id}}', escape_html_text(resolved_id))
-        rendered = rendered.replace('{{restaurant_manager}}', escape_html_text(restaurant.get('manager', 'Gerente')))
-        rendered = rendered.replace('{{restaurant_data}}', safe_json_for_script(restaurant))
-
-        public_script = f"""
-<script>
-    window.__PUBLIC_MODE__ = true;
-    window.__PUBLIC_TOKEN__ = '{escape_html_text(token)}';
-    window.__PUBLIC_API_BASE__ = '/api/public/restaurant/{escape_html_text(token)}';
-</script>
-<style>
-    .nav-back {{ display: none !important; }}
-    #exportPdfBtn {{ display: none !important; }}
-    #shareLinkBtn {{ display: none !important; }}
-</style>
-"""
-        rendered = rendered.replace('</head>', public_script + '</head>')
-
-        return Response(rendered, mimetype='text/html')
-
-    except Exception as e:
-        log_exception("public_restaurant_share_page_failed", e)
-        return "Error loading restaurant", 500
-
-
-@app.route('/api/public/restaurant/<token>')
-@rate_limit(limit=60, window_seconds=60, scope='public_restaurant_api')
-def api_public_restaurant_detail(token):
-    """Public API: get restaurant data via share token (no auth required)."""
-    try:
-        shared = db.get_restaurant_by_share_token((token or '').strip())
-        if not shared:
-            return jsonify({'success': False, 'error': 'Link not found or expired'}), 404
-
-        org_id = shared['org_id']
-        restaurant_id = shared['restaurant_id']
-
-        restaurant = find_restaurant_in_org(restaurant_id, org_id)
-        if not restaurant:
-            return jsonify({'success': False, 'error': 'Restaurant data not available'}), 404
-
-        merchant_lookup_id = (
-            restaurant.get('_resolved_merchant_id')
-            or restaurant.get('merchant_id')
-            or restaurant.get('merchantId')
-            or restaurant_id
-        )
-
-        all_orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id, org_id_override=org_id)
-        merchant_lookup_id = (
-            restaurant.get('_resolved_merchant_id')
-            or restaurant.get('merchant_id')
-            or restaurant.get('merchantId')
-            or merchant_lookup_id
-        )
-
-        # Date filtering
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-
-        filtered_orders = all_orders
-        if start_date or end_date:
-            filtered_orders = []
-            for order in all_orders:
-                try:
-                    order_date_str = normalize_order_payload(order).get('createdAt', '')
-                    if order_date_str:
-                        order_date = datetime.fromisoformat(order_date_str.replace('Z', '+00:00')).date()
-                        include_order = True
-                        if start_date:
-                            start = datetime.strptime(start_date, '%Y-%m-%d').date()
-                            if order_date < start:
-                                include_order = False
-                        if end_date:
-                            end = datetime.strptime(end_date, '%Y-%m-%d').date()
-                            if order_date > end:
-                                include_order = False
-                        if include_order:
-                            filtered_orders.append(order)
-                except:
-                    continue
-
-        # Process restaurant data
-        if start_date or end_date:
-            merchant_details = {
-                'id': merchant_lookup_id,
-                'name': restaurant.get('name', 'Unknown'),
-                'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
-            }
-            response_data = IFoodDataProcessor.process_restaurant_data(merchant_details, filtered_orders, None)
-            response_data['name'] = restaurant['name']
-            response_data['manager'] = restaurant['manager']
-        else:
-            if all_orders:
-                merchant_details = {
-                    'id': merchant_lookup_id,
-                    'name': restaurant.get('name', 'Unknown'),
-                    'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
-                }
-                response_data = IFoodDataProcessor.process_restaurant_data(merchant_details, all_orders, None)
-                response_data['name'] = restaurant.get('name', response_data.get('name'))
-                response_data['manager'] = restaurant.get('manager', response_data.get('manager'))
-            else:
-                response_data = {k: v for k, v in restaurant.items() if not k.startswith('_')}
-
-        # Chart data
-        chart_data = {}
-        orders_for_charts = filtered_orders if (start_date or end_date) else all_orders
-        top_n = request.args.get('top_n', default=10, type=int)
-        top_n = max(1, min(top_n or 10, 50))
-        menu_performance = IFoodDataProcessor.calculate_menu_item_performance(orders_for_charts, top_n=top_n)
-
-        if orders_for_charts:
-            if hasattr(IFoodDataProcessor, 'generate_charts_data_with_interruptions'):
-                chart_data = IFoodDataProcessor.generate_charts_data_with_interruptions(orders_for_charts, [])
-            else:
-                chart_data = IFoodDataProcessor.generate_charts_data(orders_for_charts)
-                chart_data['interruptions'] = []
-
-        # Reviews
-        reviews_list = []
-        rating_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        for order in orders_for_charts:
-            fb = order.get('feedback')
-            if fb and fb.get('rating'):
-                r = fb['rating']
-                if r in rating_counts:
-                    rating_counts[r] += 1
-                reviews_list.append({
-                    'rating': r,
-                    'comment': fb.get('comment'),
-                    'compliments': fb.get('compliments', []),
-                    'complaints': fb.get('complaints', []),
-                    'customer_name': order.get('customer', {}).get('name', 'Cliente'),
-                    'date': order.get('createdAt'),
-                    'order_id': order.get('displayId', order.get('id', ''))
-                })
-
-        total_reviews = sum(rating_counts.values())
-        avg_review_rating = round(
-            sum(k * v for k, v in rating_counts.items()) / total_reviews, 1
-        ) if total_reviews else 0
-
-        return jsonify({
-            'success': True,
-            'restaurant': response_data,
-            'charts': chart_data,
-            'menu_performance': menu_performance,
-            'interruptions': [],
-            'reviews': {
-                'average_rating': avg_review_rating,
-                'total_reviews': total_reviews,
-                'rating_distribution': rating_counts,
-                'items': sorted(reviews_list, key=lambda x: x['date'] or '', reverse=True)
-            },
-            'filter': {
-                'start_date': start_date,
-                'end_date': end_date,
-                'total_orders_filtered': len(filtered_orders) if (start_date or end_date) else len(all_orders)
-            }
-        })
-
-    except Exception as e:
-        log_exception("api_public_restaurant_detail_failed", e)
-        return internal_error_response()
-
-
-# API: Get all groups
-@app.route('/api/groups', methods=['GET'])
-@login_required
-def api_get_groups():
-    """Get all client groups with their stores"""
-    try:
-        org_id = get_current_org_id()
-        if not org_id:
-            return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        has_org_id = _table_has_org_id(cursor, 'client_groups')
-        
-        # Get all groups
-        if has_org_id:
-            cursor.execute("""
-                SELECT id, name, slug, active, created_by, created_at
-                FROM client_groups
-                WHERE org_id = %s
-                ORDER BY name
-            """, (org_id,))
-        else:
-            cursor.execute("""
-                SELECT id, name, slug, active, created_by, created_at
-                FROM client_groups
-                ORDER BY name
-            """)
-        
-        groups_raw = cursor.fetchall()
-        groups = []
-        
-        for g in groups_raw:
-            group_id = g[0]
-            
-            # Get stores for this group
-            cursor.execute("""
-                SELECT store_id, store_name
-                FROM group_stores
-                WHERE group_id = %s
-                ORDER BY store_name
-            """, (group_id,))
-            
-            stores = [{'id': s[0], 'name': s[1]} for s in cursor.fetchall()]
-            
-            groups.append({
-                'id': group_id,
-                'name': g[1],
-                'slug': g[2],
-                'active': g[3],
-                'created_by': g[4],
-                'created_at': g[5].isoformat() if g[5] else None,
-                'stores': stores
-            })
-        
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            'success': True,
-            'groups': groups
-        })
-        
-    except Exception as e:
-        print(f"Error getting groups: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-@app.route('/api/groups/templates', methods=['GET'])
-@login_required
-def api_group_templates_list():
-    """List saved group templates for current organization."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-    templates = db.list_group_templates(org_id)
-    return jsonify({'success': True, 'templates': templates})
-
-
-@app.route('/api/groups/templates', methods=['POST'])
-@admin_required
-def api_group_templates_create():
-    """Create reusable group template from selected stores."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    data = get_json_payload()
-    name = (data.get('name') or '').strip()
-    description = (data.get('description') or '').strip()
-    store_ids = data.get('store_ids') or []
-    if not name:
-        return jsonify({'success': False, 'error': 'name is required'}), 400
-    if not isinstance(store_ids, list):
-        return jsonify({'success': False, 'error': 'store_ids must be a list'}), 400
-    store_ids = [str(s).strip() for s in store_ids if str(s).strip()]
-    if not store_ids:
-        return jsonify({'success': False, 'error': 'At least one store is required'}), 400
-
-    created_by = session.get('user', {}).get('username')
-    template_id = db.create_group_template(org_id, name, store_ids, created_by=created_by, description=description)
-    if not template_id:
-        return jsonify({'success': False, 'error': 'Unable to create template'}), 400
-    return jsonify({'success': True, 'template_id': template_id})
-
-
-@app.route('/api/groups/templates/<int:template_id>', methods=['DELETE'])
-@admin_required
-def api_group_templates_delete(template_id):
-    """Delete a group template."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-    ok = db.delete_group_template(org_id, template_id)
-    if not ok:
-        return jsonify({'success': False, 'error': 'Template not found'}), 404
-    return jsonify({'success': True})
-
-
-@app.route('/api/groups/from-template', methods=['POST'])
-@admin_required
-def api_create_group_from_template():
-    """Create a group quickly from template stores."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    data = get_json_payload()
-    template_id = data.get('template_id')
-    name = (data.get('name') or '').strip()
-    slug = (data.get('slug') or '').strip()
-    if isinstance(template_id, str) and template_id.isdigit():
-        template_id = int(template_id)
-    if not isinstance(template_id, int):
-        return jsonify({'success': False, 'error': 'template_id is required'}), 400
-    if not name:
-        return jsonify({'success': False, 'error': 'name is required'}), 400
-
-    template = db.get_group_template(org_id, template_id)
-    if not template:
-        return jsonify({'success': False, 'error': 'Template not found'}), 404
-
-    import re
-    if not slug:
-        slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
-    slug = re.sub(r'[^a-z0-9-]', '', slug.lower())
-    if not slug:
-        slug = f"group-{int(time.time())}"
-
-    conn = db.get_connection()
-    if not conn:
-        return jsonify({'success': False, 'error': 'Database unavailable'}), 500
-    cursor = conn.cursor()
-    try:
-        has_org_id = _table_has_org_id(cursor, 'client_groups')
-        cursor.execute("SELECT id FROM client_groups WHERE slug = %s", (slug,))
-        if cursor.fetchone():
-            slug = f"{slug}-{int(time.time()) % 1000}"
-
-        created_by = session.get('user', {}).get('username', 'Unknown')
-        if has_org_id:
-            cursor.execute("""
-                INSERT INTO client_groups (name, slug, created_by, org_id)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id
-            """, (name, slug, created_by, org_id))
-        else:
-            cursor.execute("""
-                INSERT INTO client_groups (name, slug, created_by)
-                VALUES (%s, %s, %s)
-                RETURNING id
-            """, (name, slug, created_by))
-        group_id = cursor.fetchone()[0]
-
-        stores_by_id = {r.get('id'): r.get('name', r.get('id')) for r in get_current_org_restaurants()}
-        for store_id in template.get('store_ids') or []:
-            sid = str(store_id).strip()
-            if not sid:
-                continue
-            cursor.execute("""
-                INSERT INTO group_stores (group_id, store_id, store_name)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (group_id, store_id) DO NOTHING
-            """, (group_id, sid, stores_by_id.get(sid, sid)))
-
-        conn.commit()
-        return jsonify({'success': True, 'group_id': group_id, 'slug': slug})
-    except Exception as e:
-        conn.rollback()
-        print(f"Error creating group from template: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-    finally:
-        cursor.close()
-        conn.close()
-
-
-@app.route('/api/groups/<int:group_id>/share-links', methods=['GET'])
-@admin_required
-def api_group_share_links_list(group_id):
-    """List expirable share links for a group."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-    conn = db.get_connection()
-    if not conn:
-        return jsonify({'success': False, 'error': 'Database unavailable'}), 500
-    cursor = conn.cursor()
-    try:
-        if not _group_belongs_to_org(cursor, group_id, org_id):
-            return jsonify({'success': False, 'error': 'Group not found'}), 404
-    finally:
-        cursor.close()
-        conn.close()
-    links = db.list_group_share_links(org_id, group_id)
-    return jsonify({'success': True, 'links': links})
-
-
-@app.route('/api/groups/<int:group_id>/share-links', methods=['POST'])
-@admin_required
-def api_group_share_links_create(group_id):
-    """Create expirable share link for group."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    data = get_json_payload()
-    try:
-        expires_hours = int(data.get('expires_hours', 24 * 7))
-    except Exception:
-        expires_hours = 24 * 7
-    expires_hours = max(1, min(expires_hours, 24 * 90))
-
-    conn = db.get_connection()
-    if not conn:
-        return jsonify({'success': False, 'error': 'Database unavailable'}), 500
-    cursor = conn.cursor()
-    try:
-        if not _group_belongs_to_org(cursor, group_id, org_id):
-            return jsonify({'success': False, 'error': 'Group not found'}), 404
-    finally:
-        cursor.close()
-        conn.close()
-
-    link = db.create_group_share_link(org_id, group_id, created_by=session.get('user', {}).get('id'), expires_hours=expires_hours)
-    if not link:
-        return jsonify({'success': False, 'error': 'Unable to create share link'}), 400
-    share_url = f"{get_public_base_url()}/grupo/share/{link['token']}"
-    return jsonify({'success': True, 'link': {**link, 'url': share_url}})
-
-
-@app.route('/api/groups/<int:group_id>/share-links/<int:link_id>', methods=['DELETE'])
-@admin_required
-def api_group_share_links_revoke(group_id, link_id):
-    """Disable an existing group share link."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-    conn = db.get_connection()
-    if not conn:
-        return jsonify({'success': False, 'error': 'Database unavailable'}), 500
-    cursor = conn.cursor()
-    try:
-        if not _group_belongs_to_org(cursor, group_id, org_id):
-            return jsonify({'success': False, 'error': 'Group not found'}), 404
-    finally:
-        cursor.close()
-        conn.close()
-    ok = db.revoke_group_share_link(org_id, group_id, link_id)
-    if not ok:
-        return jsonify({'success': False, 'error': 'Share link not found'}), 404
-    return jsonify({'success': True})
-
-
-# ============================================================================
-# API ROUTES - RESTAURANT SHARE LINKS (ADMIN)
-# ============================================================================
-
-def _resolve_restaurant_id(restaurant_id):
-    """Resolve a restaurant identifier to its canonical merchant ID."""
-    restaurant = find_restaurant_by_identifier(restaurant_id)
-    if not restaurant:
-        return None, None
-    resolved_id = (
-        restaurant.get('_resolved_merchant_id')
-        or restaurant.get('merchant_id')
-        or restaurant.get('merchantId')
-        or restaurant.get('id')
-        or restaurant_id
-    )
-    return restaurant, resolved_id
-
-
-@app.route('/api/restaurant/<restaurant_id>/share-links', methods=['GET'])
-@admin_required
-@require_feature('public_links')
-def api_restaurant_share_links_list(restaurant_id):
-    """List share links for a restaurant."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    restaurant, resolved_id = _resolve_restaurant_id(restaurant_id)
-    if not restaurant:
-        return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
-
-    links = db.list_restaurant_share_links(org_id, resolved_id)
-    base_url = get_public_base_url()
-    for link in links:
-        link['url'] = f"{base_url}/r/{link['token']}"
-    return jsonify({'success': True, 'links': links})
-
-
-@app.route('/api/restaurant/<restaurant_id>/share-links', methods=['POST'])
-@admin_required
-@require_feature('public_links')
-def api_restaurant_share_links_create(restaurant_id):
-    """Create share link for a restaurant."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    restaurant, resolved_id = _resolve_restaurant_id(restaurant_id)
-    if not restaurant:
-        return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
-
-    data = get_json_payload()
-    try:
-        expires_hours = int(data.get('expires_hours', 24 * 7))
-    except Exception:
-        expires_hours = 24 * 7
-    expires_hours = max(1, min(expires_hours, 24 * 90))
-
-    link = db.create_restaurant_share_link(
-        org_id, resolved_id,
-        created_by=session.get('user', {}).get('id'),
-        expires_hours=expires_hours
-    )
-    if not link:
-        return jsonify({'success': False, 'error': 'Unable to create share link'}), 400
-
-    share_url = f"{get_public_base_url()}/r/{link['token']}"
-    return jsonify({'success': True, 'link': {**link, 'url': share_url}})
-
-
-@app.route('/api/restaurant/<restaurant_id>/share-links/<int:link_id>', methods=['DELETE'])
-@admin_required
-@require_feature('public_links')
-def api_restaurant_share_links_revoke(restaurant_id, link_id):
-    """Revoke a restaurant share link."""
-    org_id = get_current_org_id()
-    if not org_id:
-        return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-    restaurant, resolved_id = _resolve_restaurant_id(restaurant_id)
-    if not restaurant:
-        return jsonify({'success': False, 'error': 'Restaurant not found'}), 404
-
-    ok = db.revoke_restaurant_share_link(org_id, resolved_id, link_id)
-    if not ok:
-        return jsonify({'success': False, 'error': 'Share link not found'}), 404
-    return jsonify({'success': True})
-
-
-@app.route('/api/groups/<int:group_id>/comparison', methods=['GET'])
-@login_required
-def api_group_comparison(group_id):
-    """Compare stores inside a client group over a date range."""
-    try:
-        org_id = get_current_org_id()
-        if not org_id:
-            return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-        start_str = request.args.get('start_date')
-        end_str = request.args.get('end_date')
-        sort_by = request.args.get('sort_by', 'revenue')
-        sort_dir = request.args.get('sort_dir', 'desc')
-
-        end_dt = datetime.strptime(end_str, '%Y-%m-%d') if end_str else datetime.now()
-        start_dt = datetime.strptime(start_str, '%Y-%m-%d') if start_str else (end_dt - timedelta(days=30))
-        if start_dt > end_dt:
-            return jsonify({'success': False, 'error': 'start_date must be before end_date'}), 400
-
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        has_org_id = _table_has_org_id(cursor, 'client_groups')
-
-        if has_org_id:
-            cursor.execute("""
-                SELECT id, name, slug, active
-                FROM client_groups
-                WHERE id = %s AND org_id = %s
-            """, (group_id, org_id))
-        else:
-            cursor.execute("""
-                SELECT id, name, slug, active
-                FROM client_groups
-                WHERE id = %s
-            """, (group_id,))
-        group_row = cursor.fetchone()
-        if not group_row:
-            cursor.close()
-            conn.close()
-            return jsonify({'success': False, 'error': 'Grupo nao encontrado'}), 404
-
-        cursor.execute("""
-            SELECT store_id, store_name
-            FROM group_stores
-            WHERE group_id = %s
-            ORDER BY store_name
-        """, (group_id,))
-        store_rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-
-        user = session.get('user', {})
-        allowed_ids = get_user_allowed_restaurant_ids(user.get('id'), user.get('role'))
-
-        restaurants_map = {r.get('id'): r for r in get_current_org_restaurants()}
-        comparison_rows = []
-        group_orders = []
-
-        for store_id, store_name in store_rows:
-            if allowed_ids is not None and store_id not in allowed_ids:
-                continue
-
-            r = restaurants_map.get(store_id)
-            if not r:
-                comparison_rows.append({
-                    'store_id': store_id,
-                    'store_name': store_name,
-                    'manager': None,
-                    'available': False,
-                    'metrics': _calculate_period_metrics([])
-                })
-                continue
-
-            orders = r.get('_orders_cache', [])
-            filtered_orders = _filter_orders_by_date(orders, start_dt, end_dt)
-            metrics = _calculate_period_metrics(filtered_orders)
-            group_orders.extend(filtered_orders)
-
-            comparison_rows.append({
-                'store_id': store_id,
-                'store_name': r.get('name', store_name),
-                'manager': r.get('manager'),
-                'available': True,
-                'metrics': metrics
-            })
-
-        if not comparison_rows:
-            return jsonify({
-                'success': True,
-                'group': {
-                    'id': group_row[0],
-                    'name': group_row[1],
-                    'slug': group_row[2],
-                    'active': group_row[3]
-                },
-                'period': {
-                    'start_date': start_dt.strftime('%Y-%m-%d'),
-                    'end_date': end_dt.strftime('%Y-%m-%d')
-                },
-                'summary': _calculate_period_metrics([]),
-                'stores': []
-            })
-
-        key_map = {
-            'revenue': lambda x: x['metrics'].get('revenue', 0),
-            'orders': lambda x: x['metrics'].get('orders', 0),
-            'ticket': lambda x: x['metrics'].get('ticket', 0),
-            'cancel_rate': lambda x: x['metrics'].get('cancel_rate', 0),
-            'avg_rating': lambda x: x['metrics'].get('avg_rating', 0)
-        }
-        sort_fn = key_map.get(sort_by, key_map['revenue'])
-        reverse = sort_dir != 'asc'
-        comparison_rows.sort(key=sort_fn, reverse=reverse)
-
-        total_revenue = sum(s['metrics'].get('revenue', 0) for s in comparison_rows)
-        for i, row in enumerate(comparison_rows, start=1):
-            row['rank'] = i
-            rev = row['metrics'].get('revenue', 0)
-            row['metrics']['revenue_share'] = round((rev / total_revenue * 100) if total_revenue > 0 else 0, 2)
-
-        summary = _calculate_period_metrics(group_orders)
-        best_revenue = max(comparison_rows, key=lambda x: x['metrics'].get('revenue', 0))
-        best_orders = max(comparison_rows, key=lambda x: x['metrics'].get('orders', 0))
-        lowest_cancel = min(comparison_rows, key=lambda x: x['metrics'].get('cancel_rate', 100))
-
-        return jsonify({
-            'success': True,
-            'group': {
-                'id': group_row[0],
-                'name': group_row[1],
-                'slug': group_row[2],
-                'active': group_row[3]
-            },
-            'period': {
-                'start_date': start_dt.strftime('%Y-%m-%d'),
-                'end_date': end_dt.strftime('%Y-%m-%d')
-            },
-            'sort': {'by': sort_by, 'dir': sort_dir},
-            'summary': summary,
-            'benchmarks': {
-                'best_revenue_store': {'id': best_revenue['store_id'], 'name': best_revenue['store_name']},
-                'best_orders_store': {'id': best_orders['store_id'], 'name': best_orders['store_name']},
-                'lowest_cancel_store': {'id': lowest_cancel['store_id'], 'name': lowest_cancel['store_name']}
-            },
-            'stores': comparison_rows
-        })
-
-    except ValueError:
-        return jsonify({'success': False, 'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
-    except Exception as e:
-        print(f"Error group comparison: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-# API: Create group
-@app.route('/api/groups', methods=['POST'])
-@admin_required
-def api_create_group():
-    """Create a new client group"""
-    try:
-        org_id = get_current_org_id()
-        if not org_id:
-            return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-        data = get_json_payload()
-        name = data.get('name', '').strip()
-        slug = data.get('slug', '').strip()
-        store_ids = data.get('store_ids', [])
-        
-        if not name:
-            return jsonify({'success': False, 'error': 'Nome e obrigatorio'}), 400
-        
-        # Generate slug if not provided
-        if not slug:
-            import re
-            slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
-        
-        # Ensure slug is valid
-        import re
-        slug = re.sub(r'[^a-z0-9-]', '', slug.lower())
-        
-        created_by = session.get('user', {}).get('username', 'Unknown')
-        
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        has_org_id = _table_has_org_id(cursor, 'client_groups')
-        
-        # Check if slug exists
-        cursor.execute("SELECT id FROM client_groups WHERE slug = %s", (slug,))
-        if cursor.fetchone():
-            # Add random suffix
-            import random
-            slug = f"{slug}-{random.randint(100, 999)}"
-        
-        # Create group
-        if has_org_id:
-            cursor.execute("""
-                INSERT INTO client_groups (name, slug, created_by, org_id)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id
-            """, (name, slug, created_by, org_id))
-        else:
-            cursor.execute("""
-                INSERT INTO client_groups (name, slug, created_by)
-                VALUES (%s, %s, %s)
-                RETURNING id
-            """, (name, slug, created_by))
-        
-        group_id = cursor.fetchone()[0]
-        
-        # Add stores
-        for store_id in store_ids:
-            # Get store name from RESTAURANTS_DATA
-            store_name = store_id
-            for r in get_current_org_restaurants():
-                if r['id'] == store_id:
-                    store_name = r.get('name', store_id)
-                    break
-            
-            cursor.execute("""
-                INSERT INTO group_stores (group_id, store_id, store_name)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (group_id, store_id) DO NOTHING
-            """, (group_id, store_id, store_name))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            'success': True,
-            'message': 'Grupo criado com sucesso',
-            'group_id': group_id,
-            'slug': slug
-        })
-        
-    except Exception as e:
-        print(f"Error creating group: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-# API: Update group
-@app.route('/api/groups/<int:group_id>', methods=['PUT'])
-@admin_required
-def api_update_group(group_id):
-    """Update a client group"""
-    try:
-        org_id = get_current_org_id()
-        if not org_id:
-            return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-        data = get_json_payload()
-        name = data.get('name', '').strip()
-        slug = data.get('slug', '').strip()
-        store_ids = data.get('store_ids', [])
-        active = data.get('active', True)
-        
-        if not name:
-            return jsonify({'success': False, 'error': 'Nome e obrigatorio'}), 400
-        
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        has_org_id = _table_has_org_id(cursor, 'client_groups')
-        
-        # Check if group exists
-        if has_org_id:
-            cursor.execute("SELECT id, slug FROM client_groups WHERE id = %s AND org_id = %s", (group_id, org_id))
-        else:
-            cursor.execute("SELECT id, slug FROM client_groups WHERE id = %s", (group_id,))
-        existing = cursor.fetchone()
-        if not existing:
-            cursor.close()
-            conn.close()
-            return jsonify({'success': False, 'error': 'Grupo nao encontrado'}), 404
-        
-        # If slug changed, validate it
-        if slug and slug != existing[1]:
-            import re
-            slug = re.sub(r'[^a-z0-9-]', '', slug.lower())
-            
-            if has_org_id:
-                cursor.execute(
-                    "SELECT id FROM client_groups WHERE slug = %s AND id != %s AND org_id = %s",
-                    (slug, group_id, org_id)
-                )
-            else:
-                cursor.execute("SELECT id FROM client_groups WHERE slug = %s AND id != %s", (slug, group_id))
-            if cursor.fetchone():
-                cursor.close()
-                conn.close()
-                return jsonify({'success': False, 'error': 'Slug ja existe'}), 400
-        else:
-            slug = existing[1]
-        
-        # Update group
-        if has_org_id:
-            cursor.execute("""
-                UPDATE client_groups
-                SET name = %s, slug = %s, active = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s AND org_id = %s
-            """, (name, slug, active, group_id, org_id))
-        else:
-            cursor.execute("""
-                UPDATE client_groups
-                SET name = %s, slug = %s, active = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s
-            """, (name, slug, active, group_id))
-        
-        # Update stores - remove all and re-add
-        cursor.execute("DELETE FROM group_stores WHERE group_id = %s", (group_id,))
-        
-        for store_id in store_ids:
-            store_name = store_id
-            for r in get_current_org_restaurants():
-                if r['id'] == store_id:
-                    store_name = r.get('name', store_id)
-                    break
-            
-            cursor.execute("""
-                INSERT INTO group_stores (group_id, store_id, store_name)
-                VALUES (%s, %s, %s)
-            """, (group_id, store_id, store_name))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            'success': True,
-            'message': 'Grupo atualizado com sucesso'
-        })
-        
-    except Exception as e:
-        print(f"Error updating group: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
-
-
-# API: Delete group
-@app.route('/api/groups/<int:group_id>', methods=['DELETE'])
-@admin_required
-def api_delete_group(group_id):
-    """Delete a client group"""
-    try:
-        org_id = get_current_org_id()
-        if not org_id:
-            return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        has_org_id = _table_has_org_id(cursor, 'client_groups')
-        
-        # Check if group exists
-        if has_org_id:
-            cursor.execute("SELECT name FROM client_groups WHERE id = %s AND org_id = %s", (group_id, org_id))
-        else:
-            cursor.execute("SELECT name FROM client_groups WHERE id = %s", (group_id,))
-        result = cursor.fetchone()
-        if not result:
-            cursor.close()
-            conn.close()
-            return jsonify({'success': False, 'error': 'Grupo nao encontrado'}), 404
-        
-        group_name = result[0]
-        
-        # Delete group (cascade will delete stores)
-        if has_org_id:
-            cursor.execute("DELETE FROM client_groups WHERE id = %s AND org_id = %s", (group_id, org_id))
-        else:
-            cursor.execute("DELETE FROM client_groups WHERE id = %s", (group_id,))
-        conn.commit()
-        
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            'success': True,
-            'message': f'Grupo "{group_name}" excluido com sucesso'
-        })
-        
-    except Exception as e:
-        print(f"Error deleting group: {e}")
-        log_exception("request_exception", e)
-        return internal_error_response()
 
 
 @app.route('/api/user/allowed-restaurants')
@@ -8697,8 +6210,8 @@ def check_setup():
         try:
             DASHBOARD_OUTPUT.mkdir(parents=True, exist_ok=True)
             print(f"   Created dashboard_output/ directory")
-        except:
-            pass
+        except Exception as mkdir_error:
+            print(f"   Note: could not create dashboard_output/ ({mkdir_error})")
     else:
         print(f"Ã¢Å“â€¦ dashboard_output/ directory exists")
         
@@ -8804,24 +6317,62 @@ def initialize_database():
         """)
 
         # Ensure org_id exists on tenant-scoped tables created in legacy setups.
-        for tbl in ('hidden_stores', 'squads', 'client_groups'):
+        # Use fixed statements per table to avoid dynamic SQL interpolation.
+        org_id_migrations = {
+            'hidden_stores': """
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_name = 'hidden_stores' AND column_name = 'org_id'
+                    ) THEN
+                        ALTER TABLE hidden_stores
+                        ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE;
+                    END IF;
+                END $$;
+            """,
+            'squads': """
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_name = 'squads' AND column_name = 'org_id'
+                    ) THEN
+                        ALTER TABLE squads
+                        ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE;
+                    END IF;
+                END $$;
+            """,
+            'client_groups': """
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_name = 'client_groups' AND column_name = 'org_id'
+                    ) THEN
+                        ALTER TABLE client_groups
+                        ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE;
+                    END IF;
+                END $$;
+            """
+        }
+        for tbl, stmt in org_id_migrations.items():
             try:
-                cursor.execute(f"""
-                    DO $$ BEGIN
-                        IF NOT EXISTS (
-                            SELECT 1
-                            FROM information_schema.columns
-                            WHERE table_name = '{tbl}' AND column_name = 'org_id'
-                        ) THEN
-                            ALTER TABLE {tbl}
-                            ADD COLUMN org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE;
-                        END IF;
-                    END $$;
-                """)
+                cursor.execute(stmt)
             except Exception as migration_error:
                 print(f"   Note: org_id migration for {tbl}: {migration_error}")
         
         conn.commit()
+        # Migrations may change table columns; reset cached metadata.
+        _clear_table_columns_cache()
+        _prime_table_columns_cache((
+            'hidden_stores',
+            'squads',
+            'client_groups',
+            'group_stores',
+            'squad_members',
+            'squad_restaurants',
+        ))
         cursor.close()
         cursor = None
         conn.close()
@@ -8894,7 +6445,8 @@ def initialize_app():
     )
 
     # Fallback: if no orgs have data, try legacy config file
-    if not any(od['restaurants'] for od in ORG_DATA.values()):
+    org_values_snapshot = _org_data_values_snapshot()
+    if not any((od or {}).get('restaurants') for od in org_values_snapshot):
         print("\nNo org data found, trying legacy config file...")
         ifood_ok = initialize_ifood_api()
         if ifood_ok:
@@ -8923,8 +6475,9 @@ def initialize_app():
     if IFOOD_KEEPALIVE_POLLING and not is_worker_process:
         start_keepalive_poller()
     
-    total_restaurants = sum(len(od['restaurants']) for od in ORG_DATA.values()) + len(RESTAURANTS_DATA)
-    total_orgs = len([o for o in ORG_DATA.values() if o['restaurants']])
+    org_values_snapshot = _org_data_values_snapshot()
+    total_restaurants = sum(len((od or {}).get('restaurants') or []) for od in org_values_snapshot) + len(RESTAURANTS_DATA)
+    total_orgs = len([o for o in org_values_snapshot if (o or {}).get('restaurants')])
     
     print("\n" + "="*60)
     print("TIMO Server Ready")
@@ -8942,6 +6495,23 @@ def initialize_app():
     print("="*60)
     print()
     APP_INITIALIZED = True
+
+
+# ============================================================================
+# MODULAR ROUTE REGISTRATION
+# ============================================================================
+
+from app_routes.auth_routes import register as register_auth_routes
+from app_routes.org_routes import register as register_org_routes
+from app_routes.ops_routes import register as register_ops_routes
+from app_routes.restaurants_routes import register as register_restaurants_routes
+from app_routes.groups_routes import register as register_groups_routes
+
+register_auth_routes(app, globals())
+register_org_routes(app, globals())
+register_ops_routes(app, globals())
+register_restaurants_routes(app, globals())
+register_groups_routes(app, globals())
 
 
 if __name__ == '__main__':
