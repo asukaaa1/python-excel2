@@ -19,6 +19,9 @@
 - `RUN_REFRESH_WORKER=true` (worker service only)
 - `IFOOD_KEEPALIVE_POLLING=true` (worker service; keeps test stores connected/open)
 - `IFOOD_POLL_INTERVAL_SECONDS=30` (worker service)
+- `IFOOD_WEBHOOK_SECRET=<hmac-shared-secret>` (recommended for `/api/ifood/webhook` and `/ifood/webhook`)
+- `IFOOD_WEBHOOK_TOKEN=<optional-bearer-token-fallback>` (used when secret is not configured)
+- `IFOOD_WEBHOOK_ALLOW_UNSIGNED=false` (set true only in local sandbox testing)
 - `ENABLE_LEGACY_FALLBACK=false`
 - `IFOOD_CLIENT_ID=<optional env fallback>`
 - `IFOOD_CLIENT_SECRET=<optional env fallback>`

@@ -113,6 +113,11 @@ try:
 except Exception:
     IFOOD_POLL_INTERVAL_SECONDS = 30
 IFOOD_POLL_INTERVAL_SECONDS = max(10, IFOOD_POLL_INTERVAL_SECONDS)
+IFOOD_WEBHOOK_SECRET = str(os.environ.get('IFOOD_WEBHOOK_SECRET') or '').strip()
+IFOOD_WEBHOOK_TOKEN = str(os.environ.get('IFOOD_WEBHOOK_TOKEN') or '').strip()
+IFOOD_WEBHOOK_ALLOW_UNSIGNED = str(
+    os.environ.get('IFOOD_WEBHOOK_ALLOW_UNSIGNED', '0')
+).strip().lower() in ('1', 'true', 'yes', 'on')
 
 # Enable gzip compression if available
 if _HAS_COMPRESS:
@@ -343,6 +348,48 @@ _RATE_LIMIT_LOCAL = {}
 _RATE_LIMIT_LOCK = threading.Lock()
 _TABLE_COLUMNS_CACHE = {}
 _TABLE_COLUMNS_CACHE_LOCK = threading.Lock()
+_INGESTION_METRICS_LOCK = threading.Lock()
+_IFOOD_INGESTION_METRICS = {
+    'polling_cycles': 0,
+    'webhook_requests': 0,
+    'events_received': 0,
+    'events_deduplicated': 0,
+    'events_processed': 0,
+    'orders_persisted': 0,
+    'orders_cached': 0,
+    'orders_updated': 0,
+    'webhook_last_received_at': None,
+    'polling_last_run_at': None,
+    'webhook_last_error_at': None,
+}
+
+
+def _update_ifood_ingestion_metrics(**updates):
+    """Thread-safe ingestion metrics updates used by polling and webhook paths."""
+    if not updates:
+        return
+    now_iso = datetime.now().isoformat()
+    with _INGESTION_METRICS_LOCK:
+        for key, value in updates.items():
+            if key not in _IFOOD_INGESTION_METRICS:
+                continue
+            current = _IFOOD_INGESTION_METRICS.get(key)
+            if isinstance(current, (int, float)):
+                try:
+                    _IFOOD_INGESTION_METRICS[key] = current + int(value or 0)
+                except Exception:
+                    continue
+            else:
+                _IFOOD_INGESTION_METRICS[key] = value
+        if updates.get('webhook_requests'):
+            _IFOOD_INGESTION_METRICS['webhook_last_received_at'] = now_iso
+        if updates.get('polling_cycles'):
+            _IFOOD_INGESTION_METRICS['polling_last_run_at'] = now_iso
+
+
+def _snapshot_ifood_ingestion_metrics():
+    with _INGESTION_METRICS_LOCK:
+        return dict(_IFOOD_INGESTION_METRICS)
 
 # Marketing metadata for plan cards in admin UI.
 PLAN_CATALOG_UI = {
@@ -2380,6 +2427,501 @@ def _extract_status_from_poll_event(api_client, event: dict):
     return None
 
 
+def _hash_payload_sha256(payload) -> str:
+    try:
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    except Exception:
+        serialized = str(payload or '')
+    return hashlib.sha256(serialized.encode('utf-8', errors='replace')).hexdigest()
+
+
+def _extract_event_created_at(event: dict):
+    if not isinstance(event, dict):
+        return None
+    for key in ('createdAt', 'created_at', 'eventCreatedAt', 'timestamp', 'updatedAt'):
+        parsed = _parse_generic_datetime(event.get(key))
+        if parsed:
+            return parsed
+    metadata = event.get('metadata')
+    if isinstance(metadata, dict):
+        for key in ('createdAt', 'created_at', 'eventCreatedAt', 'timestamp', 'updatedAt'):
+            parsed = _parse_generic_datetime(metadata.get(key))
+            if parsed:
+                return parsed
+    return None
+
+
+def _extract_event_type(event: dict) -> str:
+    if not isinstance(event, dict):
+        return 'unknown'
+    for key in ('fullCode', 'code', 'eventType', 'type', 'name'):
+        value = event.get(key)
+        if value:
+            return str(value).strip() or 'unknown'
+    metadata = event.get('metadata')
+    if isinstance(metadata, dict):
+        for key in ('fullCode', 'code', 'eventType', 'type', 'name'):
+            value = metadata.get(key)
+            if value:
+                return str(value).strip() or 'unknown'
+    return 'unknown'
+
+
+def _build_event_dedupe_key(event: dict):
+    event_id = _extract_event_id_from_payload(event)
+    payload_hash = _hash_payload_sha256(event or {})
+    if event_id:
+        return f"id:{event_id}", str(event_id), payload_hash
+    return f"hash:{payload_hash}", None, payload_hash
+
+
+def _record_ifood_event_for_dedupe(org_id, merchant_id, source, event: dict) -> bool:
+    """Persist event log and enforce idempotency for org-scoped ingestion."""
+    if not isinstance(event, dict):
+        return False
+    dedupe_key, event_id, payload_hash = _build_event_dedupe_key(event)
+    order_id = _extract_order_id_from_poll_event(None, event)
+    event_type = _extract_event_type(event)
+    event_created_at = _extract_event_created_at(event)
+    if org_id is None:
+        # Legacy single-tenant/global mode has no org id key for durable dedupe.
+        return True
+    inserted = db.record_ifood_event(
+        org_id=org_id,
+        merchant_id=merchant_id,
+        source=source,
+        dedupe_key=dedupe_key,
+        payload=event,
+        event_id=event_id,
+        order_id=order_id,
+        event_type=event_type,
+        event_created_at=event_created_at,
+        payload_hash=payload_hash
+    )
+    if inserted is None:
+        # Never drop events when persistence layer is temporarily unavailable.
+        return True
+    return bool(inserted)
+
+
+def _resolve_orders_from_event_batch(api_client, merchant_id: str, merchant_events: list) -> list:
+    """Resolve full order payloads from event batch (details + direct fallback payloads)."""
+    if not isinstance(merchant_events, list) or not merchant_events:
+        return []
+
+    max_status_entries = max(
+        100,
+        int(str(os.environ.get('KEEPALIVE_ORDER_STATUS_CACHE_MAX', '2000')).strip() or '2000')
+    )
+    latest_event_status_by_order = {}
+    order_ids = []
+    for event in merchant_events:
+        if not isinstance(event, dict):
+            continue
+        order_id = _extract_order_id_from_poll_event(api_client, event)
+        if not order_id:
+            continue
+        order_ids.append(str(order_id))
+        status_raw = _extract_status_from_poll_event(api_client, event)
+        normalized_status = normalize_order_status_value(status_raw)
+        if normalized_status == 'UNKNOWN':
+            continue
+        event_created_at = _extract_event_created_at(event)
+        order_key = str(order_id)
+        existing = latest_event_status_by_order.get(order_key)
+        if not existing:
+            if len(latest_event_status_by_order) >= max_status_entries:
+                continue
+            latest_event_status_by_order[order_key] = {
+                'status': normalized_status,
+                'created_at': event_created_at
+            }
+            continue
+        existing_created = existing.get('created_at')
+        if existing_created is None or (event_created_at and event_created_at >= existing_created):
+            latest_event_status_by_order[order_key] = {
+                'status': normalized_status,
+                'created_at': event_created_at
+            }
+
+    dedup_order_ids = list(dict.fromkeys([str(oid) for oid in order_ids if oid]))
+    resolved_orders = []
+    if hasattr(api_client, 'get_order_details'):
+        for order_id in dedup_order_ids:
+            try:
+                details = api_client.get_order_details(order_id)
+            except Exception:
+                details = None
+            if not isinstance(details, dict) or not details:
+                continue
+            normalized_current_status = normalize_order_status_value(details.get('orderStatus'))
+            if normalized_current_status == 'UNKNOWN':
+                event_info = latest_event_status_by_order.get(str(order_id))
+                if event_info and event_info.get('status'):
+                    details['orderStatus'] = event_info.get('status')
+            resolved_orders.append(normalize_order_payload(details))
+
+    direct_orders = []
+    for event in merchant_events:
+        if not isinstance(event, dict):
+            continue
+        fallback_order_id = _extract_order_id_from_poll_event(api_client, event)
+        status_candidate = _extract_status_from_poll_event(api_client, event)
+        has_order_payload = (
+            ('orderStatus' in event)
+            or ('totalPrice' in event)
+            or ('total' in event)
+            or bool(status_candidate)
+        )
+        if not has_order_payload or not fallback_order_id:
+            continue
+        event_order = dict(event)
+        # Polling/webhook event id is usually the event id, not the order id.
+        event_order['id'] = str(fallback_order_id)
+        if status_candidate and not event_order.get('orderStatus'):
+            event_order['orderStatus'] = status_candidate
+        if not event_order.get('merchantId'):
+            event_order['merchantId'] = str(merchant_id)
+        direct_orders.append(normalize_order_payload(event_order))
+
+    merged_orders = {}
+    for order in resolved_orders + direct_orders:
+        if not isinstance(order, dict):
+            continue
+        key = _order_cache_key(order)
+        if key:
+            merged_orders[key] = order
+    return list(merged_orders.values())
+
+
+def _build_fallback_restaurant_record(api_client, merchant_id: str) -> dict:
+    details = {}
+    if hasattr(api_client, 'get_merchant_details'):
+        try:
+            details = api_client.get_merchant_details(merchant_id) or {}
+        except Exception:
+            details = {}
+    if not isinstance(details, dict):
+        details = {}
+    if not details.get('id'):
+        details['id'] = merchant_id
+    if not details.get('name'):
+        details['name'] = f"Restaurant {str(merchant_id)[:8]}"
+    if not isinstance(details.get('merchantManager'), dict):
+        details['merchantManager'] = {'name': 'Gerente'}
+    if not isinstance(details.get('address'), dict):
+        details['address'] = {'neighborhood': 'Centro'}
+
+    fallback = IFoodDataProcessor.process_restaurant_data(details, [], None)
+    if not isinstance(fallback, dict):
+        fallback = {
+            'id': merchant_id,
+            'name': details.get('name', f"Restaurant {str(merchant_id)[:8]}"),
+            'manager': details.get('merchantManager', {}).get('name', 'Gerente'),
+            'neighborhood': details.get('address', {}).get('neighborhood', 'Centro'),
+            'metrics': {},
+            'orders': 0,
+            'revenue': 0,
+            'ticket': 0
+        }
+    fallback['merchant_id'] = merchant_id
+    fallback['_resolved_merchant_id'] = merchant_id
+    fallback['_orders_cache'] = []
+    return fallback
+
+
+def _ensure_org_restaurant_record(org_data: dict, api_client, merchant_id: str):
+    if not isinstance(org_data, dict):
+        return None, False
+    restaurant_record = _find_org_restaurant_record(org_data, merchant_id)
+    if restaurant_record:
+        return restaurant_record, False
+    fallback = _build_fallback_restaurant_record(api_client, merchant_id)
+    restaurants = org_data.get('restaurants')
+    if not isinstance(restaurants, list):
+        restaurants = []
+        org_data['restaurants'] = restaurants
+    restaurants.append(fallback)
+    return fallback, True
+
+
+def _persist_order_snapshots(org_id, merchant_id: str, source: str, orders: list) -> int:
+    if org_id is None:
+        return 0
+    persisted = 0
+    for order in (orders or []):
+        if not isinstance(order, dict):
+            continue
+        order_id = str(order.get('id') or order.get('orderId') or order.get('displayId') or '').strip()
+        if not order_id:
+            continue
+        order_updated_at = _parse_order_datetime(order) or _parse_generic_datetime(order.get('updatedAt'))
+        saved = db.upsert_ifood_order_snapshot(
+            org_id=org_id,
+            merchant_id=merchant_id,
+            order_id=order_id,
+            payload=order,
+            source=source,
+            status=get_order_status(order),
+            order_updated_at=order_updated_at,
+            payload_hash=_hash_payload_sha256(order)
+        )
+        if saved:
+            persisted += 1
+    return persisted
+
+
+def _persist_org_restaurants_cache(org_id, org_data: dict) -> bool:
+    if org_id is None or not isinstance(org_data, dict):
+        return False
+    cache_order_limit = max(
+        1,
+        int(str(os.environ.get('ORDERS_CACHE_LIMIT', '300')).strip() or '300')
+    )
+    db.save_org_data_cache(
+        org_id,
+        'restaurants',
+        [
+            build_restaurant_cache_record(r, max_orders=cache_order_limit)
+            for r in (org_data.get('restaurants') or [])
+            if isinstance(r, dict)
+        ]
+    )
+    # Keep org cache timestamp aligned with event ingestion updates.
+    org_data['last_refresh'] = datetime.now()
+    return True
+
+
+def _process_ifood_events_for_merchant(org_id, org_data: dict, api_client, merchant_id: str,
+                                       merchant_events: list, source: str = 'polling') -> dict:
+    result = {
+        'events_total': 0,
+        'events_new': 0,
+        'events_deduplicated': 0,
+        'orders_persisted': 0,
+        'orders_cached': 0,
+        'orders_updated': 0,
+        'metrics_refreshed': 0,
+        'org_data_changed': False,
+        'errors': 0
+    }
+    if not isinstance(org_data, dict):
+        result['errors'] += 1
+        return result
+
+    normalized_merchant_id = normalize_merchant_id(merchant_id)
+    if not normalized_merchant_id:
+        result['errors'] += 1
+        return result
+
+    incoming_events = [e for e in (merchant_events or []) if isinstance(e, dict)]
+    result['events_total'] = len(incoming_events)
+
+    accepted_events = []
+    for event in incoming_events:
+        try:
+            inserted = _record_ifood_event_for_dedupe(
+                org_id=org_id,
+                merchant_id=normalized_merchant_id,
+                source=source,
+                event=event
+            )
+            if inserted:
+                accepted_events.append(event)
+            else:
+                result['events_deduplicated'] += 1
+        except Exception:
+            result['errors'] += 1
+
+    result['events_new'] = len(accepted_events)
+    if accepted_events:
+        try:
+            incoming_orders = _resolve_orders_from_event_batch(
+                api_client,
+                normalized_merchant_id,
+                accepted_events
+            )
+        except Exception:
+            result['errors'] += 1
+            incoming_orders = []
+
+        if incoming_orders:
+            try:
+                persisted = _persist_order_snapshots(
+                    org_id=org_id,
+                    merchant_id=normalized_merchant_id,
+                    source=source,
+                    orders=incoming_orders
+                )
+                result['orders_persisted'] += int(persisted or 0)
+            except Exception:
+                result['errors'] += 1
+
+            try:
+                restaurant_record, created_record = _ensure_org_restaurant_record(
+                    org_data,
+                    api_client,
+                    normalized_merchant_id
+                )
+                if created_record:
+                    result['org_data_changed'] = True
+                if restaurant_record:
+                    merge_result = _merge_orders_into_restaurant_cache(restaurant_record, incoming_orders)
+                    added_count = int((merge_result or {}).get('added') or 0)
+                    updated_count = int((merge_result or {}).get('updated') or 0)
+                    result['orders_cached'] += added_count
+                    result['orders_updated'] += updated_count
+                    if added_count > 0 or updated_count > 0:
+                        result['org_data_changed'] = True
+                        if _refresh_restaurant_metrics_from_cache(restaurant_record, normalized_merchant_id):
+                            result['metrics_refreshed'] += 1
+                            result['org_data_changed'] = True
+                        _detect_and_broadcast_new_orders(
+                            normalized_merchant_id,
+                            restaurant_record.get('name', f"Restaurant {normalized_merchant_id[:8]}"),
+                            restaurant_record.get('_orders_cache') or []
+                        )
+            except Exception:
+                result['errors'] += 1
+
+    try:
+        _refresh_restaurant_closure(org_data, api_client, normalized_merchant_id)
+    except Exception:
+        result['errors'] += 1
+
+    return result
+
+
+def _group_events_by_merchant(events: list, allowed_merchant_ids: list = None):
+    grouped = {}
+    orphan_events = []
+    allowed_set = None
+    if isinstance(allowed_merchant_ids, list) and allowed_merchant_ids:
+        allowed_set = {str(mid) for mid in allowed_merchant_ids}
+
+    for event in (events or []):
+        if not isinstance(event, dict):
+            continue
+        event_merchant_id = normalize_merchant_id(_extract_merchant_id_from_poll_event(event))
+        if not event_merchant_id:
+            orphan_events.append(event)
+            continue
+        if allowed_set is not None and event_merchant_id not in allowed_set:
+            continue
+        grouped.setdefault(event_merchant_id, []).append(event)
+
+    if allowed_set and len(allowed_set) == 1 and orphan_events:
+        only_merchant_id = list(allowed_set)[0]
+        grouped.setdefault(only_merchant_id, []).extend(orphan_events)
+        orphan_events = []
+    return grouped, orphan_events
+
+
+def _find_org_ids_for_merchant_id(merchant_id: str) -> list:
+    wanted = normalize_merchant_id(merchant_id)
+    if not wanted:
+        return []
+    org_ids = []
+    for org_id, org_data in _org_data_items_snapshot():
+        if org_id is None:
+            continue
+        config = org_data.get('config') if isinstance(org_data, dict) else {}
+        if not isinstance(config, dict) or not config:
+            config = db.get_org_ifood_config(org_id) or {}
+            if isinstance(org_data, dict) and isinstance(config, dict) and config:
+                org_data['config'] = config
+        merchant_ids = _extract_org_merchant_ids(config if isinstance(config, dict) else {})
+        if wanted in merchant_ids:
+            org_ids.append(org_id)
+
+    if org_ids:
+        return list(dict.fromkeys(org_ids))
+
+    for org_row in db.get_all_active_orgs():
+        candidate_org_id = org_row.get('id')
+        merchants = org_row.get('ifood_merchants') or []
+        merchant_ids = _extract_org_merchant_ids({'merchants': merchants})
+        if wanted in merchant_ids:
+            org_ids.append(candidate_org_id)
+            org_container = get_org_data(candidate_org_id)
+            if not org_container.get('config'):
+                org_container['config'] = db.get_org_ifood_config(candidate_org_id) or {}
+    return list(dict.fromkeys([oid for oid in org_ids if oid is not None]))
+
+
+def _extract_ifood_events_from_payload(payload) -> list:
+    if isinstance(payload, list):
+        return [event for event in payload if isinstance(event, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in ('events', 'data', 'items'):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [event for event in value if isinstance(event, dict)]
+    nested_event = payload.get('event')
+    if isinstance(nested_event, dict):
+        return [nested_event]
+    if payload:
+        return [payload]
+    return []
+
+
+def _verify_ifood_webhook_request(raw_body: bytes):
+    """Validate webhook auth/signature according to env configuration."""
+    body = raw_body or b''
+    if IFOOD_WEBHOOK_SECRET:
+        signature_headers = (
+            request.headers.get('X-IFood-Signature'),
+            request.headers.get('X-Hub-Signature-256'),
+            request.headers.get('X-Signature'),
+        )
+        provided_signatures = [str(s).strip() for s in signature_headers if str(s or '').strip()]
+        if not provided_signatures:
+            return False, 'missing_signature'
+        expected_hex = hmac.new(
+            IFOOD_WEBHOOK_SECRET.encode('utf-8'),
+            body,
+            hashlib.sha256
+        ).hexdigest()
+        expected_values = {expected_hex.lower(), f"sha256={expected_hex.lower()}"}
+        for provided in provided_signatures:
+            provided_lower = provided.lower()
+            for expected in expected_values:
+                if hmac.compare_digest(provided_lower, expected):
+                    return True, None
+        return False, 'invalid_signature'
+
+    if IFOOD_WEBHOOK_TOKEN:
+        token = ''
+        auth_header = str(request.headers.get('Authorization') or '').strip()
+        if auth_header.lower().startswith('bearer '):
+            token = auth_header.split(' ', 1)[1].strip()
+        if not token:
+            token = str(
+                request.headers.get('X-IFood-Webhook-Token')
+                or request.headers.get('X-Webhook-Token')
+                or ''
+            ).strip()
+        if token and hmac.compare_digest(token, IFOOD_WEBHOOK_TOKEN):
+            return True, None
+        return False, 'invalid_token'
+
+    if IFOOD_WEBHOOK_ALLOW_UNSIGNED:
+        return True, None
+
+    return False, 'webhook_auth_not_configured'
+
+
+def _get_org_api_client_for_ingestion(org_id):
+    if org_id is None:
+        return IFOOD_API
+    org_data = get_org_data(org_id)
+    api_client = org_data.get('api')
+    if api_client:
+        return api_client
+    return _init_org_ifood(org_id)
+
+
 def _merge_orders_into_restaurant_cache(restaurant: dict, incoming_orders: list) -> Dict[str, int]:
     if not isinstance(restaurant, dict):
         return {'added': 0, 'updated': 0, 'total': 0}
@@ -2525,7 +3067,9 @@ def run_ifood_keepalive_poll_once():
         'orgs_checked': 0,
         'merchants_polled': 0,
         'events_received': 0,
+        'events_deduplicated': 0,
         'events_acknowledged': 0,
+        'orders_persisted': 0,
         'orders_cached': 0,
         'orders_updated': 0,
         'metrics_refreshed': 0,
@@ -2605,153 +3149,36 @@ def run_ifood_keepalive_poll_once():
                 summary['errors'] += 1
                 events = []
 
-            events_by_merchant = {}
-            orphan_events = []
-            for event in events:
-                if not isinstance(event, dict):
-                    continue
-                event_merchant_id = _extract_merchant_id_from_poll_event(event)
-                if not event_merchant_id:
-                    orphan_events.append(event)
-                    continue
-                if event_merchant_id not in merchant_set:
-                    continue
-                events_by_merchant.setdefault(event_merchant_id, []).append(event)
-            if len(merchant_ids) == 1 and orphan_events:
-                only_merchant_id = str(merchant_ids[0])
-                events_by_merchant.setdefault(only_merchant_id, []).extend(orphan_events)
+            events_by_merchant, _ = _group_events_by_merchant(
+                events,
+                allowed_merchant_ids=list(merchant_set)
+            )
 
             for merchant_id in merchant_ids:
                 try:
                     merchant_events = events_by_merchant.get(str(merchant_id), [])
-                    if merchant_events:
-                        max_status_entries = max(
-                            100,
-                            int(str(os.environ.get('KEEPALIVE_ORDER_STATUS_CACHE_MAX', '2000')).strip() or '2000')
-                        )
-                        latest_event_status_by_order = {}
-                        order_ids = []
-                        for event in merchant_events:
-                            if not isinstance(event, dict):
-                                continue
-                            order_id = _extract_order_id_from_poll_event(api, event)
-                            if not order_id:
-                                continue
-                            order_ids.append(str(order_id))
-                            status_raw = _extract_status_from_poll_event(api, event)
-                            normalized_status = normalize_order_status_value(status_raw)
-                            if normalized_status == 'UNKNOWN':
-                                continue
-                            event_created_at = _parse_generic_datetime(event.get('createdAt'))
-                            order_key = str(order_id)
-                            existing = latest_event_status_by_order.get(order_key)
-                            if not existing:
-                                if len(latest_event_status_by_order) >= max_status_entries:
-                                    continue
-                                latest_event_status_by_order[order_key] = {
-                                    'status': normalized_status,
-                                    'created_at': event_created_at
-                                }
-                                continue
-                            existing_created = existing.get('created_at')
-                            if existing_created is None or (event_created_at and event_created_at >= existing_created):
-                                latest_event_status_by_order[order_key] = {
-                                    'status': normalized_status,
-                                    'created_at': event_created_at
-                                }
-
-                        dedup_order_ids = list(dict.fromkeys([str(oid) for oid in order_ids if oid]))
-                        resolved_orders = []
-                        if hasattr(api, 'get_order_details'):
-                            for order_id in dedup_order_ids:
-                                try:
-                                    details = api.get_order_details(order_id)
-                                except Exception:
-                                    details = None
-                                if not isinstance(details, dict) or not details:
-                                    continue
-                                normalized_current_status = normalize_order_status_value(details.get('orderStatus'))
-                                if normalized_current_status == 'UNKNOWN':
-                                    event_info = latest_event_status_by_order.get(str(order_id))
-                                    if event_info and event_info.get('status'):
-                                        details['orderStatus'] = event_info.get('status')
-                                resolved_orders.append(normalize_order_payload(details))
-
-                        direct_orders = []
-                        for event in merchant_events:
-                            if not isinstance(event, dict):
-                                continue
-                            fallback_order_id = _extract_order_id_from_poll_event(api, event)
-                            status_candidate = _extract_status_from_poll_event(api, event)
-                            has_order_payload = (
-                                ('orderStatus' in event)
-                                or ('totalPrice' in event)
-                                or ('total' in event)
-                                or bool(status_candidate)
-                            )
-                            if not has_order_payload or not fallback_order_id:
-                                continue
-                            event_order = dict(event)
-                            # Polling event id is usually the event id, not the order id.
-                            event_order['id'] = str(fallback_order_id)
-                            if status_candidate and not event_order.get('orderStatus'):
-                                event_order['orderStatus'] = status_candidate
-                            if not event_order.get('merchantId'):
-                                event_order['merchantId'] = str(merchant_id)
-                            direct_orders.append(normalize_order_payload(event_order))
-
-                        merged_orders = {}
-                        for order in resolved_orders + direct_orders:
-                            if not isinstance(order, dict):
-                                continue
-                            key = _order_cache_key(order)
-                            if key:
-                                merged_orders[key] = order
-                        incoming_orders = list(merged_orders.values())
-
-                        if incoming_orders:
-                            restaurant_record = _find_org_restaurant_record(org_data, merchant_id)
-                            if restaurant_record:
-                                merge_result = _merge_orders_into_restaurant_cache(restaurant_record, incoming_orders)
-                                added_count = int((merge_result or {}).get('added') or 0)
-                                updated_count = int((merge_result or {}).get('updated') or 0)
-                                summary['orders_cached'] += added_count
-                                summary['orders_updated'] += updated_count
-                                if added_count > 0 or updated_count > 0:
-                                    org_data_changed = True
-                                    try:
-                                        if _refresh_restaurant_metrics_from_cache(restaurant_record, merchant_id):
-                                            summary['metrics_refreshed'] += 1
-                                            org_data_changed = True
-                                    except Exception:
-                                        summary['errors'] += 1
-                except Exception:
-                    summary['errors'] += 1
-                try:
-                    _refresh_restaurant_closure(org_data, api, merchant_id)
+                    ingest_result = _process_ifood_events_for_merchant(
+                        org_id=org_id,
+                        org_data=org_data,
+                        api_client=api,
+                        merchant_id=str(merchant_id),
+                        merchant_events=merchant_events,
+                        source='polling'
+                    )
+                    summary['events_deduplicated'] += int(ingest_result.get('events_deduplicated') or 0)
+                    summary['orders_persisted'] += int(ingest_result.get('orders_persisted') or 0)
+                    summary['orders_cached'] += int(ingest_result.get('orders_cached') or 0)
+                    summary['orders_updated'] += int(ingest_result.get('orders_updated') or 0)
+                    summary['metrics_refreshed'] += int(ingest_result.get('metrics_refreshed') or 0)
+                    summary['errors'] += int(ingest_result.get('errors') or 0)
+                    if ingest_result.get('org_data_changed'):
+                        org_data_changed = True
                 except Exception:
                     summary['errors'] += 1
 
             if org_data_changed and org_id is not None:
                 try:
-                    cache_order_limit = max(
-                        1,
-                        int(str(os.environ.get('ORDERS_CACHE_LIMIT', '300')).strip() or '300')
-                    )
-                    db.save_org_data_cache(
-                        org_id,
-                        'restaurants',
-                        [
-                            build_restaurant_cache_record(r, max_orders=cache_order_limit)
-                            for r in (org_data.get('restaurants') or [])
-                            if isinstance(r, dict)
-                        ]
-                    )
-                    # Stamp last_refresh to prevent _sync_org_restaurants_from_cache from
-                    # immediately replacing the in-memory state with the DB snapshot we
-                    # just saved (the timestamp comparison uses org['last_refresh'], which
-                    # the keepalive never previously updated).
-                    org_data['last_refresh'] = datetime.now()
+                    _persist_org_restaurants_cache(org_id, org_data)
                 except Exception:
                     summary['errors'] += 1
 
@@ -2767,6 +3194,19 @@ def run_ifood_keepalive_poll_once():
     finally:
         release_keepalive_lock(lock_token)
 
+    _update_ifood_ingestion_metrics(
+        polling_cycles=1,
+        events_received=summary.get('events_received', 0),
+        events_deduplicated=summary.get('events_deduplicated', 0),
+        events_processed=max(
+            0,
+            int(summary.get('events_received', 0) or 0) - int(summary.get('events_deduplicated', 0) or 0)
+        ),
+        orders_persisted=summary.get('orders_persisted', 0),
+        orders_cached=summary.get('orders_cached', 0),
+        orders_updated=summary.get('orders_updated', 0)
+    )
+
     if (summary['orders_cached'] > 0) or (summary['orders_updated'] > 0) or (summary['metrics_refreshed'] > 0):
         # New/updated orders or recomputed metrics were merged in-memory.
         # Drop response cache so UI reflects changes immediately.
@@ -2781,7 +3221,8 @@ def run_ifood_keepalive_poll_once():
         print(
             f"iFood keepalive polling completed with errors "
             f"(orgs={summary['orgs_checked']}, merchants={summary['merchants_polled']}, "
-            f"events={summary['events_received']}, acked={summary['events_acknowledged']}, "
+            f"events={summary['events_received']}, deduped={summary['events_deduplicated']}, acked={summary['events_acknowledged']}, "
+            f"orders_persisted={summary['orders_persisted']}, "
             f"orders_cached={summary['orders_cached']}, orders_updated={summary['orders_updated']}, "
             f"metrics_refreshed={summary['metrics_refreshed']}, errors={summary['errors']})"
         )
@@ -2790,7 +3231,8 @@ def run_ifood_keepalive_poll_once():
         print(
             f"iFood keepalive polling active "
             f"(orgs={summary['orgs_checked']}, merchants={summary['merchants_polled']}, "
-            f"events={summary['events_received']}, acked={summary['events_acknowledged']}, "
+            f"events={summary['events_received']}, deduped={summary['events_deduplicated']}, acked={summary['events_acknowledged']}, "
+            f"orders_persisted={summary['orders_persisted']}, "
             f"orders_cached={summary['orders_cached']}, orders_updated={summary['orders_updated']}, "
             f"metrics_refreshed={summary['metrics_refreshed']})"
         )
@@ -4255,6 +4697,175 @@ def api_reload():
 
 
 # ============================================================================
+# IFOOD WEBHOOK INGESTION
+# ============================================================================
+
+@app.route('/api/ifood/webhook', methods=['POST'])
+@app.route('/ifood/webhook', methods=['POST'])
+@rate_limit(limit=240, window_seconds=60, scope='ifood_webhook')
+def api_ifood_webhook():
+    """Receive iFood real-time events and feed the same pipeline used by polling."""
+    _update_ifood_ingestion_metrics(webhook_requests=1)
+    raw_body = request.get_data(cache=True) or b''
+    is_valid, auth_reason = _verify_ifood_webhook_request(raw_body)
+    if not is_valid:
+        _update_ifood_ingestion_metrics(webhook_last_error_at=datetime.now().isoformat())
+        status_code = 401 if auth_reason in ('missing_signature', 'invalid_signature', 'invalid_token') else 503
+        return jsonify({
+            'success': False,
+            'error': auth_reason,
+            'webhook_configured': bool(IFOOD_WEBHOOK_SECRET or IFOOD_WEBHOOK_TOKEN or IFOOD_WEBHOOK_ALLOW_UNSIGNED)
+        }), status_code
+
+    payload = request.get_json(silent=True)
+    if payload is None:
+        try:
+            payload = json.loads(raw_body.decode('utf-8', errors='replace'))
+        except Exception:
+            payload = {}
+    events = _extract_ifood_events_from_payload(payload)
+    if not events:
+        return jsonify({'success': True, 'received': 0, 'processed': 0, 'message': 'no_events'}), 202
+    payload_merchant_hint_raw = None
+    if isinstance(payload, dict):
+        payload_merchant_hint_raw = payload.get('merchantId') or payload.get('merchant_id')
+        merchant_obj = payload.get('merchant')
+        if not payload_merchant_hint_raw and isinstance(merchant_obj, dict):
+            payload_merchant_hint_raw = merchant_obj.get('id') or merchant_obj.get('merchantId')
+    payload_merchant_hint = normalize_merchant_id(payload_merchant_hint_raw)
+    if payload_merchant_hint:
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            if not _extract_merchant_id_from_poll_event(event):
+                event['merchantId'] = payload_merchant_hint
+
+    received = len(events)
+    processed = 0
+    deduplicated = 0
+    persisted = 0
+    cached = 0
+    updated = 0
+    errors = 0
+    unmatched_events = 0
+    changed_org_ids = set()
+
+    grouped_by_merchant, orphan_events = _group_events_by_merchant(events)
+    for merchant_id, merchant_events in grouped_by_merchant.items():
+        org_ids = _find_org_ids_for_merchant_id(merchant_id)
+        if not org_ids:
+            unmatched_events += len(merchant_events)
+            continue
+        for org_id in org_ids:
+            try:
+                api_client = _get_org_api_client_for_ingestion(org_id)
+                if not api_client:
+                    errors += len(merchant_events)
+                    continue
+                org_data = get_org_data(org_id)
+                ingest_result = _process_ifood_events_for_merchant(
+                    org_id=org_id,
+                    org_data=org_data,
+                    api_client=api_client,
+                    merchant_id=merchant_id,
+                    merchant_events=merchant_events,
+                    source='webhook'
+                )
+                processed += int(ingest_result.get('events_new') or 0)
+                deduplicated += int(ingest_result.get('events_deduplicated') or 0)
+                persisted += int(ingest_result.get('orders_persisted') or 0)
+                cached += int(ingest_result.get('orders_cached') or 0)
+                updated += int(ingest_result.get('orders_updated') or 0)
+                errors += int(ingest_result.get('errors') or 0)
+                if ingest_result.get('org_data_changed'):
+                    changed_org_ids.add(org_id)
+            except Exception:
+                errors += len(merchant_events)
+
+    if orphan_events:
+        single_target = None
+        for org_id, org_data in _org_data_items_snapshot():
+            if org_id is None:
+                continue
+            config = org_data.get('config') if isinstance(org_data, dict) else {}
+            if not isinstance(config, dict) or not config:
+                config = db.get_org_ifood_config(org_id) or {}
+                if isinstance(org_data, dict) and isinstance(config, dict):
+                    org_data['config'] = config
+            org_merchant_ids = _extract_org_merchant_ids(config if isinstance(config, dict) else {})
+            if len(org_merchant_ids) == 1:
+                if single_target is not None:
+                    single_target = None
+                    break
+                single_target = (org_id, org_merchant_ids[0])
+        if single_target is None:
+            unmatched_events += len(orphan_events)
+        else:
+            org_id, merchant_id = single_target
+            try:
+                api_client = _get_org_api_client_for_ingestion(org_id)
+                if api_client:
+                    org_data = get_org_data(org_id)
+                    ingest_result = _process_ifood_events_for_merchant(
+                        org_id=org_id,
+                        org_data=org_data,
+                        api_client=api_client,
+                        merchant_id=merchant_id,
+                        merchant_events=orphan_events,
+                        source='webhook'
+                    )
+                    processed += int(ingest_result.get('events_new') or 0)
+                    deduplicated += int(ingest_result.get('events_deduplicated') or 0)
+                    persisted += int(ingest_result.get('orders_persisted') or 0)
+                    cached += int(ingest_result.get('orders_cached') or 0)
+                    updated += int(ingest_result.get('orders_updated') or 0)
+                    errors += int(ingest_result.get('errors') or 0)
+                    if ingest_result.get('org_data_changed'):
+                        changed_org_ids.add(org_id)
+                else:
+                    errors += len(orphan_events)
+            except Exception:
+                errors += len(orphan_events)
+
+    for org_id in list(changed_org_ids):
+        try:
+            _persist_org_restaurants_cache(org_id, get_org_data(org_id))
+            invalidate_cache(org_id)
+        except Exception:
+            errors += 1
+
+    if changed_org_ids:
+        try:
+            _save_data_snapshot()
+        except Exception:
+            pass
+
+    _update_ifood_ingestion_metrics(
+        events_received=received,
+        events_deduplicated=deduplicated,
+        events_processed=processed,
+        orders_persisted=persisted,
+        orders_cached=cached,
+        orders_updated=updated
+    )
+    if errors > 0:
+        _update_ifood_ingestion_metrics(webhook_last_error_at=datetime.now().isoformat())
+
+    return jsonify({
+        'success': True,
+        'received': received,
+        'processed': processed,
+        'deduplicated': deduplicated,
+        'orders_persisted': persisted,
+        'orders_cached': cached,
+        'orders_updated': updated,
+        'unmatched_events': unmatched_events,
+        'orgs_changed': len(changed_org_ids),
+        'errors': errors
+    }), 202
+
+
+# ============================================================================
 # REAL-TIME SERVER-SENT EVENTS (SSE)
 # ============================================================================
 
@@ -4352,12 +4963,26 @@ def api_health():
     if conn:
         conn.close()
     last_refresh = get_current_org_last_refresh()
+    ingestion_metrics = _snapshot_ifood_ingestion_metrics()
+    db_ingestion = db.get_ifood_ingestion_summary(org_id=None, since_hours=24)
     return jsonify({
         'success': ok,
         'status': 'ok' if ok else 'degraded',
         'uptime_seconds': int((datetime.utcnow() - APP_STARTED_AT).total_seconds()),
         'restaurants_loaded': len(get_current_org_restaurants()),
-        'last_refresh': last_refresh.isoformat() if last_refresh else None
+        'last_refresh': last_refresh.isoformat() if last_refresh else None,
+        'ifood_ingestion': {
+            'polling_enabled': bool(IFOOD_KEEPALIVE_POLLING),
+            'poll_interval_seconds': int(IFOOD_POLL_INTERVAL_SECONDS or 30),
+            'webhook_auth_mode': (
+                'hmac_sha256' if IFOOD_WEBHOOK_SECRET
+                else 'token' if IFOOD_WEBHOOK_TOKEN
+                else 'unsigned' if IFOOD_WEBHOOK_ALLOW_UNSIGNED
+                else 'disabled'
+            ),
+            'metrics': ingestion_metrics,
+            'db_24h': db_ingestion
+        }
     }), (200 if ok else 503)
 
 

@@ -353,6 +353,48 @@ class DashboardDatabase:
                     UNIQUE(org_id, cache_key)
                 )
             """)
+
+            # iFood homologation support: raw event ingestion log (idempotent)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ifood_event_log (
+                    id BIGSERIAL PRIMARY KEY,
+                    org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                    merchant_id VARCHAR(120),
+                    source VARCHAR(30) NOT NULL,
+                    dedupe_key VARCHAR(140) NOT NULL,
+                    event_id VARCHAR(140),
+                    order_id VARCHAR(140),
+                    event_type VARCHAR(120),
+                    event_created_at TIMESTAMP,
+                    payload_hash VARCHAR(64),
+                    payload JSONB NOT NULL,
+                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(org_id, dedupe_key)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ifood_event_log_org_created ON ifood_event_log(org_id, created_at DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ifood_event_log_merchant_created ON ifood_event_log(merchant_id, created_at DESC)")
+
+            # iFood homologation support: latest raw order snapshots per org/order id
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ifood_order_snapshots (
+                    id BIGSERIAL PRIMARY KEY,
+                    org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                    merchant_id VARCHAR(120) NOT NULL,
+                    order_id VARCHAR(140) NOT NULL,
+                    source VARCHAR(30) NOT NULL DEFAULT 'polling',
+                    status VARCHAR(60),
+                    order_updated_at TIMESTAMP,
+                    payload_hash VARCHAR(64),
+                    payload JSONB NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(org_id, order_id)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ifood_order_snapshots_org_updated ON ifood_order_snapshots(org_id, updated_at DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ifood_order_snapshots_merchant_updated ON ifood_order_snapshots(merchant_id, updated_at DESC)")
             
             # â”€â”€ Migration: add primary_org_id to users if missing â”€â”€
             try:
@@ -2056,6 +2098,156 @@ class DashboardDatabase:
             return None
         except:
             return None
+        finally:
+            cursor.close()
+            conn.close()
+
+    # ================================================================
+    # iFood: EVENT / ORDER INGESTION PERSISTENCE
+    # ================================================================
+
+    def record_ifood_event(self, org_id, merchant_id, source, dedupe_key, payload,
+                           event_id=None, order_id=None, event_type=None,
+                           event_created_at=None, payload_hash=None):
+        """Insert one ingestion event. Returns True only when inserted (idempotent)."""
+        if not org_id or not dedupe_key:
+            return False
+        conn = self.get_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO ifood_event_log (
+                    org_id, merchant_id, source, dedupe_key, event_id, order_id,
+                    event_type, event_created_at, payload_hash, payload
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                ON CONFLICT (org_id, dedupe_key) DO NOTHING
+                RETURNING id
+            """, (
+                org_id,
+                str(merchant_id or '').strip() or None,
+                str(source or 'unknown').strip() or 'unknown',
+                str(dedupe_key).strip(),
+                str(event_id).strip() if event_id else None,
+                str(order_id).strip() if order_id else None,
+                str(event_type).strip() if event_type else None,
+                event_created_at,
+                str(payload_hash).strip() if payload_hash else None,
+                json.dumps(payload if isinstance(payload, dict) else {}, ensure_ascii=False, default=str)
+            ))
+            inserted = cursor.fetchone() is not None
+            conn.commit()
+            return bool(inserted)
+        except Exception as e:
+            conn.rollback()
+            print(f"⚠️ record_ifood_event: {e}")
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+
+    def upsert_ifood_order_snapshot(self, org_id, merchant_id, order_id, payload,
+                                    source='polling', status=None,
+                                    order_updated_at=None, payload_hash=None):
+        """Upsert latest raw order payload for troubleshooting/replay."""
+        if not org_id or not order_id:
+            return False
+        conn = self.get_connection()
+        if not conn:
+            return False
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO ifood_order_snapshots (
+                    org_id, merchant_id, order_id, source, status,
+                    order_updated_at, payload_hash, payload
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                ON CONFLICT (org_id, order_id) DO UPDATE SET
+                    merchant_id = EXCLUDED.merchant_id,
+                    source = EXCLUDED.source,
+                    status = EXCLUDED.status,
+                    order_updated_at = EXCLUDED.order_updated_at,
+                    payload_hash = EXCLUDED.payload_hash,
+                    payload = EXCLUDED.payload,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                org_id,
+                str(merchant_id or '').strip() or '',
+                str(order_id).strip(),
+                str(source or 'polling').strip() or 'polling',
+                str(status).strip() if status else None,
+                order_updated_at,
+                str(payload_hash).strip() if payload_hash else None,
+                json.dumps(payload if isinstance(payload, dict) else {}, ensure_ascii=False, default=str)
+            ))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            print(f"⚠️ upsert_ifood_order_snapshot: {e}")
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_ifood_ingestion_summary(self, org_id=None, since_hours=24):
+        """Return basic ingestion counters for health/debug endpoints."""
+        conn = self.get_connection()
+        if not conn:
+            return {
+                'events_logged': 0,
+                'orders_snapshotted': 0,
+                'last_event_at': None,
+                'last_order_snapshot_at': None
+            }
+        cursor = conn.cursor()
+        try:
+            hours = max(1, int(since_hours or 24))
+            if org_id is None:
+                cursor.execute("""
+                    SELECT COUNT(*), MAX(created_at)
+                    FROM ifood_event_log
+                    WHERE created_at >= (CURRENT_TIMESTAMP - (%s || ' hours')::interval)
+                """, (hours,))
+                ev_count, last_event_at = cursor.fetchone()
+                cursor.execute("""
+                    SELECT COUNT(*), MAX(updated_at)
+                    FROM ifood_order_snapshots
+                    WHERE updated_at >= (CURRENT_TIMESTAMP - (%s || ' hours')::interval)
+                """, (hours,))
+                ord_count, last_order_at = cursor.fetchone()
+            else:
+                cursor.execute("""
+                    SELECT COUNT(*), MAX(created_at)
+                    FROM ifood_event_log
+                    WHERE org_id=%s
+                      AND created_at >= (CURRENT_TIMESTAMP - (%s || ' hours')::interval)
+                """, (org_id, hours))
+                ev_count, last_event_at = cursor.fetchone()
+                cursor.execute("""
+                    SELECT COUNT(*), MAX(updated_at)
+                    FROM ifood_order_snapshots
+                    WHERE org_id=%s
+                      AND updated_at >= (CURRENT_TIMESTAMP - (%s || ' hours')::interval)
+                """, (org_id, hours))
+                ord_count, last_order_at = cursor.fetchone()
+            return {
+                'events_logged': int(ev_count or 0),
+                'orders_snapshotted': int(ord_count or 0),
+                'last_event_at': last_event_at.isoformat() if isinstance(last_event_at, datetime) else None,
+                'last_order_snapshot_at': last_order_at.isoformat() if isinstance(last_order_at, datetime) else None
+            }
+        except Exception as e:
+            print(f"⚠️ get_ifood_ingestion_summary: {e}")
+            return {
+                'events_logged': 0,
+                'orders_snapshotted': 0,
+                'last_event_at': None,
+                'last_order_snapshot_at': None
+            }
         finally:
             cursor.close()
             conn.close()
