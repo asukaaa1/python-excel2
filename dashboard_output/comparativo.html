@@ -525,6 +525,7 @@
         let currentSortOrder = 'name-asc';
         let currentMonthFilter = ''; // Track current month filter
         let currentOrgId = null;
+        let hasOrgAssignment = false;
         let organizationsCache = [];
         const servicesMap = {
             'delivery': 'Delivery',
@@ -1056,11 +1057,13 @@
                     return;
                 }
                 const u = data.user;
+                const personIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 21a8 8 0 10-16 0"/><circle cx="12" cy="8" r="4"/></svg>';
+                hasOrgAssignment = !!(data.org_id);
                 document.getElementById('sidebarUserName').textContent = u.name || u.username || 'Usuario';
-                document.getElementById('sidebarAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase();
+                document.getElementById('sidebarAvatar').innerHTML = personIcon;
                 document.getElementById('sidebarUserRole').textContent = u.role === 'admin' ? 'Administrador' : 'Usuario';
                 
-                if (u.role === 'admin') {
+                if (u.role === 'admin' || !hasOrgAssignment) {
                     const adminEl = document.getElementById('adminSection');
                     if (adminEl) adminEl.style.display = 'block';
                 } else {
@@ -1069,22 +1072,23 @@
                 }
 
                 currentOrgId = Number(data.org_id || currentOrgId || 0);
+                const orgSwitcher = document.getElementById('orgSwitcher');
+                if (orgSwitcher) orgSwitcher.style.display = hasOrgAssignment ? '' : 'none';
                 const org = data.org || {};
-                if (org.name) {
+                if (hasOrgAssignment && org.name) {
                     const orgName = document.getElementById('orgName');
                     if (orgName) orgName.textContent = org.name;
                     const orgAvatar = document.getElementById('orgAvatar');
-                    if (orgAvatar) {
-                        const orgInitials = String(org.name).split(' ').map(v => v[0]).join('').slice(0, 3).toUpperCase();
-                        orgAvatar.textContent = orgInitials || 'ORG';
-                    }
+                    if (orgAvatar) orgAvatar.innerHTML = personIcon;
                 }
-                if (org.plan_display || org.plan) {
+                if (hasOrgAssignment && (org.plan_display || org.plan)) {
                     const planBadge = document.getElementById('planBadge');
                     if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
                 }
 
-                await refreshOrgStoreCount();
+                if (hasOrgAssignment) {
+                    await refreshOrgStoreCount();
+                }
                 await loadOrganizations(false);
             } catch (err) {
                 console.error('Auth check failed:', err);
@@ -1268,7 +1272,9 @@
             const orgSwitcher = document.getElementById('orgSwitcher');
             if (orgSwitcher) orgSwitcher.addEventListener('click', openOrgSwitcherModal);
             await checkUser();
-            Promise.all([loadData(), loadComparison('week')]); // Load in parallel
+            if (hasOrgAssignment) {
+                Promise.all([loadData(), loadComparison('week')]); // Load in parallel
+            }
             
             // Initialize sort dropdown
             setTimeout(() => {

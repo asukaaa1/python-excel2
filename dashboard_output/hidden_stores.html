@@ -208,6 +208,7 @@
     <script>
         let hiddenStores = [];
         let currentOrgId = null;
+        let hasOrgAssignment = false;
         let organizationsCache = [];
         function openOrgModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'flex'; }
         function closeOrgModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
@@ -334,29 +335,38 @@
             try {
                 const r = await fetch('/api/me');
                 const d = await r.json();
-                if (!(d.success && d.user && d.user.role === 'admin')) { window.location.href = '/dashboard'; return; }
+                if (!(d.success && d.user)) { window.location.href = '/login'; return; }
                 const u = d.user;
+                hasOrgAssignment = !!(d.org_id);
+                const personIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 21a8 8 0 10-16 0"/><circle cx="12" cy="8" r="4"/></svg>';
                 document.getElementById('userName').textContent = u.name || u.username || 'Usuario';
-                document.getElementById('userAvatar').textContent = (u.name || u.username || 'U').charAt(0).toUpperCase();
+                document.getElementById('userAvatar').innerHTML = personIcon;
                 document.getElementById('userRoleText').textContent = u.role === 'admin' ? 'Administrador' : 'Usuario';
+                if (!(u.role === 'admin' || !hasOrgAssignment)) { window.location.href = '/dashboard'; return; }
                 currentOrgId = Number(d.org_id || currentOrgId || 0);
+                const orgSwitcher = document.getElementById('orgSwitcher');
+                if (orgSwitcher) orgSwitcher.style.display = hasOrgAssignment ? '' : 'none';
                 const org = d.org || {};
-                if (org.name) {
+                if (hasOrgAssignment && org.name) {
                     const orgName = document.getElementById('orgName');
                     if (orgName) orgName.textContent = org.name;
                     const orgAvatar = document.getElementById('orgAvatar');
-                    if (orgAvatar) {
-                        const orgInitials = String(org.name).split(' ').map(v => v[0]).join('').slice(0, 3).toUpperCase();
-                        orgAvatar.textContent = orgInitials || 'ORG';
-                    }
+                    if (orgAvatar) orgAvatar.innerHTML = personIcon;
                 }
-                if (org.plan_display || org.plan) {
+                if (hasOrgAssignment && (org.plan_display || org.plan)) {
                     const planBadge = document.getElementById('planBadge');
                     if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
                 }
-                await refreshOrgStoreCount();
+                if (hasOrgAssignment) {
+                    await refreshOrgStoreCount();
+                }
                 await loadOrganizations(false);
-                await loadHiddenStores();
+                if (hasOrgAssignment) {
+                    await loadHiddenStores();
+                } else {
+                    hiddenStores = [];
+                    renderHiddenStores();
+                }
             } catch (e) { window.location.href = '/login'; }
         }
 

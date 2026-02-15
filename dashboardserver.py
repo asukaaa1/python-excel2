@@ -3713,6 +3713,23 @@ def _check_admin_access(user):
     return None
 
 
+def _check_admin_page_access(user):
+    """Allow admin pages for unassigned users while keeping API/admin checks strict."""
+    if is_platform_admin_user(user):
+        return None
+    org_id = get_current_org_id()
+    if not org_id:
+        if _is_api_like_request():
+            return jsonify({'error': 'Organization context required'}), 403
+        return None
+    org_role = db.get_org_member_role(org_id, user.get('id'))
+    if org_role not in ('owner', 'admin'):
+        if _is_api_like_request():
+            return jsonify({'error': 'Admin access required'}), 403
+        return redirect(url_for('dashboard'))
+    return None
+
+
 def _check_platform_admin_access(user):
     if not is_platform_admin_user(user):
         return jsonify({'error': 'Platform admin access required'}), 403
@@ -3727,6 +3744,11 @@ def login_required(f):
 def admin_required(f):
     """Decorator to require admin privileges in current org or platform."""
     return _guard_with_authenticated_user(f, _check_admin_access)
+
+
+def admin_page_required(f):
+    """Decorator for admin pages: allow logged-in users without org assignment."""
+    return _guard_with_authenticated_user(f, _check_admin_page_access)
 
 
 def platform_admin_required(f):
@@ -3763,7 +3785,9 @@ def require_feature(feature_name):
         def decorated_function(*args, **kwargs):
             org_id = get_current_org_id()
             if not org_id:
-                return jsonify({'success': False, 'error': 'Organization context required'}), 403
+                if _is_api_like_request():
+                    return jsonify({'success': False, 'error': 'Organization context required'}), 403
+                return f(*args, **kwargs)
 
             if db.check_feature(org_id, feature_name):
                 return f(*args, **kwargs)
@@ -3843,7 +3867,7 @@ def dashboard():
 
 
 @app.route('/admin')
-@admin_required
+@admin_page_required
 def admin_page():
     """Serve admin page"""
     admin_file = DASHBOARD_OUTPUT / 'admin.html'
@@ -3863,7 +3887,7 @@ def ops_page():
 
 
 @app.route('/comparativo')
-@admin_required
+@admin_page_required
 @require_feature('comparativo')
 def comparativo_page():
     """Serve comparativo por gestor page"""
@@ -3874,7 +3898,7 @@ def comparativo_page():
 
 
 @app.route('/hidden-stores')
-@admin_required
+@admin_page_required
 def hidden_stores_page():
     """Serve hidden stores management page"""
     hidden_stores_file = DASHBOARD_OUTPUT / 'hidden_stores.html'
@@ -3884,7 +3908,7 @@ def hidden_stores_page():
 
 
 @app.route('/squads')
-@admin_required
+@admin_page_required
 def squads_page():
     """Serve squads management page"""
     squads_file = DASHBOARD_OUTPUT / 'squads.html'

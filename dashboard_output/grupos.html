@@ -381,6 +381,7 @@
         let restaurantsData = [];
         let isAdmin = false;
         let currentOrgId = null;
+        let hasOrgAssignment = false;
         let organizationsCache = [];
         let groupTemplates = [];
 
@@ -909,13 +910,15 @@
                     return;
                 }
                 const u = d.user;
+                const personIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 21a8 8 0 10-16 0"/><circle cx="12" cy="8" r="4"/></svg>';
+                hasOrgAssignment = !!(d.org_id);
                 document.getElementById('userName').textContent = u.name || u.username || 'Usuario';
-                document.getElementById('userAvatar').textContent = (u.name || u.username || 'U').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                document.getElementById('userAvatar').innerHTML = personIcon;
                 document.getElementById('userRoleText').textContent = u.role === 'admin' ? 'Administrador' : 'Usuario';
                 const opsNav = document.getElementById('opsNavLink');
                 if (opsNav) opsNav.style.display = u.is_platform_admin ? '' : 'none';
 
-                isAdmin = u.role === 'admin';
+                isAdmin = u.role === 'admin' || !hasOrgAssignment;
                 if (isAdmin) {
                     const adminEl = document.getElementById('adminSection');
                     if (adminEl) adminEl.style.display = 'block';
@@ -926,24 +929,30 @@
                 }
 
                 currentOrgId = Number(d.org_id || currentOrgId || 0);
+                const orgSwitcher = document.getElementById('orgSwitcher');
+                if (orgSwitcher) orgSwitcher.style.display = hasOrgAssignment ? '' : 'none';
                 const org = d.org || {};
-                if (org.name) {
+                if (hasOrgAssignment && org.name) {
                     const orgName = document.getElementById('orgName');
                     if (orgName) orgName.textContent = org.name;
                     const orgAvatar = document.getElementById('orgAvatar');
-                    if (orgAvatar) {
-                        const orgInitials = String(org.name).split(' ').map(v => v[0]).join('').slice(0, 3).toUpperCase();
-                        orgAvatar.textContent = orgInitials || 'ORG';
-                    }
+                    if (orgAvatar) orgAvatar.innerHTML = personIcon;
                 }
-                if (org.plan_display || org.plan) {
+                if (hasOrgAssignment && (org.plan_display || org.plan)) {
                     const planBadge = document.getElementById('planBadge');
                     if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
                 }
 
-                await refreshOrgStoreCount();
+                if (hasOrgAssignment) {
+                    await refreshOrgStoreCount();
+                }
                 await loadOrganizations(false);
-                await loadData();
+                if (hasOrgAssignment) {
+                    await loadData();
+                } else {
+                    groupsData = [];
+                    renderGroups();
+                }
             } catch (err) {
                 console.error('Auth check failed:', err);
                 window.location.href = '/login';
