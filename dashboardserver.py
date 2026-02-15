@@ -2356,6 +2356,35 @@ def _merge_orders_into_restaurant_cache(restaurant: dict, incoming_orders: list)
     if not isinstance(restaurant, dict):
         return {'added': 0, 'updated': 0, 'total': 0}
 
+    def _has_meaningful_value(value):
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple, set, dict)):
+            return len(value) > 0
+        return True
+
+    def _merge_order_payloads(existing_payload, incoming_payload):
+        """Merge sparse incoming payloads without dropping richer cached fields."""
+        if not isinstance(existing_payload, dict):
+            return incoming_payload if isinstance(incoming_payload, dict) else existing_payload
+        if not isinstance(incoming_payload, dict):
+            return existing_payload
+
+        merged_payload = dict(existing_payload)
+        for key, incoming_value in incoming_payload.items():
+            if key in merged_payload and isinstance(merged_payload.get(key), dict) and isinstance(incoming_value, dict):
+                nested = dict(merged_payload.get(key) or {})
+                for nested_key, nested_value in incoming_value.items():
+                    if _has_meaningful_value(nested_value):
+                        nested[nested_key] = nested_value
+                merged_payload[key] = nested
+                continue
+            if _has_meaningful_value(incoming_value):
+                merged_payload[key] = incoming_value
+        return merged_payload
+
     merged = {}
     for existing in (restaurant.get('_orders_cache') or []):
         if not isinstance(existing, dict):
@@ -2374,11 +2403,14 @@ def _merge_orders_into_restaurant_cache(restaurant: dict, incoming_orders: list)
         key = _order_cache_key(normalized_order)
         if key:
             if key in merged:
-                if merged.get(key) != normalized_order:
+                merged_order = _merge_order_payloads(merged.get(key), normalized_order)
+                merged_order = normalize_order_payload(merged_order)
+                if merged.get(key) != merged_order:
                     updated += 1
+                merged[key] = merged_order
             else:
                 added += 1
-            merged[key] = normalized_order
+                merged[key] = normalized_order
 
     restaurant['_orders_cache'] = list(merged.values())
     return {
