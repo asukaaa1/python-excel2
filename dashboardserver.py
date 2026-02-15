@@ -520,8 +520,18 @@ def _sync_org_restaurants_from_cache(org_id: int, org: dict, max_age_hours: int 
     if not current_restaurants:
         should_replace = True
     elif isinstance(cache_created_at, datetime):
-        if not isinstance(current_last_refresh, datetime) or cache_created_at > (current_last_refresh + timedelta(seconds=5)):
-            should_replace = True
+        cache_is_newer = (
+            (not isinstance(current_last_refresh, datetime))
+            or (cache_created_at > (current_last_refresh + timedelta(seconds=5)))
+        )
+        if cache_is_newer:
+            # Do not replace richer in-memory order caches with leaner snapshots.
+            if current_order_count <= 0:
+                should_replace = True
+            elif cached_order_count >= current_order_count:
+                should_replace = True
+            elif len(cached_restaurants) > len(current_restaurants) and cached_order_count > 0:
+                should_replace = True
     if not should_replace and current_order_count <= 0 and cached_order_count > 0:
         should_replace = True
 
@@ -1454,6 +1464,20 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
     if not isinstance(restaurant, dict):
         return []
 
+    def _refresh_metrics_from_cached_orders():
+        try:
+            merchant_for_refresh = (
+                restaurant.get('_resolved_merchant_id')
+                or restaurant.get('merchant_id')
+                or restaurant.get('merchantId')
+                or restaurant.get('id')
+                or restaurant_id
+            )
+            if restaurant.get('_orders_cache'):
+                _refresh_restaurant_metrics_from_cache(restaurant, merchant_for_refresh)
+        except Exception:
+            pass
+
     normalized_existing = _normalize_orders_list(restaurant.get('_orders_cache'))
     api = get_resilient_api_client()
     current_merchant_hint = (
@@ -1471,6 +1495,7 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
             restaurant, api, normalized_existing, current_merchant_hint
         )
         restaurant['_orders_cache'] = normalized_existing
+        _refresh_metrics_from_cached_orders()
         return normalized_existing
 
     org_id = org_id_override or get_current_org_id()
@@ -1481,6 +1506,7 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
             cached_orders = _maybe_enrich_restaurant_orders(restaurant, api, cached_orders, cache_hint)
             restaurant['_orders_cache'] = cached_orders
             _set_restaurant_resolved_merchant_id(restaurant, resolved_from_cache)
+            _refresh_metrics_from_cached_orders()
             return cached_orders
 
     if not api or not restaurant_id:
@@ -1511,10 +1537,12 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
 
     if normalized_fetched:
         restaurant['_orders_cache'] = normalized_fetched
+        _refresh_metrics_from_cached_orders()
         return normalized_fetched
 
     if normalized_existing:
         restaurant['_orders_cache'] = normalized_existing
+        _refresh_metrics_from_cached_orders()
         return normalized_existing
 
     restaurant['_orders_cache'] = normalized_fetched
@@ -2719,6 +2747,11 @@ def run_ifood_keepalive_poll_once():
                             if isinstance(r, dict)
                         ]
                     )
+                    # Stamp last_refresh to prevent _sync_org_restaurants_from_cache from
+                    # immediately replacing the in-memory state with the DB snapshot we
+                    # just saved (the timestamp comparison uses org['last_refresh'], which
+                    # the keepalive never previously updated).
+                    org_data['last_refresh'] = datetime.now()
                 except Exception:
                     summary['errors'] += 1
 
@@ -3200,12 +3233,11 @@ def _load_org_restaurants(org_id):
     for existing_store in (org.get('restaurants') or []):
         if not isinstance(existing_store, dict):
             continue
-        existing_id = existing_store.get('id')
-        if not existing_id:
-            continue
         existing_orders = existing_store.get('_orders_cache') or []
-        if isinstance(existing_orders, list) and existing_orders:
-            existing_orders_by_store[str(existing_id)] = existing_orders
+        if not (isinstance(existing_orders, list) and existing_orders):
+            continue
+        for candidate_id in _restaurant_id_candidates(existing_store):
+            existing_orders_by_store[str(candidate_id)] = existing_orders
 
     def _fallback_restaurant(merchant_id_value, merchant_name_value, merchant_manager_value, neighborhood_value='Centro'):
         return {
@@ -3289,7 +3321,17 @@ def _load_org_restaurants(org_id):
         except Exception as e:
             print(f"  WARN Org {org_id}, merchant {merchant_id}: orders fetch failed: {e}")
 
-        previous_orders = existing_orders_by_store.get(str(merchant_id)) or []
+        previous_orders = []
+        previous_order_candidates = _normalized_candidate_id_list(
+            merchant_id,
+            mc.get('merchant_id') if isinstance(mc, dict) else None,
+            mc.get('id') if isinstance(mc, dict) else None,
+            details.get('id') if isinstance(details, dict) else None,
+        )
+        for candidate_id in previous_order_candidates:
+            previous_orders = existing_orders_by_store.get(str(candidate_id)) or []
+            if previous_orders:
+                break
         if previous_orders:
             if orders:
                 merged = {}

@@ -36,8 +36,13 @@ def register(app, deps):
             # Return data without internal caches
             restaurants = []
             for r in get_current_org_restaurants():
+                restaurant_id_value = (
+                    r.get('id')
+                    or r.get('merchant_id')
+                    or r.get('merchantId')
+                )
                 # Skip if user doesn't have access to this restaurant (squad filtering)
-                if allowed_ids is not None and r['id'] not in allowed_ids:
+                if allowed_ids is not None and (not restaurant_id_value or restaurant_id_value not in allowed_ids):
                     continue
                 merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(r)
 
@@ -104,7 +109,7 @@ def register(app, deps):
                         restaurant_manager = r.get('manager', 'Gerente')
                         # Get merchant details (reconstruct basic structure)
                         merchant_details = {
-                            'id': r['id'],
+                            'id': merchant_lookup_id or restaurant_id_value,
                             'name': restaurant_name,
                             'merchantManager': {'name': restaurant_manager},
                             'address': {'neighborhood': r.get('neighborhood', 'Centro')},
@@ -153,6 +158,37 @@ def register(app, deps):
                         restaurants.append(restaurant)
                 else:
                     # No filter, return all data
+                    orders_snapshot = [o for o in (r.get('_orders_cache') or []) if isinstance(o, dict)]
+                    metrics_snapshot = r.get('metrics') if isinstance(r.get('metrics'), dict) else {}
+                    try:
+                        metrics_total_orders = int(
+                            (metrics_snapshot or {}).get('total_pedidos')
+                            or (metrics_snapshot or {}).get('vendas')
+                            or r.get('orders')
+                            or 0
+                        )
+                    except Exception:
+                        metrics_total_orders = 0
+                    # Guard against stale metrics staying at zero while raw orders exist.
+                    if orders_snapshot and metrics_total_orders <= 0:
+                        try:
+                            refreshed = IFoodDataProcessor.process_restaurant_data(
+                                {
+                                    'id': merchant_lookup_id or restaurant_id_value,
+                                    'name': r.get('name', 'Restaurante'),
+                                    'merchantManager': {'name': r.get('manager', 'Gerente')},
+                                    'address': {'neighborhood': r.get('neighborhood', 'Centro')},
+                                    'isSuperRestaurant': is_super,
+                                },
+                                orders_snapshot,
+                                None
+                            )
+                            for key, value in (refreshed or {}).items():
+                                if not str(key).startswith('_'):
+                                    r[key] = value
+                        except Exception:
+                            pass
+
                     restaurant = {k: v for k, v in r.items() if not k.startswith('_')}
                     restaurant['isSuperRestaurant'] = is_super
                     restaurant['isSuper'] = is_super
