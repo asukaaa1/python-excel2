@@ -7,6 +7,67 @@ def register(app, deps):
     globals().update(deps)
     bp = Blueprint('restaurants_routes', __name__)
 
+    def _is_truthy(value):
+        return str(value or '').strip().lower() in ('1', 'true', 'yes', 'on', 'sim')
+
+    def _collect_financial_query_params():
+        params = {}
+        # Keep only known filters used by iFood financial APIs.
+        passthrough_keys = (
+            'beginDate',
+            'endDate',
+            'competence',
+            'periodType',
+            'cursor',
+            'requestId',
+            'status',
+            'referenceDate',
+            'startDateCalculation',
+            'endDateCalculation',
+            'from',
+            'to',
+        )
+        for key in passthrough_keys:
+            value = request.args.get(key)
+            if value is not None and str(value).strip():
+                params[key] = str(value).strip()
+
+        # Common aliases used by frontend forms.
+        start_alias = request.args.get('start_date')
+        end_alias = request.args.get('end_date')
+        if start_alias and 'beginDate' not in params:
+            params['beginDate'] = str(start_alias).strip()
+        if end_alias and 'endDate' not in params:
+            params['endDate'] = str(end_alias).strip()
+
+        try:
+            page = request.args.get('page', type=int)
+        except Exception:
+            page = None
+        if page is not None:
+            params['page'] = max(1, int(page))
+
+        try:
+            size = request.args.get('size', type=int)
+        except Exception:
+            size = None
+        if size is not None:
+            params['size'] = max(1, min(int(size), 500))
+
+        return params
+
+    def _api_error_response(message, api=None):
+        payload = {'success': False, 'error': message}
+        last_error = getattr(api, '_last_http_error', None)
+        if isinstance(last_error, dict):
+            status_code = last_error.get('status')
+            endpoint = last_error.get('endpoint')
+            if status_code:
+                payload['ifood_status'] = status_code
+            if endpoint:
+                payload['ifood_endpoint'] = endpoint
+        return jsonify(payload), 502
+
     @bp.route('/api/restaurants')
     @login_required
     def api_restaurants():
@@ -466,6 +527,284 @@ def register(app, deps):
             log_exception("request_exception", e)
             return internal_error_response()
 
+    # ============================================================================
+    # API ROUTES - MERCHANT OPENING HOURS
+    # ============================================================================
+
+    @bp.route('/api/restaurant/<restaurant_id>/opening-hours')
+    @login_required
+    def api_restaurant_opening_hours(restaurant_id):
+        """Get opening-hours schedule for a specific restaurant."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            restaurant = find_restaurant_by_identifier(restaurant_id)
+            merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+
+            opening_hours = api.get_opening_hours(merchant_lookup_id) if hasattr(api, 'get_opening_hours') else None
+            if opening_hours is None:
+                return _api_error_response('Failed to fetch opening hours', api=api)
+
+            return jsonify({
+                'success': True,
+                'merchant_id': merchant_lookup_id,
+                'opening_hours': opening_hours
+            })
+        except Exception as e:
+            print(f"Error getting opening hours: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/restaurant/<restaurant_id>/opening-hours', methods=['PUT'])
+    @admin_required
+    def api_update_restaurant_opening_hours(restaurant_id):
+        """Update opening-hours schedule for a specific restaurant."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            if not hasattr(api, 'update_opening_hours'):
+                return jsonify({'success': False, 'error': 'Opening hours update not supported by API client'}), 501
+
+            restaurant = find_restaurant_by_identifier(restaurant_id)
+            merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+
+            payload = get_json_payload()
+            opening_hours_payload = payload.get('opening_hours') if isinstance(payload, dict) else payload
+            if opening_hours_payload is None:
+                return jsonify({'success': False, 'error': 'opening_hours payload is required'}), 400
+
+            update_result = api.update_opening_hours(merchant_lookup_id, opening_hours_payload)
+            if update_result is None:
+                return _api_error_response('Failed to update opening hours', api=api)
+
+            return jsonify({
+                'success': True,
+                'merchant_id': merchant_lookup_id,
+                'opening_hours': update_result
+            })
+        except Exception as e:
+            print(f"Error updating opening hours: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    # ============================================================================
+    # API ROUTES - FINANCIAL
+    # ============================================================================
+
+    @bp.route('/api/restaurant/<restaurant_id>/financial/sales')
+    @login_required
+    def api_restaurant_financial_sales(restaurant_id):
+        """Get financial sales data for reconciliation."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            if not hasattr(api, 'get_financial_sales'):
+                return jsonify({'success': False, 'error': 'Financial sales not supported by API client'}), 501
+
+            restaurant = find_restaurant_by_identifier(restaurant_id)
+            merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+            params = _collect_financial_query_params()
+            homologation = _is_truthy(request.args.get('homologation')) or _is_truthy(
+                request.headers.get('x-request-homologation')
+            )
+
+            payload = api.get_financial_sales(merchant_lookup_id, params=params, homologation=homologation)
+            if payload is None:
+                return _api_error_response('Failed to fetch financial sales', api=api)
+
+            return jsonify({
+                'success': True,
+                'merchant_id': merchant_lookup_id,
+                'homologation': homologation,
+                'sales': payload
+            })
+        except Exception as e:
+            print(f"Error getting financial sales: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/restaurant/<restaurant_id>/financial/events')
+    @login_required
+    def api_restaurant_financial_events(restaurant_id):
+        """Get financial events ledger."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            if not hasattr(api, 'get_financial_events'):
+                return jsonify({'success': False, 'error': 'Financial events not supported by API client'}), 501
+
+            restaurant = find_restaurant_by_identifier(restaurant_id)
+            merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+            params = _collect_financial_query_params()
+            homologation = _is_truthy(request.args.get('homologation')) or _is_truthy(
+                request.headers.get('x-request-homologation')
+            )
+
+            payload = api.get_financial_events(merchant_lookup_id, params=params, homologation=homologation)
+            if payload is None:
+                return _api_error_response('Failed to fetch financial events', api=api)
+
+            return jsonify({
+                'success': True,
+                'merchant_id': merchant_lookup_id,
+                'homologation': homologation,
+                'financial_events': payload
+            })
+        except Exception as e:
+            print(f"Error getting financial events: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/restaurant/<restaurant_id>/financial/reconciliation')
+    @login_required
+    def api_restaurant_financial_reconciliation(restaurant_id):
+        """Get reconciliation data/status payload."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            if not hasattr(api, 'get_financial_reconciliation'):
+                return jsonify({'success': False, 'error': 'Financial reconciliation not supported by API client'}), 501
+
+            restaurant = find_restaurant_by_identifier(restaurant_id)
+            merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+            params = _collect_financial_query_params()
+            homologation = _is_truthy(request.args.get('homologation')) or _is_truthy(
+                request.headers.get('x-request-homologation')
+            )
+
+            payload = api.get_financial_reconciliation(merchant_lookup_id, params=params, homologation=homologation)
+            if payload is None:
+                return _api_error_response('Failed to fetch reconciliation data', api=api)
+
+            return jsonify({
+                'success': True,
+                'merchant_id': merchant_lookup_id,
+                'homologation': homologation,
+                'reconciliation': payload
+            })
+        except Exception as e:
+            print(f"Error getting reconciliation data: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/restaurant/<restaurant_id>/financial/reconciliation-on-demand', methods=['POST'])
+    @admin_required
+    def api_restaurant_financial_reconciliation_on_demand(restaurant_id):
+        """Request reconciliation generation on demand."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            if not hasattr(api, 'request_financial_reconciliation_on_demand'):
+                return jsonify({'success': False, 'error': 'Reconciliation on-demand not supported by API client'}), 501
+
+            restaurant = find_restaurant_by_identifier(restaurant_id)
+            merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+            payload = get_json_payload() or {}
+            if not isinstance(payload, dict):
+                return jsonify({'success': False, 'error': 'Invalid payload'}), 400
+
+            # Accept either raw financial payload keys or simple aliases.
+            if payload.get('start_date') and not payload.get('beginDate'):
+                payload['beginDate'] = payload.get('start_date')
+            if payload.get('end_date') and not payload.get('endDate'):
+                payload['endDate'] = payload.get('end_date')
+
+            homologation = _is_truthy(payload.get('homologation')) or _is_truthy(
+                request.headers.get('x-request-homologation')
+            )
+            payload.pop('homologation', None)
+
+            result = api.request_financial_reconciliation_on_demand(
+                merchant_lookup_id,
+                payload=payload,
+                homologation=homologation
+            )
+            if result is None:
+                return _api_error_response('Failed to request reconciliation on-demand', api=api)
+
+            return jsonify({
+                'success': True,
+                'merchant_id': merchant_lookup_id,
+                'homologation': homologation,
+                'result': result
+            })
+        except Exception as e:
+            print(f"Error requesting reconciliation on-demand: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/restaurant/<restaurant_id>/financial/settlements')
+    @login_required
+    def api_restaurant_financial_settlements(restaurant_id):
+        """Get settlement entries."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            if not hasattr(api, 'get_financial_settlements'):
+                return jsonify({'success': False, 'error': 'Financial settlements not supported by API client'}), 501
+
+            restaurant = find_restaurant_by_identifier(restaurant_id)
+            merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+            params = _collect_financial_query_params()
+            homologation = _is_truthy(request.args.get('homologation')) or _is_truthy(
+                request.headers.get('x-request-homologation')
+            )
+
+            payload = api.get_financial_settlements(merchant_lookup_id, params=params, homologation=homologation)
+            if payload is None:
+                return _api_error_response('Failed to fetch settlements', api=api)
+
+            return jsonify({
+                'success': True,
+                'merchant_id': merchant_lookup_id,
+                'homologation': homologation,
+                'settlements': payload
+            })
+        except Exception as e:
+            print(f"Error getting settlements: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/restaurant/<restaurant_id>/financial/anticipations')
+    @login_required
+    def api_restaurant_financial_anticipations(restaurant_id):
+        """Get anticipation entries."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+            if not hasattr(api, 'get_financial_anticipations'):
+                return jsonify({'success': False, 'error': 'Financial anticipations not supported by API client'}), 501
+
+            restaurant = find_restaurant_by_identifier(restaurant_id)
+            merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant or {}, restaurant_id)
+            params = _collect_financial_query_params()
+            homologation = _is_truthy(request.args.get('homologation')) or _is_truthy(
+                request.headers.get('x-request-homologation')
+            )
+
+            payload = api.get_financial_anticipations(merchant_lookup_id, params=params, homologation=homologation)
+            if payload is None:
+                return _api_error_response('Failed to fetch anticipations', api=api)
+
+            return jsonify({
+                'success': True,
+                'merchant_id': merchant_lookup_id,
+                'homologation': homologation,
+                'anticipations': payload
+            })
+        except Exception as e:
+            print(f"Error getting anticipations: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
 
 
 

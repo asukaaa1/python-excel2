@@ -76,6 +76,7 @@ class IFoodAPI:
         # Mock data cache - FIXED: Store complete merchant data
         self._mock_merchants = {}
         self._interruptions_cache = {}
+        self._opening_hours_cache = {}
         self._merchant_orders_cache = {}
         
         if self.use_mock_data:
@@ -836,6 +837,239 @@ class IFoodAPI:
             }
         
         return self._request('GET', f'/merchant/v1.0/merchants/{merchant_id}/status')
+
+    def get_opening_hours(self, merchant_id: str):
+        """Get merchant opening hours."""
+        if self.use_mock_data:
+            key = str(merchant_id or '').strip()
+            if key not in self._opening_hours_cache:
+                self._opening_hours_cache[key] = [
+                    {
+                        "shifts": [
+                            {"id": f"{key}-mon-1", "dayOfWeek": "MONDAY", "start": "09:00:00", "duration": 480},
+                            {"id": f"{key}-tue-1", "dayOfWeek": "TUESDAY", "start": "09:00:00", "duration": 480},
+                            {"id": f"{key}-wed-1", "dayOfWeek": "WEDNESDAY", "start": "09:00:00", "duration": 480},
+                            {"id": f"{key}-thu-1", "dayOfWeek": "THURSDAY", "start": "09:00:00", "duration": 480},
+                            {"id": f"{key}-fri-1", "dayOfWeek": "FRIDAY", "start": "09:00:00", "duration": 600},
+                        ]
+                    }
+                ]
+            return self._opening_hours_cache.get(key, [])
+
+        return self._request('GET', f'/merchant/v1.0/merchants/{merchant_id}/opening-hours')
+
+    def update_opening_hours(self, merchant_id: str, opening_hours_payload):
+        """Update merchant opening hours."""
+        if opening_hours_payload is None:
+            return None
+
+        if self.use_mock_data:
+            key = str(merchant_id or '').strip()
+            if isinstance(opening_hours_payload, list):
+                normalized = opening_hours_payload
+            elif isinstance(opening_hours_payload, dict):
+                normalized = [opening_hours_payload]
+            else:
+                return None
+            self._opening_hours_cache[key] = normalized
+            return {
+                "merchantId": key,
+                "openingHours": normalized,
+                "updatedAt": datetime.utcnow().isoformat() + "Z",
+            }
+
+        return self._request(
+            'PUT',
+            f'/merchant/v1.0/merchants/{merchant_id}/opening-hours',
+            data=opening_hours_payload
+        )
+
+    def _build_optional_headers(self, headers: Dict = None, homologation: bool = False):
+        merged = dict(headers or {})
+        if homologation:
+            merged['x-request-homologation'] = 'true'
+        return merged or None
+
+    def _request_first_success(self, method: str, candidates: List[Dict]):
+        for candidate in (candidates or []):
+            if not isinstance(candidate, dict):
+                continue
+            endpoint = str(candidate.get('endpoint') or '').strip()
+            if not endpoint:
+                continue
+            result = self._request(
+                method,
+                endpoint,
+                params=candidate.get('params'),
+                data=candidate.get('data'),
+                headers=candidate.get('headers'),
+            )
+            if result is not None:
+                return result
+        return None
+
+    def _build_financial_get_candidates(self, merchant_id: str, resource: str, params: Dict = None, headers: Dict = None):
+        merchant_key = str(merchant_id or '').strip()
+        resource_key = str(resource or '').strip().strip('/')
+        base_params = dict(params or {})
+        with_merchant_param = dict(base_params)
+        with_merchant_param.setdefault('merchantId', merchant_key)
+        shared_headers = headers or None
+        return [
+            {
+                'endpoint': f'/financial/v3/merchants/{merchant_key}/{resource_key}',
+                'params': dict(base_params),
+                'headers': shared_headers,
+            },
+            {
+                'endpoint': f'/financial/v1.0/merchants/{merchant_key}/{resource_key}',
+                'params': dict(base_params),
+                'headers': shared_headers,
+            },
+            {
+                'endpoint': f'/financial/v3/{resource_key}',
+                'params': with_merchant_param,
+                'headers': shared_headers,
+            },
+            {
+                'endpoint': f'/merchants/{merchant_key}/{resource_key}',
+                'params': dict(base_params),
+                'headers': shared_headers,
+            },
+        ]
+
+    def _build_financial_post_candidates(self, merchant_id: str, resource: str, payload: Dict = None, headers: Dict = None):
+        merchant_key = str(merchant_id or '').strip()
+        resource_key = str(resource or '').strip().strip('/')
+        body_payload = dict(payload or {})
+        with_merchant_id = dict(body_payload)
+        with_merchant_id.setdefault('merchantId', merchant_key)
+        shared_headers = headers or None
+        return [
+            {
+                'endpoint': f'/financial/v3/merchants/{merchant_key}/{resource_key}',
+                'data': dict(body_payload),
+                'headers': shared_headers,
+            },
+            {
+                'endpoint': f'/financial/v3/{resource_key}',
+                'data': with_merchant_id,
+                'headers': shared_headers,
+            },
+            {
+                'endpoint': f'/financial/v1.0/merchants/{merchant_key}/{resource_key}',
+                'data': dict(body_payload),
+                'headers': shared_headers,
+            },
+            {
+                'endpoint': f'/merchants/{merchant_key}/{resource_key}',
+                'data': dict(body_payload),
+                'headers': shared_headers,
+            },
+        ]
+
+    def get_financial_sales(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
+        """Get sales data used in financial reconciliation."""
+        if self.use_mock_data:
+            base = dict(params or {})
+            return {
+                'page': int(base.get('page') or 1),
+                'size': int(base.get('size') or 100),
+                'hasNextPage': False,
+                'merchantId': str(merchant_id),
+                'sales': [],
+            }
+        headers = self._build_optional_headers(homologation=homologation)
+        candidates = self._build_financial_get_candidates(merchant_id, 'sales', params=params, headers=headers)
+        return self._request_first_success('GET', candidates)
+
+    def get_financial_events(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
+        """Get detailed financial events (credits/debits)."""
+        if self.use_mock_data:
+            base = dict(params or {})
+            return {
+                'page': int(base.get('page') or 1),
+                'size': int(base.get('size') or 100),
+                'hasNextPage': False,
+                'merchantId': str(merchant_id),
+                'financialEvents': [],
+            }
+        headers = self._build_optional_headers(homologation=homologation)
+        candidates = self._build_financial_get_candidates(merchant_id, 'financial-events', params=params, headers=headers)
+        result = self._request_first_success('GET', candidates)
+        if result is not None:
+            return result
+        # Compatibility alias used in parts of the public docs.
+        alt_candidates = self._build_financial_get_candidates(merchant_id, 'payments', params=params, headers=headers)
+        return self._request_first_success('GET', alt_candidates)
+
+    def get_financial_reconciliation(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
+        """Get reconciliation data (CSV metadata/download link payload)."""
+        if self.use_mock_data:
+            return {
+                'merchantId': str(merchant_id),
+                'reconciliation': [],
+                'downloadUrl': None,
+            }
+        headers = self._build_optional_headers(homologation=homologation)
+        candidates = self._build_financial_get_candidates(merchant_id, 'reconciliation', params=params, headers=headers)
+        return self._request_first_success('GET', candidates)
+
+    def request_financial_reconciliation_on_demand(self, merchant_id: str, payload: Dict = None, *, homologation: bool = False):
+        """Request a reconciliation file generation on demand."""
+        if self.use_mock_data:
+            now_ts = int(time.time())
+            return {
+                'merchantId': str(merchant_id),
+                'requestId': f'mock-reconciliation-{now_ts}',
+                'status': 'PROCESSING',
+            }
+        headers = self._build_optional_headers(homologation=homologation)
+        candidates = self._build_financial_post_candidates(
+            merchant_id,
+            'reconciliation-on-demand',
+            payload=payload,
+            headers=headers
+        )
+        result = self._request_first_success('POST', candidates)
+        if result is not None:
+            return result
+        # Alternative casing/slug fallback.
+        alt_candidates = self._build_financial_post_candidates(
+            merchant_id,
+            'reconciliationOnDemand',
+            payload=payload,
+            headers=headers
+        )
+        return self._request_first_success('POST', alt_candidates)
+
+    def get_financial_settlements(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
+        """Get settlement (transfer) data."""
+        if self.use_mock_data:
+            return {
+                'merchantId': str(merchant_id),
+                'settlements': [],
+            }
+        headers = self._build_optional_headers(homologation=homologation)
+        candidates = self._build_financial_get_candidates(merchant_id, 'settlements', params=params, headers=headers)
+        return self._request_first_success('GET', candidates)
+
+    def get_financial_anticipations(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
+        """Get anticipation transfers data."""
+        if self.use_mock_data:
+            return {
+                'merchantId': str(merchant_id),
+                'settlements': [],
+                'balance': 0,
+            }
+        headers = self._build_optional_headers(homologation=homologation)
+        candidates = self._build_financial_get_candidates(merchant_id, 'anticipations', params=params, headers=headers)
+        result = self._request_first_success('GET', candidates)
+        if result is not None:
+            return result
+        # Common spelling variant in docs.
+        alt_candidates = self._build_financial_get_candidates(merchant_id, 'antecipation', params=params, headers=headers)
+        return self._request_first_success('GET', alt_candidates)
     
     def get_merchants(self) -> List[Dict]:
         """Get all merchants (real or mock)"""

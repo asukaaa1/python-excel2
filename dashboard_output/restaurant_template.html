@@ -165,6 +165,10 @@ let ratingTrendChart = null;
 let reviewsFilter = 'all';
 let reviewsPage = 0;
 const REVIEWS_PER_PAGE = 10;
+let financialApiData = null;
+let financialApiErrors = [];
+let financialApiLoading = false;
+let financialHomologationMode = false;
 
 // API Functions
 async function fetchRestaurantData() {
@@ -239,6 +243,7 @@ async function fetchRestaurantData() {
             
             updateUI();
             renderMenuPerformance();
+            fetchFinancialApiData();
             renderMainChart();
             updateInterruptionBanner();
             if (!ordersData || ordersData.length === 0) {
@@ -550,6 +555,260 @@ function inferOrderMetricsFromList() {
     };
 }
 
+function getFinancialRequestQuery() {
+    const params = new URLSearchParams();
+    if (hasActiveDateFilter) {
+        const { startDate, endDate } = getFilterDateRange();
+        if (startDate) params.append('start_date', startDate.toISOString().split('T')[0]);
+        if (endDate) params.append('end_date', endDate.toISOString().split('T')[0]);
+    }
+    if (financialHomologationMode) {
+        params.append('homologation', 'true');
+    }
+    const query = params.toString();
+    return query ? `?${query}` : '';
+}
+
+function extractRecordsFromPayload(payload, preferredKeys = []) {
+    if (Array.isArray(payload)) return payload.filter(item => item && typeof item === 'object');
+    if (!payload || typeof payload !== 'object') return [];
+
+    const searchKeys = [...preferredKeys, 'items', 'data', 'results', 'content', 'records', 'events', 'sales', 'settlements', 'financialEvents'];
+    for (const key of searchKeys) {
+        const value = payload[key];
+        if (Array.isArray(value)) return value.filter(item => item && typeof item === 'object');
+    }
+    return [];
+}
+
+function extractAmountFromRecord(record) {
+    if (!record || typeof record !== 'object') return 0;
+    const amountKeys = (
+        'amount',
+        'value',
+        'grossAmount',
+        'netAmount',
+        'totalAmount',
+        'orderAmount',
+        'liquidAmount',
+        'transferAmount',
+        'settlementAmount'
+    );
+    for (const key of amountKeys) {
+        const n = Number(record[key]);
+        if (Number.isFinite(n)) return n;
+    }
+    return 0;
+}
+
+function sumAmountsFromRecords(records) {
+    if (!Array.isArray(records)) return 0;
+    return records.reduce((sum, item) => sum + extractAmountFromRecord(item), 0);
+}
+
+function countOpeningHourShifts(openingHoursPayload) {
+    const buckets = Array.isArray(openingHoursPayload) ? openingHoursPayload : (openingHoursPayload ? [openingHoursPayload] : []);
+    return buckets.reduce((total, bucket) => {
+        if (!bucket || typeof bucket !== 'object') return total;
+        const shifts = Array.isArray(bucket.shifts) ? bucket.shifts : [];
+        return total + shifts.length;
+    }, 0);
+}
+
+function resolveReconciliationStatus(reconciliationPayload) {
+    if (!reconciliationPayload) return 'Sem retorno';
+    if (typeof reconciliationPayload === 'string') return reconciliationPayload;
+    if (typeof reconciliationPayload !== 'object') return 'Sem retorno';
+
+    const directStatus = reconciliationPayload.status || reconciliationPayload.state || reconciliationPayload.situation;
+    if (directStatus) return String(directStatus);
+
+    const rows = extractRecordsFromPayload(reconciliationPayload, ['reconciliation']);
+    if (rows.length > 0) {
+        const rowStatus = rows[0]?.status || rows[0]?.state || rows[0]?.situation;
+        if (rowStatus) return String(rowStatus);
+        return `${rows.length} registro(s)`;
+    }
+    return 'Sem status';
+}
+
+function ensureFinancialApiSection() {
+    if (document.getElementById('financialApiSection')) return;
+    const dashboardView = document.getElementById('dashboardView');
+    if (!dashboardView) return;
+
+    const section = document.createElement('section');
+    section.className = 'data-section';
+    section.id = 'financialApiSection';
+    section.innerHTML = `
+        <div class="data-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <h3>Financeiro iFood (API)</h3>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);font-weight:600;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:999px;padding:6px 10px;cursor:pointer">
+                    <input type="checkbox" id="financialHomologationToggle" style="accent-color:#f97015">
+                    Homologacao
+                </label>
+                <button class="filter-btn" type="button" id="financialRefreshBtn" style="padding:8px 14px;font-size:12px">Atualizar API</button>
+            </div>
+        </div>
+        <div class="metrics-grid" id="financialApiGrid">
+            <div class="metric-cell"><div class="metric-label">Vendas API</div><div class="metric-value" id="finSalesCount">-</div><div class="metric-trend" id="finSalesAmount">R$ 0</div></div>
+            <div class="metric-cell"><div class="metric-label">Eventos Financeiros</div><div class="metric-value" id="finEventsCount">-</div><div class="metric-trend" id="finEventsAmount">R$ 0</div></div>
+            <div class="metric-cell"><div class="metric-label">Reconciliacao</div><div class="metric-value" id="finReconStatus">-</div><div class="metric-trend" id="finReconCount">0 registro(s)</div></div>
+            <div class="metric-cell"><div class="metric-label">Settlements</div><div class="metric-value" id="finSettlementsCount">-</div><div class="metric-trend" id="finSettlementsAmount">R$ 0</div></div>
+            <div class="metric-cell"><div class="metric-label">Antecipacoes</div><div class="metric-value" id="finAnticipationsCount">-</div><div class="metric-trend" id="finAnticipationsAmount">R$ 0</div></div>
+            <div class="metric-cell"><div class="metric-label">Horarios (shifts)</div><div class="metric-value" id="finOpeningShifts">-</div><div class="metric-trend" id="finHomologationMode">Modo normal</div></div>
+        </div>
+        <div id="financialApiStatus" style="padding:14px 20px;border-top:1px solid var(--border-subtle);font-size:12px;color:var(--text-secondary)">Aguardando atualizacao...</div>
+        <div id="financialApiErrors" style="padding:0 20px 14px;display:none"></div>
+    `;
+
+    const firstChartSection = dashboardView.querySelector('.chart-section');
+    if (firstChartSection) dashboardView.insertBefore(section, firstChartSection);
+    else dashboardView.appendChild(section);
+
+    const toggle = document.getElementById('financialHomologationToggle');
+    if (toggle) {
+        toggle.checked = financialHomologationMode;
+        toggle.addEventListener('change', function() {
+            financialHomologationMode = !!this.checked;
+            renderFinancialApiPanel();
+            fetchFinancialApiData();
+        });
+    }
+
+    const refreshBtn = document.getElementById('financialRefreshBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            fetchFinancialApiData();
+        });
+    }
+}
+
+function renderFinancialApiPanel() {
+    ensureFinancialApiSection();
+    const statusEl = document.getElementById('financialApiStatus');
+    const errorsEl = document.getElementById('financialApiErrors');
+    const refreshBtn = document.getElementById('financialRefreshBtn');
+    const modeEl = document.getElementById('finHomologationMode');
+    if (!statusEl || !errorsEl) return;
+
+    if (modeEl) modeEl.textContent = financialHomologationMode ? 'Modo homologacao' : 'Modo normal';
+    if (refreshBtn) refreshBtn.disabled = !!financialApiLoading;
+
+    if (window.__PUBLIC_MODE__) {
+        statusEl.textContent = 'Disponivel apenas no painel interno autenticado.';
+        errorsEl.style.display = 'none';
+        return;
+    }
+
+    if (financialApiLoading) {
+        statusEl.textContent = 'Consultando endpoints financeiros do iFood...';
+        errorsEl.style.display = 'none';
+        return;
+    }
+
+    const openingHoursPayload = financialApiData?.opening_hours;
+    const salesPayload = financialApiData?.sales;
+    const eventsPayload = financialApiData?.events;
+    const reconciliationPayload = financialApiData?.reconciliation;
+    const settlementsPayload = financialApiData?.settlements;
+    const anticipationsPayload = financialApiData?.anticipations;
+
+    const salesRows = extractRecordsFromPayload(salesPayload, ['sales']);
+    const eventsRows = extractRecordsFromPayload(eventsPayload, ['financialEvents', 'events']);
+    const reconRows = extractRecordsFromPayload(reconciliationPayload, ['reconciliation']);
+    const settlementRows = extractRecordsFromPayload(settlementsPayload, ['settlements']);
+    const anticipationRows = extractRecordsFromPayload(anticipationsPayload, ['settlements', 'anticipations']);
+    const openingShifts = countOpeningHourShifts(openingHoursPayload);
+
+    document.getElementById('finSalesCount').textContent = salesRows.length.toLocaleString('pt-BR');
+    document.getElementById('finSalesAmount').textContent = formatCurrency(sumAmountsFromRecords(salesRows));
+    document.getElementById('finEventsCount').textContent = eventsRows.length.toLocaleString('pt-BR');
+    document.getElementById('finEventsAmount').textContent = formatCurrency(sumAmountsFromRecords(eventsRows));
+    document.getElementById('finReconStatus').textContent = resolveReconciliationStatus(reconciliationPayload);
+    document.getElementById('finReconCount').textContent = `${reconRows.length.toLocaleString('pt-BR')} registro(s)`;
+    document.getElementById('finSettlementsCount').textContent = settlementRows.length.toLocaleString('pt-BR');
+    document.getElementById('finSettlementsAmount').textContent = formatCurrency(sumAmountsFromRecords(settlementRows));
+    document.getElementById('finAnticipationsCount').textContent = anticipationRows.length.toLocaleString('pt-BR');
+    document.getElementById('finAnticipationsAmount').textContent = formatCurrency(sumAmountsFromRecords(anticipationRows));
+    document.getElementById('finOpeningShifts').textContent = openingShifts.toLocaleString('pt-BR');
+
+    const nowText = new Date().toLocaleString('pt-BR');
+    statusEl.textContent = `Ultima consulta: ${nowText}`;
+
+    if (financialApiErrors.length > 0) {
+        errorsEl.innerHTML = `
+            <div style="font-size:11px;color:var(--rose-600);font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Avisos de endpoints</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+                ${financialApiErrors.map(err => `<span style="padding:6px 10px;border-radius:999px;background:var(--rose-50);color:var(--rose-600);font-size:12px;font-weight:600">${err}</span>`).join('')}
+            </div>
+        `;
+        errorsEl.style.display = 'block';
+    } else {
+        errorsEl.style.display = 'none';
+        errorsEl.innerHTML = '';
+    }
+}
+
+async function fetchFinancialApiData() {
+    ensureFinancialApiSection();
+    if (window.__PUBLIC_MODE__) {
+        financialApiData = null;
+        financialApiErrors = [];
+        financialApiLoading = false;
+        renderFinancialApiPanel();
+        return;
+    }
+
+    financialApiLoading = true;
+    renderFinancialApiPanel();
+    const query = getFinancialRequestQuery();
+    const basePath = `/api/restaurant/${restaurantId}`;
+    const endpoints = [
+        { key: 'opening_hours', label: 'opening-hours', url: `${basePath}/opening-hours${query}` },
+        { key: 'sales', label: 'sales', url: `${basePath}/financial/sales${query}` },
+        { key: 'events', label: 'events', url: `${basePath}/financial/events${query}` },
+        { key: 'reconciliation', label: 'reconciliation', url: `${basePath}/financial/reconciliation${query}` },
+        { key: 'settlements', label: 'settlements', url: `${basePath}/financial/settlements${query}` },
+        { key: 'anticipations', label: 'anticipations', url: `${basePath}/financial/anticipations${query}` },
+    ];
+
+    const dataBucket = {};
+    const errors = [];
+
+    const settled = await Promise.allSettled(endpoints.map(async (endpoint) => {
+        const response = await fetch(endpoint.url);
+        if (response.status === 401) throw new Error('Sessao expirada');
+        const payload = await response.json().catch(() => ({ success: false, error: 'Resposta invalida do servidor' }));
+        if (!response.ok || !payload?.success) {
+            const errText = payload?.error || `HTTP ${response.status}`;
+            throw new Error(`${endpoint.label}: ${errText}`);
+        }
+        return { key: endpoint.key, payload };
+    }));
+
+    settled.forEach(result => {
+        if (result.status === 'fulfilled') {
+            const payload = result.value.payload || {};
+            const key = result.value.key;
+            if (key === 'opening_hours') dataBucket[key] = payload.opening_hours || payload.openingHours || payload;
+            if (key === 'sales') dataBucket[key] = payload.sales || payload;
+            if (key === 'events') dataBucket[key] = payload.financial_events || payload.events || payload;
+            if (key === 'reconciliation') dataBucket[key] = payload.reconciliation || payload;
+            if (key === 'settlements') dataBucket[key] = payload.settlements || payload;
+            if (key === 'anticipations') dataBucket[key] = payload.anticipations || payload;
+            return;
+        }
+        errors.push(result.reason?.message || 'Falha ao consultar endpoint financeiro');
+    });
+
+    financialApiData = dataBucket;
+    financialApiErrors = errors;
+    financialApiLoading = false;
+    renderFinancialApiPanel();
+}
+
 // UI Update
 function updateUI() {
     if (!restaurantData) return;
@@ -607,6 +866,7 @@ function updateUI() {
     document.getElementById('metricCancelled').textContent = effectiveCancelledOrders;
     document.getElementById('metricItems').textContent = m.novos_clientes || 0;
     document.getElementById('metricDays').textContent = m.tempo_aberto_hours || 0;
+    renderFinancialApiPanel();
 }
 
 function ensureMenuPerformanceSection() {
@@ -1424,6 +1684,8 @@ window.addEventListener('DOMContentLoaded', async function() {
     
     initializeFilterListeners();
     updateFilterLabel();
+    ensureFinancialApiSection();
+    renderFinancialApiPanel();
     
     document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', function() { switchTab(this.dataset.view); }));
     document.querySelectorAll('.chart-tab[data-chart]').forEach(b => b.addEventListener('click', function() { switchChartTab(this.dataset.chart); }));
