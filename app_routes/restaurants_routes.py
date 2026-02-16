@@ -62,10 +62,13 @@ def register(app, deps):
         if isinstance(last_error, dict):
             status_code = last_error.get('status')
             endpoint = last_error.get('endpoint')
+            detail = str(last_error.get('detail') or '').strip()
             if status_code:
                 payload['ifood_status'] = status_code
             if endpoint:
                 payload['ifood_endpoint'] = endpoint
+            if detail:
+                payload['ifood_detail'] = detail[:400]
         return jsonify(payload), 502
 
     @bp.route('/api/restaurants')

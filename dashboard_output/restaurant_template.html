@@ -783,7 +783,11 @@ async function fetchFinancialApiData() {
         const payload = await response.json().catch(() => ({ success: false, error: 'Resposta invalida do servidor' }));
         if (!response.ok || !payload?.success) {
             const errText = payload?.error || `HTTP ${response.status}`;
-            throw new Error(`${endpoint.label}: ${errText}`);
+            const statusText = payload?.ifood_status ? `status ${payload.ifood_status}` : '';
+            const endpointText = payload?.ifood_endpoint ? payload.ifood_endpoint : '';
+            const detailText = payload?.ifood_detail ? payload.ifood_detail : '';
+            const suffix = [statusText, endpointText, detailText].filter(Boolean).join(' | ');
+            throw new Error(`${endpoint.label}: ${errText}${suffix ? ` (${suffix})` : ''}`);
         }
         return { key: endpoint.key, payload };
     }));

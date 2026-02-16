@@ -908,6 +908,47 @@ class IFoodAPI:
                 return result
         return None
 
+    def _normalize_financial_params(self, params: Dict = None, endpoint_kind: str = ''):
+        normalized = dict(params or {})
+        endpoint_key = str(endpoint_kind or '').strip().lower()
+        begin_date = (
+            normalized.get('beginDate')
+            or normalized.get('startDate')
+            or normalized.get('start_date')
+            or normalized.get('from')
+        )
+        end_date = (
+            normalized.get('endDate')
+            or normalized.get('finishDate')
+            or normalized.get('end_date')
+            or normalized.get('to')
+        )
+
+        if begin_date and 'beginDate' not in normalized:
+            normalized['beginDate'] = begin_date
+        if end_date and 'endDate' not in normalized:
+            normalized['endDate'] = end_date
+
+        if endpoint_key == 'sales':
+            if begin_date and 'beginSalesDate' not in normalized:
+                normalized['beginSalesDate'] = begin_date
+            if end_date and 'endSalesDate' not in normalized:
+                normalized['endSalesDate'] = end_date
+
+        if endpoint_key in ('events', 'reconciliation', 'settlements', 'anticipations'):
+            if begin_date and 'startDateCalculation' not in normalized:
+                normalized['startDateCalculation'] = begin_date
+            if end_date and 'endDateCalculation' not in normalized:
+                normalized['endDateCalculation'] = end_date
+
+        page = normalized.get('page')
+        size = normalized.get('size')
+        if page is not None and 'pageNumber' not in normalized:
+            normalized['pageNumber'] = page
+        if size is not None and 'pageSize' not in normalized:
+            normalized['pageSize'] = size
+        return normalized
+
     def _build_financial_get_candidates(self, merchant_id: str, resource: str, params: Dict = None, headers: Dict = None):
         merchant_key = str(merchant_id or '').strip()
         resource_key = str(resource or '').strip().strip('/')
@@ -916,6 +957,11 @@ class IFoodAPI:
         with_merchant_param.setdefault('merchantId', merchant_key)
         shared_headers = headers or None
         return [
+            {
+                'endpoint': f'/financial/v3.0/merchants/{merchant_key}/{resource_key}',
+                'params': dict(base_params),
+                'headers': shared_headers,
+            },
             {
                 'endpoint': f'/financial/v3/merchants/{merchant_key}/{resource_key}',
                 'params': dict(base_params),
@@ -928,6 +974,11 @@ class IFoodAPI:
             },
             {
                 'endpoint': f'/financial/v3/{resource_key}',
+                'params': with_merchant_param,
+                'headers': shared_headers,
+            },
+            {
+                'endpoint': f'/financial/v3.0/{resource_key}',
                 'params': with_merchant_param,
                 'headers': shared_headers,
             },
@@ -947,12 +998,22 @@ class IFoodAPI:
         shared_headers = headers or None
         return [
             {
+                'endpoint': f'/financial/v3.0/merchants/{merchant_key}/{resource_key}',
+                'data': dict(body_payload),
+                'headers': shared_headers,
+            },
+            {
                 'endpoint': f'/financial/v3/merchants/{merchant_key}/{resource_key}',
                 'data': dict(body_payload),
                 'headers': shared_headers,
             },
             {
                 'endpoint': f'/financial/v3/{resource_key}',
+                'data': with_merchant_id,
+                'headers': shared_headers,
+            },
+            {
+                'endpoint': f'/financial/v3.0/{resource_key}',
                 'data': with_merchant_id,
                 'headers': shared_headers,
             },
@@ -980,8 +1041,13 @@ class IFoodAPI:
                 'sales': [],
             }
         headers = self._build_optional_headers(homologation=homologation)
-        candidates = self._build_financial_get_candidates(merchant_id, 'sales', params=params, headers=headers)
-        return self._request_first_success('GET', candidates)
+        normalized_params = self._normalize_financial_params(params, 'sales')
+        for resource in ('sales',):
+            candidates = self._build_financial_get_candidates(merchant_id, resource, params=normalized_params, headers=headers)
+            result = self._request_first_success('GET', candidates)
+            if result is not None:
+                return result
+        return None
 
     def get_financial_events(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
         """Get detailed financial events (credits/debits)."""
@@ -995,13 +1061,13 @@ class IFoodAPI:
                 'financialEvents': [],
             }
         headers = self._build_optional_headers(homologation=homologation)
-        candidates = self._build_financial_get_candidates(merchant_id, 'financial-events', params=params, headers=headers)
-        result = self._request_first_success('GET', candidates)
-        if result is not None:
-            return result
-        # Compatibility alias used in parts of the public docs.
-        alt_candidates = self._build_financial_get_candidates(merchant_id, 'payments', params=params, headers=headers)
-        return self._request_first_success('GET', alt_candidates)
+        normalized_params = self._normalize_financial_params(params, 'events')
+        for resource in ('financial-events', 'financialEvents', 'events', 'occurrences', 'payments'):
+            candidates = self._build_financial_get_candidates(merchant_id, resource, params=normalized_params, headers=headers)
+            result = self._request_first_success('GET', candidates)
+            if result is not None:
+                return result
+        return None
 
     def get_financial_reconciliation(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
         """Get reconciliation data (CSV metadata/download link payload)."""
@@ -1012,8 +1078,13 @@ class IFoodAPI:
                 'downloadUrl': None,
             }
         headers = self._build_optional_headers(homologation=homologation)
-        candidates = self._build_financial_get_candidates(merchant_id, 'reconciliation', params=params, headers=headers)
-        return self._request_first_success('GET', candidates)
+        normalized_params = self._normalize_financial_params(params, 'reconciliation')
+        for resource in ('reconciliation', 'paymentDetails', 'payment-details', 'periods'):
+            candidates = self._build_financial_get_candidates(merchant_id, resource, params=normalized_params, headers=headers)
+            result = self._request_first_success('GET', candidates)
+            if result is not None:
+                return result
+        return None
 
     def request_financial_reconciliation_on_demand(self, merchant_id: str, payload: Dict = None, *, homologation: bool = False):
         """Request a reconciliation file generation on demand."""
@@ -1025,23 +1096,18 @@ class IFoodAPI:
                 'status': 'PROCESSING',
             }
         headers = self._build_optional_headers(homologation=homologation)
-        candidates = self._build_financial_post_candidates(
-            merchant_id,
-            'reconciliation-on-demand',
-            payload=payload,
-            headers=headers
-        )
-        result = self._request_first_success('POST', candidates)
-        if result is not None:
-            return result
-        # Alternative casing/slug fallback.
-        alt_candidates = self._build_financial_post_candidates(
-            merchant_id,
-            'reconciliationOnDemand',
-            payload=payload,
-            headers=headers
-        )
-        return self._request_first_success('POST', alt_candidates)
+        normalized_payload = self._normalize_financial_params(payload, 'reconciliation')
+        for resource in ('reconciliation-on-demand', 'reconciliationOnDemand'):
+            candidates = self._build_financial_post_candidates(
+                merchant_id,
+                resource,
+                payload=normalized_payload,
+                headers=headers
+            )
+            result = self._request_first_success('POST', candidates)
+            if result is not None:
+                return result
+        return None
 
     def get_financial_settlements(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
         """Get settlement (transfer) data."""
@@ -1051,8 +1117,13 @@ class IFoodAPI:
                 'settlements': [],
             }
         headers = self._build_optional_headers(homologation=homologation)
-        candidates = self._build_financial_get_candidates(merchant_id, 'settlements', params=params, headers=headers)
-        return self._request_first_success('GET', candidates)
+        normalized_params = self._normalize_financial_params(params, 'settlements')
+        for resource in ('settlements', 'payments'):
+            candidates = self._build_financial_get_candidates(merchant_id, resource, params=normalized_params, headers=headers)
+            result = self._request_first_success('GET', candidates)
+            if result is not None:
+                return result
+        return None
 
     def get_financial_anticipations(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
         """Get anticipation transfers data."""
@@ -1063,13 +1134,13 @@ class IFoodAPI:
                 'balance': 0,
             }
         headers = self._build_optional_headers(homologation=homologation)
-        candidates = self._build_financial_get_candidates(merchant_id, 'anticipations', params=params, headers=headers)
-        result = self._request_first_success('GET', candidates)
-        if result is not None:
-            return result
-        # Common spelling variant in docs.
-        alt_candidates = self._build_financial_get_candidates(merchant_id, 'antecipation', params=params, headers=headers)
-        return self._request_first_success('GET', alt_candidates)
+        normalized_params = self._normalize_financial_params(params, 'anticipations')
+        for resource in ('anticipations', 'anticipation', 'antecipation', 'receivableRecords', 'receivable-records'):
+            candidates = self._build_financial_get_candidates(merchant_id, resource, params=normalized_params, headers=headers)
+            result = self._request_first_success('GET', candidates)
+            if result is not None:
+                return result
+        return None
     
     def get_merchants(self) -> List[Dict]:
         """Get all merchants (real or mock)"""
