@@ -7,6 +7,50 @@ def register(app, deps):
     globals().update(deps)
     bp = Blueprint('org_routes', __name__)
 
+    def _coerce_int(value):
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            text = value.strip()
+            if text.isdigit():
+                return int(text)
+        return None
+
+    def _resolve_target_org(payload=None):
+        """Resolve org context, allowing platform-admin override via org_id."""
+        current_user = session.get('user') or {}
+        platform_admin = is_platform_admin_user(current_user)
+        active_org_id = _coerce_int(get_current_org_id())
+
+        requested_org_id = None
+        if isinstance(payload, dict):
+            requested_org_id = _coerce_int(payload.get('org_id'))
+        if requested_org_id is None:
+            requested_org_id = _coerce_int(request.args.get('org_id'))
+
+        if requested_org_id is not None and not platform_admin:
+            if active_org_id is None or requested_org_id != active_org_id:
+                return None, platform_admin, None, (
+                    jsonify({'success': False, 'error': 'Organization override requires platform admin'}),
+                    403
+                )
+
+        target_org_id = requested_org_id if (platform_admin and requested_org_id is not None) else active_org_id
+        if target_org_id is None:
+            return None, platform_admin, None, (
+                jsonify({'success': False, 'error': 'No organization selected'}),
+                403
+            )
+
+        details = db.get_org_details(target_org_id)
+        if not details:
+            return None, platform_admin, None, (
+                jsonify({'success': False, 'error': 'Organization not found'}),
+                404
+            )
+
+        return target_org_id, platform_admin, details, None
+
     @bp.route('/api/orgs', methods=['GET', 'POST'])
     @login_required
     def api_user_orgs():
@@ -415,8 +459,9 @@ def register(app, deps):
     @login_required
     def api_org_users():
         """Get users in current org"""
-        org_id = get_current_org_id()
-        if not org_id: return jsonify({'success': False}), 403
+        org_id, _platform_admin, _org_details, err = _resolve_target_org()
+        if err:
+            return err
         users = db.get_org_users(org_id)
         return jsonify({'success': True, 'users': users})
 
@@ -426,9 +471,9 @@ def register(app, deps):
     @org_owner_required
     def api_org_user_candidates():
         """List users that are not yet members of the current org."""
-        org_id = get_current_org_id()
-        if not org_id:
-            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+        org_id, _platform_admin, _org_details, err = _resolve_target_org()
+        if err:
+            return err
         users = db.list_users_not_in_org(org_id)
         return jsonify({'success': True, 'users': users})
 
@@ -438,11 +483,10 @@ def register(app, deps):
     @org_owner_required
     def api_org_user_assign():
         """Assign an existing user to the current organization."""
-        org_id = get_current_org_id()
-        if not org_id:
-            return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
         data = get_json_payload()
+        org_id, _platform_admin, _org_details, err = _resolve_target_org(payload=data)
+        if err:
+            return err
         user_id = data.get('user_id')
         if isinstance(user_id, str) and user_id.strip().isdigit():
             user_id = int(user_id.strip())
@@ -477,11 +521,10 @@ def register(app, deps):
     @org_owner_required
     def api_org_user_role_update(user_id):
         """Update a member role inside current organization."""
-        org_id = get_current_org_id()
-        if not org_id:
-            return jsonify({'success': False, 'error': 'No organization selected'}), 403
-
         data = get_json_payload()
+        org_id, _platform_admin, _org_details, err = _resolve_target_org(payload=data)
+        if err:
+            return err
         org_role = (data.get('org_role') or '').strip().lower()
         if not org_role:
             return jsonify({'success': False, 'error': 'org_role is required'}), 400
@@ -517,11 +560,13 @@ def register(app, deps):
     @org_owner_required
     def api_org_user_remove(user_id):
         """Remove a user from current organization (keeps account intact)."""
-        org_id = get_current_org_id()
-        if not org_id:
-            return jsonify({'success': False, 'error': 'No organization selected'}), 403
+        org_id, _platform_admin, _org_details, err = _resolve_target_org()
+        if err:
+            return err
 
-        if session.get('user', {}).get('id') == user_id:
+        current_user_id = session.get('user', {}).get('id')
+        active_org_id = _coerce_int(get_current_org_id())
+        if current_user_id == user_id and active_org_id is not None and int(active_org_id) == int(org_id):
             return jsonify({'success': False, 'error': 'Cannot remove your own membership from active org'}), 400
 
         result = db.remove_user_from_org(org_id, user_id)

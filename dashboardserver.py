@@ -7,7 +7,7 @@ Features: Real-time SSE, Background Refresh, Comparative Analytics, Data Caching
 from flask import Flask, request, jsonify, session, redirect, url_for, send_file, Response, stream_with_context
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dashboarddb import DashboardDatabase
-from ifood_api_with_mock import IFoodAPI, IFoodConfig
+from ifood_api_with_mock import IFoodAPI
 from ifood_data_processor import IFoodDataProcessor
 import os
 from pathlib import Path
@@ -66,8 +66,6 @@ logger = logging.getLogger('dashboard')
 BASE_DIR = Path(__file__).parent.absolute()
 STATIC_DIR = BASE_DIR / 'static'
 DASHBOARD_OUTPUT = BASE_DIR / 'dashboard_output'
-CONFIG_FILE = BASE_DIR / 'ifood_config.json'
-
 # Create directories if they don't exist
 STATIC_DIR.mkdir(exist_ok=True)
 DASHBOARD_OUTPUT.mkdir(exist_ok=True)
@@ -98,10 +96,6 @@ app.permanent_session_lifetime = timedelta(days=7)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = IS_BEHIND_PROXY
-ENABLE_LEGACY_FALLBACK = str(
-    os.environ.get('ENABLE_LEGACY_FALLBACK', '0' if IS_BEHIND_PROXY else '1')
-).strip().lower() in ('1', 'true', 'yes', 'on')
-
 # Redis-backed distributed features (queue/cache/pubsub)
 REDIS_URL = os.environ.get('REDIS_URL', '').strip()
 USE_REDIS_QUEUE = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDIS_QUEUE', '1')).strip().lower() in ('1', 'true', 'yes', 'on'))
@@ -160,7 +154,6 @@ else:
 print(f"Base directory: {BASE_DIR}")
 print(f"Static folder: {STATIC_DIR}")
 print(f"Dashboard output: {DASHBOARD_OUTPUT}")
-print(f"Config file: {CONFIG_FILE}")
 
 @app.after_request
 def add_cache_headers(response):
@@ -465,16 +458,6 @@ def get_current_org_id():
     return org_id
 
 
-def is_shared_mock_mode():
-    """Return True when app is running in legacy global mock-data mode."""
-    config_client_id = None
-    if isinstance(IFOOD_CONFIG, dict):
-        config_client_id = IFOOD_CONFIG.get('client_id')
-    if str(config_client_id or '').strip().upper() == 'MOCK_DATA_MODE':
-        return True
-    return bool(IFOOD_API and getattr(IFOOD_API, 'use_mock_data', False))
-
-
 _MERCHANT_UUID_RE = re.compile(
     r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 )
@@ -598,21 +581,6 @@ def get_current_org_restaurants():
         if org_restaurants:
             return org_restaurants
 
-        # If this org has no scoped iFood source, prefer legacy global data.
-        # This avoids stale org cache shadowing live legacy refresh/keepalive data.
-        has_scoped_source = bool(org.get('api'))
-        if not has_scoped_source:
-            org_config = org.get('config') or db.get_org_ifood_config(org_id) or {}
-            scoped_merchants = org_config.get('merchants') if isinstance(org_config, dict) else []
-            if isinstance(scoped_merchants, str):
-                try:
-                    scoped_merchants = json.loads(scoped_merchants)
-                except Exception:
-                    scoped_merchants = []
-            has_scoped_source = bool(scoped_merchants)
-        if not has_scoped_source and ENABLE_LEGACY_FALLBACK and RESTAURANTS_DATA:
-            return RESTAURANTS_DATA
-
         # Load tenant cache on-demand so newly selected orgs immediately show stores.
         cached_org_meta = db.load_org_data_cache_meta(org_id, 'restaurants', max_age_hours=12)
         cached_org_data = cached_org_meta.get('data') if isinstance(cached_org_meta, dict) else None
@@ -633,31 +601,17 @@ def get_current_org_restaurants():
                 org_restaurants = org.get('restaurants') or []
                 if org_restaurants:
                     return org_restaurants
-
-        # In shared mock mode, expose legacy mock restaurants to all orgs.
-        if is_shared_mock_mode():
-            return RESTAURANTS_DATA
-    if is_shared_mock_mode():
-        return RESTAURANTS_DATA
-    if ENABLE_LEGACY_FALLBACK:
-        return RESTAURANTS_DATA
     return []
 
 
 def get_current_org_api():
-    """Get iFood API client for current org (fallback to legacy global)."""
+    """Get iFood API client for current org."""
     org_id = get_current_org_id()
     if org_id and org_id in ORG_DATA:
         org_api = ORG_DATA[org_id].get('api')
         if org_api:
             return org_api
-        if is_shared_mock_mode():
-            return IFOOD_API
-    if is_shared_mock_mode():
-        return IFOOD_API
-    if not ENABLE_LEGACY_FALLBACK:
-        return None
-    return IFOOD_API
+    return None
 
 
 def get_current_org_last_refresh():
@@ -667,19 +621,13 @@ def get_current_org_last_refresh():
         org_refresh = ORG_DATA[org_id].get('last_refresh')
         if org_refresh:
             return org_refresh
-        if is_shared_mock_mode():
-            return LAST_DATA_REFRESH
-    if is_shared_mock_mode():
-        return LAST_DATA_REFRESH
-    if not ENABLE_LEGACY_FALLBACK:
-        return None
-    return LAST_DATA_REFRESH
+    return None
 
 
 def get_resilient_api_client():
     """
     Return the best available iFood API client for this request context.
-    Falls back to org init and global init when org-scoped client is absent.
+    Tries current org cache first, then attempts an org-scoped init.
     """
     api = get_current_org_api()
     if api:
@@ -699,13 +647,7 @@ def get_resilient_api_client():
         except Exception:
             pass
 
-    global IFOOD_API
-    try:
-        if not IFOOD_API:
-            initialize_ifood_api()
-    except Exception:
-        pass
-    return IFOOD_API
+    return None
 
 
 def _restaurant_id_candidates(restaurant: dict):
@@ -3351,134 +3293,37 @@ def run_refresh_worker_loop(interval_seconds=1800):
 
 
 def _do_data_refresh():
-    """Core refresh logic: fetch from API, update cache, save snapshot to DB"""
+    """Core refresh logic for org-scoped data."""
     global RESTAURANTS_DATA, LAST_DATA_REFRESH
-    
-    # Refresh per-org data (SaaS mode)
+
+    refreshed_any = False
+    first_org_payload = None
+
     for org_id, od in _org_data_items_snapshot():
         if od.get('api'):
             try:
                 _load_org_restaurants(org_id)
+                refreshed_any = True
+                if first_org_payload is None:
+                    first_org_payload = get_org_data(org_id)
             except Exception as e:
                 print(f"Ã¢Å¡Â Ã¯Â¸Â Org {org_id} refresh error: {e}")
-    
-    # Also refresh legacy global data if configured
-    if not IFOOD_API:
-        return
-    
-    new_data = []
-    merchants_config = IFOOD_CONFIG.get('merchants', [])
-    days = IFOOD_CONFIG.get('data_fetch_days', 30)
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-    existing_orders_by_merchant = {}
-    for existing in RESTAURANTS_DATA:
-        if not isinstance(existing, dict):
-            continue
-        existing_mid = (
-            existing.get('merchant_id')
-            or existing.get('_resolved_merchant_id')
-            or existing.get('id')
-        )
-        existing_orders = [
-            normalize_order_payload(o)
-            for o in (existing.get('_orders_cache') or [])
-            if isinstance(o, dict)
-        ]
-        if existing_mid and existing_orders:
-            existing_orders_by_merchant[str(existing_mid)] = existing_orders
-    
-    seen_merchant_ids = set()
-    for merchant_config in merchants_config:
-        if isinstance(merchant_config, str):
-            merchant_config = {'merchant_id': merchant_config}
-        if not isinstance(merchant_config, dict):
-            continue
-        merchant_id = normalize_merchant_id(merchant_config.get('merchant_id') or merchant_config.get('id'))
-        if not merchant_id:
-            continue
-        if merchant_id in seen_merchant_ids:
-            continue
-        seen_merchant_ids.add(merchant_id)
-        name = sanitize_merchant_name(merchant_config.get('name')) or f"Restaurant {str(merchant_id)[:8]}"
-        manager_name = sanitize_merchant_name(merchant_config.get('manager')) or 'Gerente'
-        
-        try:
-            merchant_details = IFOOD_API.get_merchant_details(merchant_id)
-            if not merchant_details:
-                merchant_details = {
-                    'id': merchant_id,
-                    'name': name,
-                    'merchantManager': {'name': manager_name}
-                }
-            
-            fetched_orders = IFOOD_API.get_orders(merchant_id, start_date, end_date) or []
-            previous_orders = existing_orders_by_merchant.get(str(merchant_id), [])
-            if previous_orders:
-                if fetched_orders:
-                    merged = {}
-                    for order in previous_orders + fetched_orders:
-                        if not isinstance(order, dict):
-                            continue
-                        normalized = normalize_order_payload(order)
-                        order_key = str(
-                            normalized.get('id')
-                            or normalized.get('orderId')
-                            or normalized.get('displayId')
-                            or f"{normalized.get('createdAt')}:{normalized.get('orderStatus')}"
-                        )
-                        merged[order_key] = normalized
-                    orders = list(merged.values())
-                else:
-                    orders = previous_orders
-            else:
-                orders = [
-                    normalize_order_payload(order)
-                    for order in fetched_orders
-                    if isinstance(order, dict)
-                ]
-            
-            financial_data = None
-            if hasattr(IFOOD_API, 'get_financial_data'):
-                try:
-                    financial_data = IFOOD_API.get_financial_data(merchant_id, start_date, end_date)
-                except Exception as financial_error:
-                    logger.debug("iFood financial data unavailable for %s: %s", merchant_id, financial_error)
-            
-            restaurant_data = IFoodDataProcessor.process_restaurant_data(merchant_details, orders, financial_data)
-            closure = detect_restaurant_closure(IFOOD_API, merchant_id)
-            
-            if name:
-                restaurant_data['name'] = name
-            if manager_name:
-                restaurant_data['manager'] = manager_name
-            restaurant_data['merchant_id'] = merchant_id
-            
-            restaurant_data['_orders_cache'] = orders
-            restaurant_data['is_closed'] = bool(closure.get('is_closed'))
-            restaurant_data['closure_reason'] = closure.get('closure_reason')
-            restaurant_data['closed_until'] = closure.get('closed_until')
-            restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
-            new_data.append(restaurant_data)
-            
-            # Broadcast new order events for real-time tracking
-            _detect_and_broadcast_new_orders(merchant_id, name, orders)
-            
-        except Exception as e:
-            print(f"   Ã¢ÂÅ’ Failed to refresh {name}: {e}")
-    
-    # Atomic swap
-    with _GLOBAL_STATE_LOCK:
-        RESTAURANTS_DATA = new_data
-        LAST_DATA_REFRESH = datetime.now()
-    
-    # Invalidate API response caches since data changed
+
+    if first_org_payload and isinstance(first_org_payload, dict):
+        first_restaurants = first_org_payload.get('restaurants') or []
+        first_refresh = first_org_payload.get('last_refresh')
+        with _GLOBAL_STATE_LOCK:
+            RESTAURANTS_DATA = first_restaurants if isinstance(first_restaurants, list) else []
+            LAST_DATA_REFRESH = first_refresh if isinstance(first_refresh, datetime) else datetime.now()
+    elif refreshed_any:
+        with _GLOBAL_STATE_LOCK:
+            LAST_DATA_REFRESH = datetime.now()
+
     invalidate_cache()
-    
-    # Save snapshot to DB for fast cold starts
     _save_data_snapshot()
-    
-    print(f"Refreshed {len(new_data)} restaurant(s) at {LAST_DATA_REFRESH.strftime('%H:%M:%S')}")
+
+    refreshed_count = len(RESTAURANTS_DATA) if isinstance(RESTAURANTS_DATA, list) else 0
+    print(f"Refreshed org data at {LAST_DATA_REFRESH.strftime('%H:%M:%S')} (legacy cache size={refreshed_count})")
 
 
 # Track last seen order IDs per restaurant for new order detection
@@ -3889,206 +3734,6 @@ def _init_and_refresh_org(org_id):
         _load_org_restaurants(org_id)
 
 
-def initialize_ifood_api():
-    """Initialize iFood API with credentials from config"""
-    global IFOOD_API, IFOOD_CONFIG
-    
-    # Load configuration
-    loaded_config = IFoodConfig.load_config(str(CONFIG_FILE))
-    with _GLOBAL_STATE_LOCK:
-        IFOOD_CONFIG = loaded_config or {}
-    
-    if not loaded_config:
-        print("Ã¢Å¡Â Ã¯Â¸Â  No iFood configuration found")
-        print(f"   Creating sample config at {CONFIG_FILE}")
-        IFoodConfig.create_sample_config(str(CONFIG_FILE))
-        return False
-    
-    client_id = loaded_config.get('client_id')
-    client_secret = loaded_config.get('client_secret')
-    
-    if not client_id or client_id == 'your_ifood_client_id_here':
-        print("Ã¢Å¡Â Ã¯Â¸Â  iFood API credentials not configured")
-        print(f"   Please update {CONFIG_FILE} with your credentials")
-        return False
-    
-    # Initialize API
-    use_mock_data = bool(loaded_config.get('use_mock_data')) or str(client_id).strip().upper() == 'MOCK_DATA_MODE'
-    created_api = IFoodAPI(client_id, client_secret, use_mock_data=use_mock_data)
-    
-    # Authenticate
-    if created_api.authenticate():
-        with _GLOBAL_STATE_LOCK:
-            IFOOD_API = created_api
-        print("Ã¢Å“â€¦ iFood API initialized successfully")
-        return True
-    else:
-        print("Ã¢ÂÅ’ iFood API authentication failed")
-        return False
-
-
-def load_restaurants_from_ifood():
-    """Load all restaurants from iFood API"""
-    global RESTAURANTS_DATA, LAST_DATA_REFRESH
-
-    previous_restaurants = [r for r in (RESTAURANTS_DATA or []) if isinstance(r, dict)]
-    existing_orders_by_merchant = {}
-    for existing in previous_restaurants:
-        existing_mid = (
-            existing.get('merchant_id')
-            or existing.get('_resolved_merchant_id')
-            or existing.get('id')
-        )
-        existing_orders = [
-            normalize_order_payload(o)
-            for o in (existing.get('_orders_cache') or [])
-            if isinstance(o, dict)
-        ]
-        if existing_mid and existing_orders:
-            existing_orders_by_merchant[str(existing_mid)] = existing_orders
-    new_restaurants = []
-    
-    if not IFOOD_API:
-        print("Ã¢ÂÅ’ iFood API not initialized")
-        return
-    
-    print(f"\nÃ°Å¸â€œÅ  Fetching restaurant data from iFood API...")
-    
-    # Get merchants from config
-    merchants_config = IFOOD_CONFIG.get('merchants', [])
-    
-    if not merchants_config:
-        print("Ã¢Å¡Â Ã¯Â¸Â  No merchants configured in config file")
-        # Try to fetch all merchants from API
-        try:
-            merchants = IFOOD_API.get_merchants()
-            if merchants:
-                print(f"   Found {len(merchants)} merchants from API")
-                merchants_config = [
-                    {'merchant_id': m.get('id'), 'name': m.get('name')}
-                    for m in merchants
-                ]
-                # Save to config for future use
-                IFOOD_CONFIG['merchants'] = merchants_config
-                IFoodConfig.save_config(IFOOD_CONFIG, str(CONFIG_FILE))
-        except Exception as e:
-            print(f"Ã¢ÂÅ’ Error fetching merchants: {e}")
-            return
-    
-    # Get data fetch period
-    days = IFOOD_CONFIG.get('data_fetch_days', 30)
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-    
-    print(f"   Fetching data from {start_date} to {end_date}")
-    
-    # Process each merchant
-    seen_merchant_ids = set()
-    for merchant_config in merchants_config:
-        if isinstance(merchant_config, str):
-            merchant_config = {'merchant_id': merchant_config}
-        if not isinstance(merchant_config, dict):
-            continue
-        merchant_id = normalize_merchant_id(merchant_config.get('merchant_id') or merchant_config.get('id'))
-        if not merchant_id:
-            continue
-        if merchant_id in seen_merchant_ids:
-            continue
-        seen_merchant_ids.add(merchant_id)
-        name = sanitize_merchant_name(merchant_config.get('name')) or f"Restaurant {str(merchant_id)[:8]}"
-        manager_name = sanitize_merchant_name(merchant_config.get('manager')) or 'Gerente'
-        
-        print(f"   Ã°Å¸â€œâ€ž Processing: {name}")
-        
-        try:
-            # Get merchant details
-            merchant_details = IFOOD_API.get_merchant_details(merchant_id)
-            if not merchant_details:
-                merchant_details = {
-                    'id': merchant_id,
-                    'name': name,
-                    'merchantManager': {'name': manager_name}
-                }
-            
-            # Get orders
-            fetched_orders = IFOOD_API.get_orders(merchant_id, start_date, end_date) or []
-            fetched_orders = [
-                normalize_order_payload(order)
-                for order in fetched_orders
-                if isinstance(order, dict)
-            ]
-            previous_orders = existing_orders_by_merchant.get(str(merchant_id), [])
-            if previous_orders:
-                if fetched_orders:
-                    merged = {}
-                    for order in previous_orders + fetched_orders:
-                        if not isinstance(order, dict):
-                            continue
-                        normalized = normalize_order_payload(order)
-                        order_key = str(
-                            normalized.get('id')
-                            or normalized.get('orderId')
-                            or normalized.get('displayId')
-                            or f"{normalized.get('createdAt')}:{normalized.get('orderStatus')}"
-                        )
-                        merged[order_key] = normalized
-                    orders = list(merged.values())
-                else:
-                    orders = previous_orders
-            else:
-                orders = fetched_orders
-            print(f"      Found {len(orders)} orders")
-            
-            # Get financial data if available
-            financial_data = None
-            if hasattr(IFOOD_API, 'get_financial_data'):
-                try:
-                    financial_data = IFOOD_API.get_financial_data(merchant_id, start_date, end_date)
-                except Exception as financial_error:
-                    logger.debug("iFood financial data unavailable for %s: %s", merchant_id, financial_error)
-            
-            # Process into dashboard format
-            restaurant_data = IFoodDataProcessor.process_restaurant_data(
-                merchant_details, 
-                orders,
-                financial_data
-            )
-            closure = detect_restaurant_closure(IFOOD_API, merchant_id)
-            
-            # Override name and manager from config if provided
-            if name:
-                restaurant_data['name'] = name
-            if manager_name:
-                restaurant_data['manager'] = manager_name
-            restaurant_data['merchant_id'] = merchant_id
-            
-            # Store raw orders for charts
-            restaurant_data['_orders_cache'] = orders
-            restaurant_data['is_closed'] = bool(closure.get('is_closed'))
-            restaurant_data['closure_reason'] = closure.get('closure_reason')
-            restaurant_data['closed_until'] = closure.get('closed_until')
-            restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
-            
-            new_restaurants.append(restaurant_data)
-            print(f"      Ã¢Å“â€¦ {restaurant_data['name']}")
-            
-        except Exception as e:
-            print(f"      Ã¢ÂÅ’ Failed to process {name}: {e}")
-            log_exception("request_exception", e)
-
-    if new_restaurants:
-        with _GLOBAL_STATE_LOCK:
-            RESTAURANTS_DATA = new_restaurants
-    elif previous_restaurants:
-        # Safety fallback: do not wipe dashboard on transient upstream failures.
-        with _GLOBAL_STATE_LOCK:
-            RESTAURANTS_DATA = previous_restaurants
-
-    with _GLOBAL_STATE_LOCK:
-        LAST_DATA_REFRESH = datetime.now()
-    print(f"\nÃ¢Å“â€¦ Loaded {len(RESTAURANTS_DATA)} restaurant(s) from iFood")
-
-
 # ============================================================================
 # AUTHENTICATION & SESSION MANAGEMENT
 # ============================================================================
@@ -4206,12 +3851,12 @@ def org_owner_required(f):
             return jsonify({'error': 'Authentication required', 'redirect': url_for('login_page')}), 401
 
         user = session.get('user', {})
+        if is_platform_admin_user(user):
+            return f(*args, **kwargs)
+
         org_id = get_current_org_id()
         if not org_id:
             return jsonify({'success': False, 'error': 'Organization context required'}), 403
-
-        if is_platform_admin_user(user):
-            return f(*args, **kwargs)
 
         org_role = db.get_org_member_role(org_id, user.get('id'))
         if org_role not in ('owner', 'admin'):
@@ -5316,9 +4961,24 @@ def _aggregate_daily(orders, start_dt, end_dt):
 def api_ifood_config():
     """Get iFood configuration (without secrets)"""
     try:
+        org_id = get_current_org_id()
+        if not org_id:
+            return jsonify({'success': False, 'error': 'Organization context required'}), 403
+
+        org = get_org_data(org_id)
+        org_cfg = org.get('config') or db.get_org_ifood_config(org_id) or {}
+        merchants = org_cfg.get('merchants') or []
+        if isinstance(merchants, str):
+            try:
+                merchants = json.loads(merchants)
+            except Exception:
+                merchants = []
+        settings = org_cfg.get('settings') if isinstance(org_cfg, dict) else {}
+        api = org.get('api') or _init_org_ifood(org_id)
+        last_refresh = org.get('last_refresh')
         config = {
-            'configured': bool(IFOOD_API),
-            'merchant_count': len(IFOOD_CONFIG.get('merchants', [])),
+            'configured': bool(api),
+            'merchant_count': len(merchants),
             'merchants': [
                 (
                     {
@@ -5333,11 +4993,19 @@ def api_ifood_config():
                         'manager': ''
                     }
                 )
-                for m in (IFOOD_CONFIG.get('merchants', []) or [])
+                for m in merchants
             ],
-            'data_fetch_days': IFOOD_CONFIG.get('data_fetch_days', 30),
-            'refresh_interval_minutes': IFOOD_CONFIG.get('refresh_interval_minutes', 60),
-            'last_refresh': LAST_DATA_REFRESH.isoformat() if LAST_DATA_REFRESH else None
+            'data_fetch_days': int(
+                (settings or {}).get('data_fetch_days')
+                or org_cfg.get('data_fetch_days')
+                or 30
+            ),
+            'refresh_interval_minutes': int(
+                (settings or {}).get('refresh_interval_minutes')
+                or org_cfg.get('refresh_interval_minutes')
+                or 60
+            ),
+            'last_refresh': last_refresh.isoformat() if isinstance(last_refresh, datetime) else None
         }
         
         return jsonify({'success': True, 'config': config})
@@ -5350,7 +5018,7 @@ def api_ifood_config():
 @app.route('/api/ifood/merchants', methods=['POST'])
 @admin_required
 def api_add_merchant():
-    """Add a merchant to org config (or legacy global config for platform admins)."""
+    """Add a merchant to current org config."""
     try:
         data = get_json_payload()
         
@@ -5367,28 +5035,6 @@ def api_add_merchant():
             'manager': manager
         }
 
-        if is_platform_admin_user(session.get('user', {})):
-            # Legacy global config path for platform operators.
-            if 'merchants' not in IFOOD_CONFIG:
-                IFOOD_CONFIG['merchants'] = []
-            for m in IFOOD_CONFIG['merchants']:
-                existing_id = normalize_merchant_id(
-                    m.get('merchant_id') or m.get('id')
-                    if isinstance(m, dict)
-                    else m
-                )
-                if existing_id == merchant_id:
-                    return jsonify({'success': False, 'error': 'Merchant already exists'}), 400
-            IFOOD_CONFIG['merchants'].append(merchant_payload)
-            IFoodConfig.save_config(IFOOD_CONFIG, str(CONFIG_FILE))
-            load_restaurants_from_ifood()
-            return jsonify({
-                'success': True,
-                'message': 'Merchant added successfully',
-                'restaurant_count': len(RESTAURANTS_DATA)
-            })
-
-        # Tenant-safe org path.
         org_id = get_current_org_id()
         if not org_id:
             return jsonify({'success': False, 'error': 'Organization context required'}), 403
@@ -5426,35 +5072,11 @@ def api_add_merchant():
 @app.route('/api/ifood/merchants/<merchant_id>', methods=['DELETE'])
 @admin_required
 def api_remove_merchant(merchant_id):
-    """Remove a merchant from org config (or legacy global config for platform admins)."""
+    """Remove a merchant from current org config."""
     try:
         target_merchant_id = normalize_merchant_id(merchant_id)
         if not target_merchant_id:
             return jsonify({'success': False, 'error': 'Merchant not found'}), 404
-
-        if is_platform_admin_user(session.get('user', {})):
-            if 'merchants' not in IFOOD_CONFIG:
-                return jsonify({'success': False, 'error': 'No merchants configured'}), 404
-
-            original_count = len(IFOOD_CONFIG['merchants'])
-            IFOOD_CONFIG['merchants'] = [
-                m for m in IFOOD_CONFIG['merchants'] 
-                if normalize_merchant_id(
-                    m.get('merchant_id') or m.get('id')
-                    if isinstance(m, dict)
-                    else m
-                ) != target_merchant_id
-            ]
-            if len(IFOOD_CONFIG['merchants']) == original_count:
-                return jsonify({'success': False, 'error': 'Merchant not found'}), 404
-
-            IFoodConfig.save_config(IFOOD_CONFIG, str(CONFIG_FILE))
-            load_restaurants_from_ifood()
-            return jsonify({
-                'success': True,
-                'message': 'Merchant removed successfully',
-                'restaurant_count': len(RESTAURANTS_DATA)
-            })
 
         org_id = get_current_org_id()
         if not org_id:
@@ -5497,7 +5119,8 @@ def api_remove_merchant(merchant_id):
 def api_test_ifood():
     """Test iFood API connection"""
     try:
-        if not IFOOD_API:
+        api = get_resilient_api_client()
+        if not api:
             return jsonify({
                 'success': False,
                 'error': 'iFood API not configured',
@@ -5505,9 +5128,9 @@ def api_test_ifood():
             })
         
         # Try to authenticate
-        if IFOOD_API.authenticate():
+        if api.authenticate():
             # Try to fetch merchants
-            merchants = IFOOD_API.get_merchants()
+            merchants = api.get_merchants()
             
             return jsonify({
                 'success': True,
@@ -5527,7 +5150,7 @@ def api_test_ifood():
         return jsonify({
             'success': False,
             'error': 'Internal server error',
-            'configured': bool(IFOOD_API)
+            'configured': bool(get_resilient_api_client())
         })
 
 
@@ -5749,8 +5372,12 @@ def api_restore_restaurant(restaurant_id):
         # Remove from cancelled list
         CANCELLED_RESTAURANTS = [c for c in CANCELLED_RESTAURANTS if c['id'] != restaurant_id]
         
-        # Reload data to get the restaurant back
-        load_restaurants_from_ifood()
+        # Reload current org data to get the restaurant back
+        org_id = get_current_org_id()
+        if org_id:
+            api = _init_org_ifood(org_id)
+            if api:
+                _load_org_restaurants(org_id)
         
         return jsonify({
             'success': True,
@@ -6956,12 +6583,6 @@ def check_setup():
             else:
                 print(f"   Ã¢Å¡Â Ã¯Â¸Â Optional: {filename} not found")
     
-    # Check iFood config
-    if not CONFIG_FILE.exists():
-        print(f"Ã¢Å¡Â Ã¯Â¸Â  iFood config not found (will be created)")
-    else:
-        print(f"Ã¢Å“â€¦ iFood config file exists")
-    
     if issues:
         print("\nÃ¢Å¡Â Ã¯Â¸Â  Issues found:")
         for issue in issues:
@@ -7167,32 +6788,14 @@ def initialize_app():
         or (str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on'))
     )
 
-    # Fallback: if no orgs have data, try legacy config file
     org_values_snapshot = _org_data_values_snapshot()
     if not any((od or {}).get('restaurants') for od in org_values_snapshot):
-        print("\nNo org data found, trying legacy config file...")
-        ifood_ok = initialize_ifood_api()
-        if ifood_ok:
-            snapshot_loaded = _load_data_snapshot()
-            if snapshot_loaded:
-                print("Fast start: serving cached data while refreshing in background")
-                if queue_mode:
-                    enqueue_refresh_job(trigger='startup')
-                else:
-                    threading.Thread(target=bg_refresher.refresh_now, daemon=True).start()
-            else:
-                print("First start: loading data from iFood API...")
-                load_restaurants_from_ifood()
-                _save_data_snapshot()
-            refresh_minutes = IFOOD_CONFIG.get('refresh_interval_minutes', 30)
-            if not queue_mode:
-                bg_refresher.interval = refresh_minutes * 60
-                bg_refresher.start()
-    else:
-        # Start background refresh for all orgs
-        if not queue_mode:
-            bg_refresher.interval = 1800  # 30 min
-            bg_refresher.start()
+        print("\nNo org data found; skipping legacy file fallback.")
+
+    # Start background refresh for org-scoped data.
+    if not queue_mode:
+        bg_refresher.interval = 1800  # 30 min
+        bg_refresher.start()
 
     # Ensure keepalive polling can run on web instances when worker mode is not active.
     if IFOOD_KEEPALIVE_POLLING and not is_worker_process:
