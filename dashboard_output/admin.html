@@ -472,7 +472,6 @@
                     <select class="form-select" id="userOrgRole">
                         <option value="viewer">Viewer</option>
                         <option value="admin">Admin</option>
-                        <option value="owner">Owner</option>
                     </select>
                 </div>
             </div>
@@ -502,7 +501,6 @@
                     <select class="form-select" id="assignUserRole">
                         <option value="viewer">Viewer</option>
                         <option value="admin">Admin</option>
-                        <option value="owner">Owner</option>
                     </select>
                 </div>
             </div>
@@ -761,7 +759,8 @@
                 table.innerHTML = users.map(user => {
                     const userOrgRole = String(user.org_role || '').toLowerCase();
                     const isOwner = userOrgRole === 'owner';
-                    const isSelfAdmin = Number(user.id) === Number(currentUserId) && userOrgRole === 'admin';
+                    const ownerRoleLocked = isOwner && !isPlatformAdmin;
+                    const ownerOption = isOwner ? '<option value="owner" selected>Owner</option>' : '';
                     return `
                         <tr>
                             <td>${escapeHtml(user.name || user.username || 'Usuario')}</td>
@@ -769,10 +768,10 @@
                             <td>${renderOrgRoleBadge(user.org_role)}</td>
                             <td>${user.last_login ? new Date(user.last_login).toLocaleDateString('pt-BR') : 'Nunca'}</td>
                             <td style="display:flex;gap:8px;flex-wrap:wrap">
-                                <select class="form-select" style="max-width:120px;padding:6px 8px" onchange="updateOrgUserRole(${user.id}, this.value, ${memberManagementOrgId})" ${isOwner ? 'disabled' : ''}>
+                                <select class="form-select" style="max-width:120px;padding:6px 8px" onchange="updateOrgUserRole(${user.id}, this.value, ${memberManagementOrgId})" ${ownerRoleLocked ? 'disabled' : ''}>
                                     <option value="viewer" ${userOrgRole === 'viewer' ? 'selected' : ''}>Viewer</option>
                                     <option value="admin" ${userOrgRole === 'admin' ? 'selected' : ''}>Admin</option>
-                                    <option value="owner" ${userOrgRole === 'owner' ? 'selected' : ''} ${isSelfAdmin ? 'disabled' : ''}>Owner</option>
+                                    ${ownerOption}
                                 </select>
                                 <button class="btn btn-secondary btn-danger" onclick="removeOrgUser(${user.id}, '${escapeJs(user.name || user.username || 'Usuario')}', ${memberManagementOrgId})">Desvincular</button>
                             </td>
@@ -918,7 +917,7 @@
                 tbody.innerHTML = users.map(user => {
                     const userOrgRole = String(user.org_role || '').toLowerCase();
                     const isOwner = userOrgRole === 'owner';
-                    const isSelfAdmin = Number(user.id) === Number(currentUserId) && currentUserOrgRole === 'admin';
+                    const ownerOption = isOwner ? '<option value="owner" selected>Owner</option>' : '';
                     return `
                     <tr>
                         <td>${escapeHtml(user.name || user.username || 'Usuário')}</td>
@@ -929,7 +928,7 @@
                             <select class="form-select" style="max-width:120px;padding:6px 8px" onchange="updateOrgUserRole(${user.id}, this.value)" ${isOwner ? 'disabled' : ''}>
                                 <option value="viewer" ${userOrgRole === 'viewer' ? 'selected' : ''}>Viewer</option>
                                 <option value="admin" ${userOrgRole === 'admin' ? 'selected' : ''}>Admin</option>
-                                <option value="owner" ${userOrgRole === 'owner' ? 'selected' : ''} ${isSelfAdmin ? 'disabled' : ''}>Owner</option>
+                                ${ownerOption}
                             </select>
                             <button class="btn btn-secondary btn-danger" onclick="removeOrgUser(${user.id}, '${escapeJs(user.name || user.username || 'Usuário')}')">Desvincular</button>
                         </td>

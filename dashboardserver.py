@@ -5453,14 +5453,14 @@ def api_create_user():
 
         if org_role not in ('owner', 'admin', 'viewer'):
             return jsonify({'success': False, 'error': 'Invalid org role'}), 400
+        if org_role == 'owner':
+            return jsonify({'success': False, 'error': 'Owner role cannot be assigned at creation'}), 400
 
         if not platform_admin:
             if not org_id:
                 return jsonify({'success': False, 'error': 'Organization context required'}), 403
             # Tenant admins cannot create global platform admins.
             role = 'user'
-            if org_role == 'owner':
-                return jsonify({'success': False, 'error': 'Only platform admins can assign owner role at creation'}), 403
 
         if org_id:
             user_limit = db.check_user_limit(org_id)

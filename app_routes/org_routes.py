@@ -491,6 +491,8 @@ def register(app, deps):
         if isinstance(user_id, str) and user_id.strip().isdigit():
             user_id = int(user_id.strip())
         org_role = (data.get('org_role') or 'viewer').strip().lower()
+        if org_role == 'owner':
+            return jsonify({'success': False, 'error': 'Owner role cannot be assigned manually'}), 400
 
         if not isinstance(user_id, int):
             return jsonify({'success': False, 'error': 'user_id is required'}), 400
@@ -528,6 +530,10 @@ def register(app, deps):
         org_role = (data.get('org_role') or '').strip().lower()
         if not org_role:
             return jsonify({'success': False, 'error': 'org_role is required'}), 400
+        if org_role == 'owner':
+            current_member_role = db.get_org_member_role(org_id, user_id)
+            if current_member_role and str(current_member_role).strip().lower() != 'owner':
+                return jsonify({'success': False, 'error': 'Owner role cannot be assigned manually'}), 400
 
         result = db.update_org_member_role(
             org_id,
@@ -542,6 +548,11 @@ def register(app, deps):
                     'success': False,
                     'error': 'Admins cannot promote themselves to owner'
                 }), 403
+            if code == 'cannot_demote_last_owner':
+                return jsonify({
+                    'success': False,
+                    'error': 'Cannot demote the last owner in this organization'
+                }), 409
             status = 404 if code == 'member_not_found' else 400
             return jsonify(result), status
 
@@ -572,6 +583,11 @@ def register(app, deps):
         result = db.remove_user_from_org(org_id, user_id)
         if not result.get('success'):
             code = str(result.get('error') or '')
+            if code == 'cannot_remove_last_owner':
+                return jsonify({
+                    'success': False,
+                    'error': 'Cannot remove the last owner from this organization'
+                }), 409
             status = 404 if code == 'member_not_found' else 400
             return jsonify(result), status
 
