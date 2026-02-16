@@ -891,6 +891,7 @@ class IFoodAPI:
         return merged or None
 
     def _request_first_success(self, method: str, candidates: List[Dict]):
+        attempts = []
         for candidate in (candidates or []):
             if not isinstance(candidate, dict):
                 continue
@@ -905,7 +906,28 @@ class IFoodAPI:
                 headers=candidate.get('headers'),
             )
             if result is not None:
+                if attempts:
+                    self._last_http_error = {
+                        'status': None,
+                        'endpoint': endpoint,
+                        'detail': '',
+                        'attempts': attempts + [{'endpoint': endpoint, 'status': 200}],
+                    }
                 return result
+            last_error = self._last_http_error if isinstance(self._last_http_error, dict) else {}
+            attempts.append({
+                'endpoint': endpoint,
+                'status': int(last_error.get('status') or 0),
+                'detail': str(last_error.get('detail') or '')[:180],
+            })
+        if attempts:
+            last = attempts[-1]
+            self._last_http_error = {
+                'status': int(last.get('status') or 0),
+                'endpoint': str(last.get('endpoint') or ''),
+                'detail': str(last.get('detail') or ''),
+                'attempts': attempts[-12:],
+            }
         return None
 
     def _normalize_financial_params(self, params: Dict = None, endpoint_kind: str = ''):

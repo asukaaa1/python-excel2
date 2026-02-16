@@ -786,7 +786,10 @@ async function fetchFinancialApiData() {
             const statusText = payload?.ifood_status ? `status ${payload.ifood_status}` : '';
             const endpointText = payload?.ifood_endpoint ? payload.ifood_endpoint : '';
             const detailText = payload?.ifood_detail ? payload.ifood_detail : '';
-            const suffix = [statusText, endpointText, detailText].filter(Boolean).join(' | ');
+            const attemptsText = Array.isArray(payload?.ifood_attempts) && payload.ifood_attempts.length > 0
+                ? payload.ifood_attempts.map(a => `${a.status || '?'}:${a.endpoint || ''}`).join(' -> ')
+                : '';
+            const suffix = [statusText, endpointText, detailText, attemptsText].filter(Boolean).join(' | ');
             throw new Error(`${endpoint.label}: ${errText}${suffix ? ` (${suffix})` : ''}`);
         }
         return { key: endpoint.key, payload };
