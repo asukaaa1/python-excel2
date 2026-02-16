@@ -102,11 +102,28 @@ USE_REDIS_QUEUE = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDI
 USE_REDIS_CACHE = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDIS_CACHE', '1')).strip().lower() in ('1', 'true', 'yes', 'on'))
 USE_REDIS_PUBSUB = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDIS_PUBSUB', '1')).strip().lower() in ('1', 'true', 'yes', 'on'))
 IFOOD_KEEPALIVE_POLLING = str(os.environ.get('IFOOD_KEEPALIVE_POLLING', '1')).strip().lower() in ('1', 'true', 'yes', 'on')
+IFOOD_STRICT_30S_POLLING = str(os.environ.get('IFOOD_STRICT_30S_POLLING', '1')).strip().lower() in ('1', 'true', 'yes', 'on')
 try:
-    IFOOD_POLL_INTERVAL_SECONDS = int(os.environ.get('IFOOD_POLL_INTERVAL_SECONDS', '30') or 30)
+    _ifood_poll_interval_requested = int(os.environ.get('IFOOD_POLL_INTERVAL_SECONDS', '30') or 30)
 except Exception:
-    IFOOD_POLL_INTERVAL_SECONDS = 30
-IFOOD_POLL_INTERVAL_SECONDS = max(10, IFOOD_POLL_INTERVAL_SECONDS)
+    _ifood_poll_interval_requested = 30
+_ifood_poll_interval_requested = max(10, _ifood_poll_interval_requested)
+IFOOD_POLL_INTERVAL_SECONDS = 30 if IFOOD_STRICT_30S_POLLING else _ifood_poll_interval_requested
+if IFOOD_STRICT_30S_POLLING and _ifood_poll_interval_requested != 30:
+    print(
+        f"iFood keepalive polling interval overridden to 30s "
+        f"(requested={_ifood_poll_interval_requested}s, strict_30s=enabled)"
+    )
+IFOOD_EVIDENCE_ENABLED = str(os.environ.get('IFOOD_EVIDENCE_ENABLED', '1')).strip().lower() in ('1', 'true', 'yes', 'on')
+try:
+    IFOOD_EVIDENCE_MAX_ENTRIES = int(os.environ.get('IFOOD_EVIDENCE_MAX_ENTRIES', '2000') or 2000)
+except Exception:
+    IFOOD_EVIDENCE_MAX_ENTRIES = 2000
+IFOOD_EVIDENCE_MAX_ENTRIES = max(100, min(20000, IFOOD_EVIDENCE_MAX_ENTRIES))
+IFOOD_EVIDENCE_LOG_FILE = str(
+    os.environ.get('IFOOD_EVIDENCE_LOG_FILE')
+    or (DASHBOARD_OUTPUT / 'ifood_homologation_evidence.jsonl')
+).strip()
 IFOOD_WEBHOOK_SECRET = str(os.environ.get('IFOOD_WEBHOOK_SECRET') or '').strip()
 IFOOD_WEBHOOK_TOKEN = str(os.environ.get('IFOOD_WEBHOOK_TOKEN') or '').strip()
 IFOOD_WEBHOOK_ALLOW_UNSIGNED = str(
@@ -383,6 +400,114 @@ def _update_ifood_ingestion_metrics(**updates):
 def _snapshot_ifood_ingestion_metrics():
     with _INGESTION_METRICS_LOCK:
         return dict(_IFOOD_INGESTION_METRICS)
+
+
+_IFOOD_EVIDENCE_LOCK = threading.Lock()
+_IFOOD_EVIDENCE_ENTRIES = deque(maxlen=IFOOD_EVIDENCE_MAX_ENTRIES)
+
+
+def _iso_utc_now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _truncate_text(value, max_len=500):
+    text = str(value or '')
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + f"...(+{len(text) - max_len} chars)"
+
+
+def _sanitize_evidence_value(value, depth=0, max_depth=4):
+    if depth >= max_depth:
+        return '[max_depth_reached]'
+
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+
+    if isinstance(value, str):
+        return _truncate_text(value, 600)
+
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    if isinstance(value, dict):
+        out = {}
+        items = list(value.items())
+        for idx, (k, v) in enumerate(items):
+            if idx >= 80:
+                out['_truncated_keys'] = max(0, len(items) - idx)
+                break
+            out[_truncate_text(k, 120)] = _sanitize_evidence_value(v, depth=depth + 1, max_depth=max_depth)
+        return out
+
+    if isinstance(value, (list, tuple, set)):
+        seq = list(value)
+        out = [_sanitize_evidence_value(v, depth=depth + 1, max_depth=max_depth) for v in seq[:120]]
+        if len(seq) > 120:
+            out.append({'_truncated_items': len(seq) - 120})
+        return out
+
+    return _truncate_text(repr(value), 600)
+
+
+def _append_ifood_evidence_entry(entry: dict):
+    """Persist sanitized polling/ack traces for homologation evidence packs."""
+    if not IFOOD_EVIDENCE_ENABLED:
+        return
+    if not isinstance(entry, dict):
+        return
+
+    sanitized = _sanitize_evidence_value(entry)
+    if not isinstance(sanitized, dict):
+        sanitized = {'entry': sanitized}
+    sanitized.setdefault('captured_at', _iso_utc_now())
+
+    with _IFOOD_EVIDENCE_LOCK:
+        _IFOOD_EVIDENCE_ENTRIES.append(sanitized)
+
+    if not IFOOD_EVIDENCE_LOG_FILE:
+        return
+
+    try:
+        evidence_path = Path(IFOOD_EVIDENCE_LOG_FILE)
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        with evidence_path.open('a', encoding='utf-8') as fh:
+            fh.write(json.dumps(sanitized, ensure_ascii=False) + '\n')
+    except Exception as e:
+        logger.debug("iFood evidence append failed: %s", e)
+
+
+def _snapshot_ifood_evidence_entries(limit=200, org_id=None):
+    try:
+        limit_n = int(limit or 200)
+    except Exception:
+        limit_n = 200
+    limit_n = max(1, min(limit_n, IFOOD_EVIDENCE_MAX_ENTRIES))
+
+    with _IFOOD_EVIDENCE_LOCK:
+        entries = list(_IFOOD_EVIDENCE_ENTRIES)
+
+    org_id_text = str(org_id).strip() if org_id is not None and str(org_id).strip() else None
+    if org_id_text:
+        filtered = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get('org_id')).strip() == org_id_text:
+                filtered.append(entry)
+                continue
+            org_entries = entry.get('orgs')
+            if isinstance(org_entries, list):
+                for org_entry in org_entries:
+                    if isinstance(org_entry, dict) and str(org_entry.get('org_id')).strip() == org_id_text:
+                        filtered.append(entry)
+                        break
+        entries = filtered
+
+    if len(entries) > limit_n:
+        entries = entries[-limit_n:]
+    return entries
+
 
 # Marketing metadata for plan cards in admin UI.
 PLAN_CATALOG_UI = {
@@ -3005,6 +3130,13 @@ def _refresh_restaurant_closure(org_data: dict, api_client, merchant_id: str) ->
 def run_ifood_keepalive_poll_once():
     """Poll iFood order events to keep test merchants marked as connected/open."""
     global _KEEPALIVE_POLL_CYCLE
+    cycle_record = {
+        'type': 'ifood_keepalive_cycle',
+        'cycle_started_at': _iso_utc_now(),
+        'poll_interval_seconds': int(IFOOD_POLL_INTERVAL_SECONDS or 30),
+        'keepalive_enabled': bool(IFOOD_KEEPALIVE_POLLING),
+        'orgs': [],
+    }
     summary = {
         'orgs_checked': 0,
         'merchants_polled': 0,
@@ -3019,10 +3151,20 @@ def run_ifood_keepalive_poll_once():
     }
 
     if not IFOOD_KEEPALIVE_POLLING:
+        cycle_record['skipped'] = True
+        cycle_record['skip_reason'] = 'keepalive_disabled'
+        cycle_record['summary'] = dict(summary)
+        cycle_record['cycle_finished_at'] = _iso_utc_now()
+        _append_ifood_evidence_entry(cycle_record)
         return summary
 
     lock_token = acquire_keepalive_lock()
     if lock_token is None:
+        cycle_record['skipped'] = True
+        cycle_record['skip_reason'] = 'lock_busy'
+        cycle_record['summary'] = dict(summary)
+        cycle_record['cycle_finished_at'] = _iso_utc_now()
+        _append_ifood_evidence_entry(cycle_record)
         return summary
 
     try:
@@ -3064,18 +3206,67 @@ def run_ifood_keepalive_poll_once():
 
             summary['orgs_checked'] += 1
             summary['merchants_polled'] += len(merchant_ids)
-            merchant_set = {str(mid) for mid in merchant_ids}
+            merchant_ids_text = [str(mid).strip() for mid in merchant_ids if str(mid).strip()]
+            merchant_set = set(merchant_ids_text)
             events = []
             org_data_changed = False
+            org_record = {
+                'org_id': org_id,
+                'merchant_ids': merchant_ids_text,
+                'poll': {},
+                'ack': {},
+                'errors': 0,
+            }
+            cycle_record['orgs'].append(org_record)
+            poll_requested_at = _iso_utc_now()
+            poll_trace = None
 
             try:
                 if hasattr(api, 'poll_events'):
                     events = api.poll_events(merchant_ids) or []
+                    candidate_trace = getattr(api, '_last_poll_trace', None)
+                    if isinstance(candidate_trace, dict):
+                        poll_trace = dict(candidate_trace)
                 elif hasattr(api, '_request'):
                     headers = {'x-polling-merchants': ','.join(merchant_ids)}
-                    payload = api._request('GET', '/events/v1.0/events:polling', headers=headers)
-                    if payload is None:
-                        payload = api._request('GET', '/order/v1.0/events:polling', headers=headers)
+                    payload = None
+                    manual_trace = {
+                        'requested_at': poll_requested_at,
+                        'merchant_scope': headers.get('x-polling-merchants'),
+                        'request_headers': {'x-polling-merchants': headers.get('x-polling-merchants')},
+                        'attempts': [],
+                        'success': False,
+                    }
+                    for endpoint in ('/events/v1.0/events:polling', '/order/v1.0/events:polling'):
+                        attempt_started_at = _iso_utc_now()
+                        payload_candidate = api._request('GET', endpoint, headers=headers)
+                        if payload_candidate is not None:
+                            manual_trace['attempts'].append({
+                                'endpoint': endpoint,
+                                'method': 'GET',
+                                'requested_at': attempt_started_at,
+                                'responded_at': _iso_utc_now(),
+                                'status': 200,
+                                'success': True,
+                            })
+                            manual_trace['success'] = True
+                            manual_trace['endpoint'] = endpoint
+                            payload = payload_candidate
+                            break
+                        last_error = getattr(api, '_last_http_error', None)
+                        if not isinstance(last_error, dict):
+                            last_error = {}
+                        manual_trace['attempts'].append({
+                            'endpoint': endpoint,
+                            'method': 'GET',
+                            'requested_at': attempt_started_at,
+                            'responded_at': _iso_utc_now(),
+                            'status': int(last_error.get('status') or 0),
+                            'success': False,
+                            'detail': _truncate_text(last_error.get('detail') or '', 180),
+                        })
+                    manual_trace['completed_at'] = _iso_utc_now()
+                    poll_trace = manual_trace
                     if isinstance(payload, list):
                         events = [e for e in payload if isinstance(e, dict)]
                     elif isinstance(payload, dict):
@@ -3087,9 +3278,21 @@ def run_ifood_keepalive_poll_once():
                         if not events:
                             events = [payload]
                 summary['events_received'] += len(events)
-            except Exception:
+            except Exception as poll_err:
                 summary['errors'] += 1
+                org_record['errors'] += 1
                 events = []
+                if not isinstance(poll_trace, dict):
+                    poll_trace = {}
+                poll_trace['success'] = False
+                poll_trace['error'] = _truncate_text(poll_err, 240)
+
+            if not isinstance(poll_trace, dict):
+                poll_trace = {}
+            poll_trace.setdefault('requested_at', poll_requested_at)
+            poll_trace.setdefault('completed_at', _iso_utc_now())
+            poll_trace['events_received'] = len(events)
+            org_record['poll'] = poll_trace
 
             events_by_merchant, _ = _group_events_by_merchant(
                 events,
@@ -3117,22 +3320,76 @@ def run_ifood_keepalive_poll_once():
                         org_data_changed = True
                 except Exception:
                     summary['errors'] += 1
+                    org_record['errors'] += 1
 
             if org_data_changed and org_id is not None:
                 try:
                     _persist_org_restaurants_cache(org_id, org_data)
                 except Exception:
                     summary['errors'] += 1
+                    org_record['errors'] += 1
 
+            ack_trace = {
+                'requested_at': None,
+                'completed_at': _iso_utc_now(),
+                'success': False,
+                'skipped': True,
+                'reason': 'no_events',
+                'events_input_count': len(events),
+            }
             if events and hasattr(api, 'acknowledge_events'):
+                ack_requested_at = _iso_utc_now()
                 try:
                     ack_result = api.acknowledge_events(events)
+                    ack_success = isinstance(ack_result, dict) and ack_result.get('success')
                     if isinstance(ack_result, dict) and ack_result.get('success'):
                         summary['events_acknowledged'] += int(ack_result.get('acknowledged') or 0)
                     else:
                         summary['errors'] += 1
-                except Exception:
+                        org_record['errors'] += 1
+
+                    candidate_ack_trace = None
+                    if isinstance(ack_result, dict):
+                        candidate_ack_trace = ack_result.get('trace')
+                    if not isinstance(candidate_ack_trace, dict):
+                        fallback_ack_trace = getattr(api, '_last_ack_trace', None)
+                        candidate_ack_trace = fallback_ack_trace if isinstance(fallback_ack_trace, dict) else None
+                    if isinstance(candidate_ack_trace, dict):
+                        ack_trace = dict(candidate_ack_trace)
+                    else:
+                        ack_trace = {}
+                    ack_trace['requested_at'] = ack_trace.get('requested_at') or ack_requested_at
+                    ack_trace['completed_at'] = ack_trace.get('completed_at') or _iso_utc_now()
+                    ack_trace['success'] = bool(ack_success)
+                    ack_trace['skipped'] = False
+                    ack_trace['events_input_count'] = len(events)
+                    if isinstance(ack_result, dict):
+                        ack_trace['requested'] = int(ack_result.get('requested') or ack_trace.get('requested') or 0)
+                        ack_trace['acknowledged'] = int(ack_result.get('acknowledged') or ack_trace.get('acknowledged') or 0)
+                        endpoint = ack_result.get('endpoint')
+                        if endpoint:
+                            ack_trace['endpoint'] = endpoint
+                except Exception as ack_err:
                     summary['errors'] += 1
+                    org_record['errors'] += 1
+                    ack_trace = {
+                        'requested_at': ack_requested_at,
+                        'completed_at': _iso_utc_now(),
+                        'success': False,
+                        'skipped': False,
+                        'events_input_count': len(events),
+                        'error': _truncate_text(ack_err, 240),
+                    }
+            elif events:
+                ack_trace = {
+                    'requested_at': None,
+                    'completed_at': _iso_utc_now(),
+                    'success': False,
+                    'skipped': True,
+                    'reason': 'ack_not_supported',
+                    'events_input_count': len(events),
+                }
+            org_record['ack'] = ack_trace
     finally:
         release_keepalive_lock(lock_token)
 
@@ -3178,6 +3435,9 @@ def run_ifood_keepalive_poll_once():
             f"orders_cached={summary['orders_cached']}, orders_updated={summary['orders_updated']}, "
             f"metrics_refreshed={summary['metrics_refreshed']})"
         )
+    cycle_record['summary'] = dict(summary)
+    cycle_record['cycle_finished_at'] = _iso_utc_now()
+    _append_ifood_evidence_entry(cycle_record)
     return summary
 
 
@@ -4560,8 +4820,58 @@ def api_refresh_status():
         'last_refresh': last_refresh.isoformat() if last_refresh else None,
         'restaurant_count': len(get_current_org_restaurants()),
         'connected_clients': sse_manager.client_count,
-        'refresh_interval_minutes': IFOOD_CONFIG.get('refresh_interval_minutes', 30)
+        'refresh_interval_minutes': IFOOD_CONFIG.get('refresh_interval_minutes', 30),
+        'ifood_keepalive_polling': bool(IFOOD_KEEPALIVE_POLLING),
+        'ifood_poll_interval_seconds': int(IFOOD_POLL_INTERVAL_SECONDS or 30),
+        'ifood_strict_30s': bool(IFOOD_STRICT_30S_POLLING),
     })
+
+
+@app.route('/api/ifood/evidence-pack')
+@admin_required
+def api_ifood_evidence_pack():
+    """Export homologation evidence pack with polling/ack request traces."""
+    try:
+        limit = request.args.get('limit', default=300, type=int)
+    except Exception:
+        limit = 300
+    limit = max(1, min(limit or 300, IFOOD_EVIDENCE_MAX_ENTRIES))
+
+    org_id_filter = request.args.get('org_id')
+    include_metrics = str(request.args.get('include_metrics', '1')).strip().lower() in ('1', 'true', 'yes', 'on')
+
+    entries = _snapshot_ifood_evidence_entries(limit=limit, org_id=org_id_filter)
+    generated_at = _iso_utc_now()
+
+    pack = {
+        'success': True,
+        'generated_at': generated_at,
+        'pack_type': 'ifood_homologation_events_evidence',
+        'filters': {
+            'limit': limit,
+            'org_id': org_id_filter if str(org_id_filter or '').strip() else None,
+        },
+        'poller_config': {
+            'enabled': bool(IFOOD_KEEPALIVE_POLLING),
+            'strict_30s': bool(IFOOD_STRICT_30S_POLLING),
+            'interval_seconds': int(IFOOD_POLL_INTERVAL_SECONDS or 30),
+        },
+        'entries_count': len(entries),
+        'entries': entries,
+        'evidence_log_file': IFOOD_EVIDENCE_LOG_FILE or None,
+    }
+
+    if include_metrics:
+        pack['ingestion_metrics'] = _snapshot_ifood_ingestion_metrics()
+        pack['db_ingestion_last_24h'] = db.get_ifood_ingestion_summary(org_id=None, since_hours=24)
+
+    filename = f"ifood-evidence-pack-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    response_text = json.dumps(pack, ensure_ascii=False, indent=2)
+    return Response(
+        response_text,
+        mimetype='application/json',
+        headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'}
+    )
 
 
 @app.route('/api/dashboard/summary')

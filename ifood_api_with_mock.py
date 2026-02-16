@@ -53,6 +53,8 @@ class IFoodAPI:
         self.token_expires_at = None
         self.last_auth_error = None
         self._last_http_error = None
+        self._last_poll_trace = None
+        self._last_ack_trace = None
         self._order_list_fallback_supported = True
         self._order_list_fallback_disabled_logged = False
         self._mock_orders_per_restaurant = max(
@@ -76,7 +78,6 @@ class IFoodAPI:
         # Mock data cache - FIXED: Store complete merchant data
         self._mock_merchants = {}
         self._interruptions_cache = {}
-        self._opening_hours_cache = {}
         self._merchant_orders_cache = {}
         
         if self.use_mock_data:
@@ -381,12 +382,35 @@ class IFoodAPI:
         Useful for keeping test stores connected/open in iFood sandbox.
         """
         if self.use_mock_data:
+            self._last_poll_trace = {
+                'requested_at': datetime.utcnow().isoformat() + 'Z',
+                'completed_at': datetime.utcnow().isoformat() + 'Z',
+                'success': True,
+                'mock_mode': True,
+                'merchant_scope': self._normalize_polling_merchants(merchant_id),
+                'attempts': [],
+                'events_count': 0,
+            }
             return []
         polling_merchants = self._normalize_polling_merchants(merchant_id)
         if not polling_merchants:
+            self._last_poll_trace = {
+                'requested_at': datetime.utcnow().isoformat() + 'Z',
+                'completed_at': datetime.utcnow().isoformat() + 'Z',
+                'success': False,
+                'merchant_scope': polling_merchants,
+                'reason': 'missing_merchants',
+                'attempts': [],
+                'events_count': 0,
+            }
             return []
         polling_result = self._poll_events_payload(polling_merchants)
-        return self._extract_polling_events(polling_result)
+        events = self._extract_polling_events(polling_result)
+        trace = self._last_poll_trace if isinstance(self._last_poll_trace, dict) else {}
+        trace['events_count'] = len(events)
+        trace['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+        self._last_poll_trace = trace
+        return events
 
     def _normalize_polling_merchants(self, merchant_id) -> str:
         if merchant_id is None:
@@ -400,12 +424,59 @@ class IFoodAPI:
         """Fetch polling payload using official endpoint, then legacy fallback."""
         polling_merchants = self._normalize_polling_merchants(merchant_id)
         if not polling_merchants:
+            self._last_poll_trace = {
+                'requested_at': datetime.utcnow().isoformat() + 'Z',
+                'completed_at': datetime.utcnow().isoformat() + 'Z',
+                'success': False,
+                'merchant_scope': '',
+                'reason': 'missing_merchants',
+                'attempts': [],
+            }
             return None
         polling_headers = {'x-polling-merchants': polling_merchants}
+        trace = {
+            'requested_at': datetime.utcnow().isoformat() + 'Z',
+            'merchant_scope': polling_merchants,
+            'request_headers': {'x-polling-merchants': polling_merchants},
+            'attempts': [],
+            'success': False,
+        }
         for endpoint in self.POLLING_ENDPOINTS:
+            attempt_started = datetime.utcnow().isoformat() + 'Z'
             payload = self._request('GET', endpoint, headers=polling_headers)
             if payload is not None:
+                if isinstance(payload, list):
+                    response_summary = {'type': 'list', 'items': len(payload)}
+                elif isinstance(payload, dict):
+                    response_summary = {'type': 'dict', 'keys': list(payload.keys())[:20]}
+                else:
+                    response_summary = {'type': type(payload).__name__}
+                trace['attempts'].append({
+                    'endpoint': endpoint,
+                    'method': 'GET',
+                    'requested_at': attempt_started,
+                    'responded_at': datetime.utcnow().isoformat() + 'Z',
+                    'status': 200,
+                    'success': True,
+                })
+                trace['success'] = True
+                trace['endpoint'] = endpoint
+                trace['response'] = response_summary
+                trace['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+                self._last_poll_trace = trace
                 return payload
+            last_error = self._last_http_error if isinstance(self._last_http_error, dict) else {}
+            trace['attempts'].append({
+                'endpoint': endpoint,
+                'method': 'GET',
+                'requested_at': attempt_started,
+                'responded_at': datetime.utcnow().isoformat() + 'Z',
+                'status': int(last_error.get('status') or 0),
+                'success': False,
+                'detail': str(last_error.get('detail') or '')[:180],
+            })
+        trace['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+        self._last_poll_trace = trace
         return None
 
     def _extract_event_id(self, event: Dict) -> Optional[str]:
@@ -426,7 +497,17 @@ class IFoodAPI:
     def acknowledge_events(self, events: List[Dict]) -> Dict:
         """Acknowledge polled events after processing to avoid backlog/re-delivery loops."""
         if self.use_mock_data:
-            return {'success': True, 'requested': 0, 'acknowledged': 0}
+            trace = {
+                'requested_at': datetime.utcnow().isoformat() + 'Z',
+                'completed_at': datetime.utcnow().isoformat() + 'Z',
+                'success': True,
+                'mock_mode': True,
+                'requested': 0,
+                'acknowledged': 0,
+                'attempts': [],
+            }
+            self._last_ack_trace = trace
+            return {'success': True, 'requested': 0, 'acknowledged': 0, 'trace': trace}
 
         ack_items = []
         seen_ids = set()
@@ -439,20 +520,86 @@ class IFoodAPI:
 
         requested = len(ack_items)
         if requested == 0:
-            return {'success': True, 'requested': 0, 'acknowledged': 0}
+            trace = {
+                'requested_at': datetime.utcnow().isoformat() + 'Z',
+                'completed_at': datetime.utcnow().isoformat() + 'Z',
+                'success': True,
+                'requested': 0,
+                'acknowledged': 0,
+                'attempts': [],
+            }
+            self._last_ack_trace = trace
+            return {'success': True, 'requested': 0, 'acknowledged': 0, 'trace': trace}
 
         payload_variants = (
             ack_items,
             {'events': ack_items},
             [item['id'] for item in ack_items],
         )
+        trace = {
+            'requested_at': datetime.utcnow().isoformat() + 'Z',
+            'requested': requested,
+            'acknowledged': 0,
+            'success': False,
+            'attempts': [],
+        }
         for endpoint in self.ACK_ENDPOINTS:
             for payload in payload_variants:
+                payload_kind = (
+                    'events_list'
+                    if isinstance(payload, list) and payload and isinstance(payload[0], dict)
+                    else 'id_list'
+                    if isinstance(payload, list)
+                    else 'events_object'
+                )
+                attempt_started = datetime.utcnow().isoformat() + 'Z'
                 result = self._request('POST', endpoint, data=payload)
                 if result is not None:
-                    return {'success': True, 'requested': requested, 'acknowledged': requested, 'endpoint': endpoint}
+                    if isinstance(result, list):
+                        response_summary = {'type': 'list', 'items': len(result)}
+                    elif isinstance(result, dict):
+                        response_summary = {'type': 'dict', 'keys': list(result.keys())[:20]}
+                    else:
+                        response_summary = {'type': type(result).__name__}
+                    trace['attempts'].append({
+                        'endpoint': endpoint,
+                        'method': 'POST',
+                        'payload_kind': payload_kind,
+                        'payload_size': requested,
+                        'requested_at': attempt_started,
+                        'responded_at': datetime.utcnow().isoformat() + 'Z',
+                        'status': 200,
+                        'success': True,
+                    })
+                    trace['success'] = True
+                    trace['acknowledged'] = requested
+                    trace['endpoint'] = endpoint
+                    trace['response'] = response_summary
+                    trace['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+                    self._last_ack_trace = trace
+                    return {
+                        'success': True,
+                        'requested': requested,
+                        'acknowledged': requested,
+                        'endpoint': endpoint,
+                        'trace': trace,
+                    }
+                last_error = self._last_http_error if isinstance(self._last_http_error, dict) else {}
+                trace['attempts'].append({
+                    'endpoint': endpoint,
+                    'method': 'POST',
+                    'payload_kind': payload_kind,
+                    'payload_size': requested,
+                    'requested_at': attempt_started,
+                    'responded_at': datetime.utcnow().isoformat() + 'Z',
+                    'status': int(last_error.get('status') or 0),
+                    'success': False,
+                    'detail': str(last_error.get('detail') or '')[:180],
+                })
 
-        return {'success': False, 'requested': requested, 'acknowledged': 0}
+        trace['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+        self._last_ack_trace = trace
+        return {'success': False, 'requested': requested, 'acknowledged': 0, 'trace': trace}
 
     def get_order_details(self, order_id: str) -> Optional[Dict]:
         """Resolve full order payload by order id."""
@@ -837,332 +984,6 @@ class IFoodAPI:
             }
         
         return self._request('GET', f'/merchant/v1.0/merchants/{merchant_id}/status')
-
-    def get_opening_hours(self, merchant_id: str):
-        """Get merchant opening hours."""
-        if self.use_mock_data:
-            key = str(merchant_id or '').strip()
-            if key not in self._opening_hours_cache:
-                self._opening_hours_cache[key] = [
-                    {
-                        "shifts": [
-                            {"id": f"{key}-mon-1", "dayOfWeek": "MONDAY", "start": "09:00:00", "duration": 480},
-                            {"id": f"{key}-tue-1", "dayOfWeek": "TUESDAY", "start": "09:00:00", "duration": 480},
-                            {"id": f"{key}-wed-1", "dayOfWeek": "WEDNESDAY", "start": "09:00:00", "duration": 480},
-                            {"id": f"{key}-thu-1", "dayOfWeek": "THURSDAY", "start": "09:00:00", "duration": 480},
-                            {"id": f"{key}-fri-1", "dayOfWeek": "FRIDAY", "start": "09:00:00", "duration": 600},
-                        ]
-                    }
-                ]
-            return self._opening_hours_cache.get(key, [])
-
-        return self._request('GET', f'/merchant/v1.0/merchants/{merchant_id}/opening-hours')
-
-    def update_opening_hours(self, merchant_id: str, opening_hours_payload):
-        """Update merchant opening hours."""
-        if opening_hours_payload is None:
-            return None
-
-        if self.use_mock_data:
-            key = str(merchant_id or '').strip()
-            if isinstance(opening_hours_payload, list):
-                normalized = opening_hours_payload
-            elif isinstance(opening_hours_payload, dict):
-                normalized = [opening_hours_payload]
-            else:
-                return None
-            self._opening_hours_cache[key] = normalized
-            return {
-                "merchantId": key,
-                "openingHours": normalized,
-                "updatedAt": datetime.utcnow().isoformat() + "Z",
-            }
-
-        return self._request(
-            'PUT',
-            f'/merchant/v1.0/merchants/{merchant_id}/opening-hours',
-            data=opening_hours_payload
-        )
-
-    def _build_optional_headers(self, headers: Dict = None, homologation: bool = False):
-        merged = dict(headers or {})
-        if homologation:
-            merged['x-request-homologation'] = 'true'
-        return merged or None
-
-    def _request_first_success(self, method: str, candidates: List[Dict]):
-        attempts = []
-        for candidate in (candidates or []):
-            if not isinstance(candidate, dict):
-                continue
-            endpoint = str(candidate.get('endpoint') or '').strip()
-            if not endpoint:
-                continue
-            result = self._request(
-                method,
-                endpoint,
-                params=candidate.get('params'),
-                data=candidate.get('data'),
-                headers=candidate.get('headers'),
-            )
-            if result is not None:
-                if attempts:
-                    self._last_http_error = {
-                        'status': None,
-                        'endpoint': endpoint,
-                        'detail': '',
-                        'attempts': attempts + [{'endpoint': endpoint, 'status': 200}],
-                    }
-                return result
-            last_error = self._last_http_error if isinstance(self._last_http_error, dict) else {}
-            attempts.append({
-                'endpoint': endpoint,
-                'status': int(last_error.get('status') or 0),
-                'detail': str(last_error.get('detail') or '')[:180],
-            })
-        if attempts:
-            last = attempts[-1]
-            self._last_http_error = {
-                'status': int(last.get('status') or 0),
-                'endpoint': str(last.get('endpoint') or ''),
-                'detail': str(last.get('detail') or ''),
-                'attempts': attempts[-12:],
-            }
-        return None
-
-    def _normalize_financial_params(self, params: Dict = None, endpoint_kind: str = ''):
-        normalized = dict(params or {})
-        endpoint_key = str(endpoint_kind or '').strip().lower()
-        begin_date = (
-            normalized.get('beginDate')
-            or normalized.get('startDate')
-            or normalized.get('start_date')
-            or normalized.get('from')
-        )
-        end_date = (
-            normalized.get('endDate')
-            or normalized.get('finishDate')
-            or normalized.get('end_date')
-            or normalized.get('to')
-        )
-
-        if begin_date and 'beginDate' not in normalized:
-            normalized['beginDate'] = begin_date
-        if end_date and 'endDate' not in normalized:
-            normalized['endDate'] = end_date
-
-        if endpoint_key == 'sales':
-            if begin_date and 'beginSalesDate' not in normalized:
-                normalized['beginSalesDate'] = begin_date
-            if end_date and 'endSalesDate' not in normalized:
-                normalized['endSalesDate'] = end_date
-
-        if endpoint_key in ('events', 'reconciliation', 'settlements', 'anticipations'):
-            if begin_date and 'startDateCalculation' not in normalized:
-                normalized['startDateCalculation'] = begin_date
-            if end_date and 'endDateCalculation' not in normalized:
-                normalized['endDateCalculation'] = end_date
-
-        page = normalized.get('page')
-        size = normalized.get('size')
-        if page is not None and 'pageNumber' not in normalized:
-            normalized['pageNumber'] = page
-        if size is not None and 'pageSize' not in normalized:
-            normalized['pageSize'] = size
-        return normalized
-
-    def _build_financial_get_candidates(self, merchant_id: str, resource: str, params: Dict = None, headers: Dict = None):
-        merchant_key = str(merchant_id or '').strip()
-        resource_key = str(resource or '').strip().strip('/')
-        base_params = dict(params or {})
-        with_merchant_param = dict(base_params)
-        with_merchant_param.setdefault('merchantId', merchant_key)
-        shared_headers = headers or None
-        return [
-            {
-                'endpoint': f'/financial/v3.0/merchants/{merchant_key}/{resource_key}',
-                'params': dict(base_params),
-                'headers': shared_headers,
-            },
-            {
-                'endpoint': f'/financial/v3/merchants/{merchant_key}/{resource_key}',
-                'params': dict(base_params),
-                'headers': shared_headers,
-            },
-            {
-                'endpoint': f'/financial/v1.0/merchants/{merchant_key}/{resource_key}',
-                'params': dict(base_params),
-                'headers': shared_headers,
-            },
-            {
-                'endpoint': f'/financial/v3/{resource_key}',
-                'params': with_merchant_param,
-                'headers': shared_headers,
-            },
-            {
-                'endpoint': f'/financial/v3.0/{resource_key}',
-                'params': with_merchant_param,
-                'headers': shared_headers,
-            },
-            {
-                'endpoint': f'/merchants/{merchant_key}/{resource_key}',
-                'params': dict(base_params),
-                'headers': shared_headers,
-            },
-        ]
-
-    def _build_financial_post_candidates(self, merchant_id: str, resource: str, payload: Dict = None, headers: Dict = None):
-        merchant_key = str(merchant_id or '').strip()
-        resource_key = str(resource or '').strip().strip('/')
-        body_payload = dict(payload or {})
-        with_merchant_id = dict(body_payload)
-        with_merchant_id.setdefault('merchantId', merchant_key)
-        shared_headers = headers or None
-        return [
-            {
-                'endpoint': f'/financial/v3.0/merchants/{merchant_key}/{resource_key}',
-                'data': dict(body_payload),
-                'headers': shared_headers,
-            },
-            {
-                'endpoint': f'/financial/v3/merchants/{merchant_key}/{resource_key}',
-                'data': dict(body_payload),
-                'headers': shared_headers,
-            },
-            {
-                'endpoint': f'/financial/v3/{resource_key}',
-                'data': with_merchant_id,
-                'headers': shared_headers,
-            },
-            {
-                'endpoint': f'/financial/v3.0/{resource_key}',
-                'data': with_merchant_id,
-                'headers': shared_headers,
-            },
-            {
-                'endpoint': f'/financial/v1.0/merchants/{merchant_key}/{resource_key}',
-                'data': dict(body_payload),
-                'headers': shared_headers,
-            },
-            {
-                'endpoint': f'/merchants/{merchant_key}/{resource_key}',
-                'data': dict(body_payload),
-                'headers': shared_headers,
-            },
-        ]
-
-    def get_financial_sales(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
-        """Get sales data used in financial reconciliation."""
-        if self.use_mock_data:
-            base = dict(params or {})
-            return {
-                'page': int(base.get('page') or 1),
-                'size': int(base.get('size') or 100),
-                'hasNextPage': False,
-                'merchantId': str(merchant_id),
-                'sales': [],
-            }
-        headers = self._build_optional_headers(homologation=homologation)
-        normalized_params = self._normalize_financial_params(params, 'sales')
-        for resource in ('sales',):
-            candidates = self._build_financial_get_candidates(merchant_id, resource, params=normalized_params, headers=headers)
-            result = self._request_first_success('GET', candidates)
-            if result is not None:
-                return result
-        return None
-
-    def get_financial_events(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
-        """Get detailed financial events (credits/debits)."""
-        if self.use_mock_data:
-            base = dict(params or {})
-            return {
-                'page': int(base.get('page') or 1),
-                'size': int(base.get('size') or 100),
-                'hasNextPage': False,
-                'merchantId': str(merchant_id),
-                'financialEvents': [],
-            }
-        headers = self._build_optional_headers(homologation=homologation)
-        normalized_params = self._normalize_financial_params(params, 'events')
-        for resource in ('financial-events', 'financialEvents', 'events', 'occurrences', 'payments'):
-            candidates = self._build_financial_get_candidates(merchant_id, resource, params=normalized_params, headers=headers)
-            result = self._request_first_success('GET', candidates)
-            if result is not None:
-                return result
-        return None
-
-    def get_financial_reconciliation(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
-        """Get reconciliation data (CSV metadata/download link payload)."""
-        if self.use_mock_data:
-            return {
-                'merchantId': str(merchant_id),
-                'reconciliation': [],
-                'downloadUrl': None,
-            }
-        headers = self._build_optional_headers(homologation=homologation)
-        normalized_params = self._normalize_financial_params(params, 'reconciliation')
-        for resource in ('reconciliation', 'paymentDetails', 'payment-details', 'periods'):
-            candidates = self._build_financial_get_candidates(merchant_id, resource, params=normalized_params, headers=headers)
-            result = self._request_first_success('GET', candidates)
-            if result is not None:
-                return result
-        return None
-
-    def request_financial_reconciliation_on_demand(self, merchant_id: str, payload: Dict = None, *, homologation: bool = False):
-        """Request a reconciliation file generation on demand."""
-        if self.use_mock_data:
-            now_ts = int(time.time())
-            return {
-                'merchantId': str(merchant_id),
-                'requestId': f'mock-reconciliation-{now_ts}',
-                'status': 'PROCESSING',
-            }
-        headers = self._build_optional_headers(homologation=homologation)
-        normalized_payload = self._normalize_financial_params(payload, 'reconciliation')
-        for resource in ('reconciliation-on-demand', 'reconciliationOnDemand'):
-            candidates = self._build_financial_post_candidates(
-                merchant_id,
-                resource,
-                payload=normalized_payload,
-                headers=headers
-            )
-            result = self._request_first_success('POST', candidates)
-            if result is not None:
-                return result
-        return None
-
-    def get_financial_settlements(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
-        """Get settlement (transfer) data."""
-        if self.use_mock_data:
-            return {
-                'merchantId': str(merchant_id),
-                'settlements': [],
-            }
-        headers = self._build_optional_headers(homologation=homologation)
-        normalized_params = self._normalize_financial_params(params, 'settlements')
-        for resource in ('settlements', 'payments'):
-            candidates = self._build_financial_get_candidates(merchant_id, resource, params=normalized_params, headers=headers)
-            result = self._request_first_success('GET', candidates)
-            if result is not None:
-                return result
-        return None
-
-    def get_financial_anticipations(self, merchant_id: str, *, params: Dict = None, homologation: bool = False):
-        """Get anticipation transfers data."""
-        if self.use_mock_data:
-            return {
-                'merchantId': str(merchant_id),
-                'settlements': [],
-                'balance': 0,
-            }
-        headers = self._build_optional_headers(homologation=homologation)
-        normalized_params = self._normalize_financial_params(params, 'anticipations')
-        for resource in ('anticipations', 'anticipation', 'antecipation', 'receivableRecords', 'receivable-records'):
-            candidates = self._build_financial_get_candidates(merchant_id, resource, params=normalized_params, headers=headers)
-            result = self._request_first_success('GET', candidates)
-            if result is not None:
-                return result
-        return None
     
     def get_merchants(self) -> List[Dict]:
         """Get all merchants (real or mock)"""
