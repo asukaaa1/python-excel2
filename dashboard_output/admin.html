@@ -760,7 +760,9 @@
                     const userOrgRole = String(user.org_role || '').toLowerCase();
                     const isOwner = userOrgRole === 'owner';
                     const ownerRoleLocked = isOwner && !isPlatformAdmin;
-                    const ownerOption = isOwner ? '<option value="owner" selected>Owner</option>' : '';
+                    const ownerOption = (isPlatformAdmin || isOwner)
+                        ? `<option value="owner" ${isOwner ? 'selected' : ''}>Owner</option>`
+                        : '';
                     return `
                         <tr>
                             <td>${escapeHtml(user.name || user.username || 'Usuario')}</td>
@@ -1249,6 +1251,14 @@
                         const label = `${u.name || u.username} (${u.email || u.username})`;
                         return `<option value="${u.id}">${escapeHtml(label)}</option>`;
                     }).join('');
+                }
+                const roleSelect = document.getElementById('assignUserRole');
+                if (roleSelect) {
+                    roleSelect.innerHTML = [
+                        '<option value="viewer">Viewer</option>',
+                        '<option value="admin">Admin</option>',
+                        isPlatformAdmin ? '<option value="owner">Owner</option>' : ''
+                    ].join('');
                 }
                 const modalTitle = document.querySelector('#assignUserModal .modal-header h3');
                 if (modalTitle) {

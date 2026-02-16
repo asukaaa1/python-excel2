@@ -484,15 +484,15 @@ def register(app, deps):
     def api_org_user_assign():
         """Assign an existing user to the current organization."""
         data = get_json_payload()
-        org_id, _platform_admin, _org_details, err = _resolve_target_org(payload=data)
+        org_id, platform_admin, _org_details, err = _resolve_target_org(payload=data)
         if err:
             return err
         user_id = data.get('user_id')
         if isinstance(user_id, str) and user_id.strip().isdigit():
             user_id = int(user_id.strip())
         org_role = (data.get('org_role') or 'viewer').strip().lower()
-        if org_role == 'owner':
-            return jsonify({'success': False, 'error': 'Owner role cannot be assigned manually'}), 400
+        if org_role == 'owner' and not platform_admin:
+            return jsonify({'success': False, 'error': 'Only platform admins can assign owner role'}), 403
 
         if not isinstance(user_id, int):
             return jsonify({'success': False, 'error': 'user_id is required'}), 400
@@ -524,16 +524,16 @@ def register(app, deps):
     def api_org_user_role_update(user_id):
         """Update a member role inside current organization."""
         data = get_json_payload()
-        org_id, _platform_admin, _org_details, err = _resolve_target_org(payload=data)
+        org_id, platform_admin, _org_details, err = _resolve_target_org(payload=data)
         if err:
             return err
         org_role = (data.get('org_role') or '').strip().lower()
         if not org_role:
             return jsonify({'success': False, 'error': 'org_role is required'}), 400
-        if org_role == 'owner':
+        if org_role == 'owner' and not platform_admin:
             current_member_role = db.get_org_member_role(org_id, user_id)
             if current_member_role and str(current_member_role).strip().lower() != 'owner':
-                return jsonify({'success': False, 'error': 'Owner role cannot be assigned manually'}), 400
+                return jsonify({'success': False, 'error': 'Only platform admins can assign owner role'}), 403
 
         result = db.update_org_member_role(
             org_id,
