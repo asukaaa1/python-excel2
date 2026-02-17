@@ -1,6 +1,6 @@
 """Core route registrations by domain."""
 
-from app_routes.dependencies import bind_dependencies
+from app_routes.route_context import RouteContext
 
 
 REQUIRED_DEPS = [
@@ -26,28 +26,28 @@ REQUIRED_DEPS = [
 ]
 
 
-def register_routes(bp, deps):
-    bind_dependencies(globals(), deps, REQUIRED_DEPS)
+def register_routes(bp, ctx: RouteContext):
+    deps = ctx.require(REQUIRED_DEPS)
     # Explicit aliases keep IDE/static analysis happy.
-    _get_squads_schema_flags = globals()['_get_squads_schema_flags']
-    _squad_belongs_to_org = globals()['_squad_belongs_to_org']
-    _table_has_org_id = globals()['_table_has_org_id']
-    admin_required = globals()['admin_required']
-    db = globals()['db']
-    get_current_org_id = globals()['get_current_org_id']
-    get_current_org_restaurants = globals()['get_current_org_restaurants']
-    get_json_payload = globals()['get_json_payload']
-    get_user_allowed_restaurant_ids = globals()['get_user_allowed_restaurant_ids']
-    internal_error_response = globals()['internal_error_response']
-    is_platform_admin_user = globals()['is_platform_admin_user']
-    json = globals()['json']
-    jsonify = globals()['jsonify']
-    log_exception = globals()['log_exception']
-    login_required = globals()['login_required']
-    rate_limit = globals()['rate_limit']
-    request = globals()['request']
-    session = globals()['session']
-    uuid = globals()['uuid']
+    _get_squads_schema_flags = deps['_get_squads_schema_flags']
+    _squad_belongs_to_org = deps['_squad_belongs_to_org']
+    _table_has_org_id = deps['_table_has_org_id']
+    admin_required = deps['admin_required']
+    db = deps['db']
+    get_current_org_id = deps['get_current_org_id']
+    get_current_org_restaurants = deps['get_current_org_restaurants']
+    get_json_payload = deps['get_json_payload']
+    get_user_allowed_restaurant_ids = deps['get_user_allowed_restaurant_ids']
+    internal_error_response = deps['internal_error_response']
+    is_platform_admin_user = deps['is_platform_admin_user']
+    json = deps['json']
+    jsonify = deps['jsonify']
+    log_exception = deps['log_exception']
+    login_required = deps['login_required']
+    rate_limit = deps['rate_limit']
+    request = deps['request']
+    session = deps['session']
+    uuid = deps['uuid']
 
     @bp.route('/api/users')
     @admin_required

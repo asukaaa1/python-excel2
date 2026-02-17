@@ -1,6 +1,6 @@
 """Core route registrations by domain."""
 
-from app_routes.dependencies import bind_dependencies
+from app_routes.route_context import RouteContext
 
 
 REQUIRED_DEPS = [
@@ -37,39 +37,39 @@ REQUIRED_DEPS = [
 ]
 
 
-def register_routes(bp, deps):
-    bind_dependencies(globals(), deps, REQUIRED_DEPS)
+def register_routes(bp, ctx: RouteContext):
+    deps = ctx.require(REQUIRED_DEPS)
     # Explicit aliases keep IDE/static analysis happy.
-    DASHBOARD_OUTPUT = globals()['DASHBOARD_OUTPUT']
-    LAST_DATA_REFRESH = globals()['LAST_DATA_REFRESH']
-    ORG_DATA = globals()['ORG_DATA']
-    Response = globals()['Response']
-    admin_page_required = globals()['admin_page_required']
-    admin_required = globals()['admin_required']
-    build_data_quality_payload = globals()['build_data_quality_payload']
-    build_onboarding_state = globals()['build_onboarding_state']
-    datetime = globals()['datetime']
-    db = globals()['db']
-    ensure_csrf_token = globals()['ensure_csrf_token']
-    ensure_restaurant_orders_cache = globals()['ensure_restaurant_orders_cache']
-    escape_html_text = globals()['escape_html_text']
-    find_restaurant_by_identifier = globals()['find_restaurant_by_identifier']
-    get_current_org_id = globals()['get_current_org_id']
-    get_current_org_restaurants = globals()['get_current_org_restaurants']
-    get_json_payload = globals()['get_json_payload']
-    get_public_base_url = globals()['get_public_base_url']
-    get_user_allowed_restaurant_ids = globals()['get_user_allowed_restaurant_ids']
-    jsonify = globals()['jsonify']
-    login_required = globals()['login_required']
-    platform_admin_required = globals()['platform_admin_required']
-    rate_limit = globals()['rate_limit']
-    redirect = globals()['redirect']
-    request = globals()['request']
-    require_feature = globals()['require_feature']
-    safe_json_for_script = globals()['safe_json_for_script']
-    send_file = globals()['send_file']
-    session = globals()['session']
-    url_for = globals()['url_for']
+    DASHBOARD_OUTPUT = deps['DASHBOARD_OUTPUT']
+    LAST_DATA_REFRESH = deps['LAST_DATA_REFRESH']
+    ORG_DATA = deps['ORG_DATA']
+    Response = deps['Response']
+    admin_page_required = deps['admin_page_required']
+    admin_required = deps['admin_required']
+    build_data_quality_payload = deps['build_data_quality_payload']
+    build_onboarding_state = deps['build_onboarding_state']
+    datetime = deps['datetime']
+    db = deps['db']
+    ensure_csrf_token = deps['ensure_csrf_token']
+    ensure_restaurant_orders_cache = deps['ensure_restaurant_orders_cache']
+    escape_html_text = deps['escape_html_text']
+    find_restaurant_by_identifier = deps['find_restaurant_by_identifier']
+    get_current_org_id = deps['get_current_org_id']
+    get_current_org_restaurants = deps['get_current_org_restaurants']
+    get_json_payload = deps['get_json_payload']
+    get_public_base_url = deps['get_public_base_url']
+    get_user_allowed_restaurant_ids = deps['get_user_allowed_restaurant_ids']
+    jsonify = deps['jsonify']
+    login_required = deps['login_required']
+    platform_admin_required = deps['platform_admin_required']
+    rate_limit = deps['rate_limit']
+    redirect = deps['redirect']
+    request = deps['request']
+    require_feature = deps['require_feature']
+    safe_json_for_script = deps['safe_json_for_script']
+    send_file = deps['send_file']
+    session = deps['session']
+    url_for = deps['url_for']
 
     @bp.route('/')
     def index():
