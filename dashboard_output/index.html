@@ -1669,8 +1669,23 @@
             const m = (record && typeof record.metrics === 'object') ? record.metrics : {};
             const totals = (m && typeof m.totals === 'object') ? m.totals : {};
             const trends = (m && typeof m.trends === 'object') ? m.trends : {};
+            const resolveOrderCount = (...values) => {
+                const nums = values
+                    .map((value) => Number(value))
+                    .filter((value) => Number.isFinite(value) && value >= 0);
+                if (!nums.length) return 0;
+                const positive = nums.filter((value) => value > 0);
+                if (positive.length) return Math.max(...positive);
+                return nums[0];
+            };
 
-            const vendasRaw = pickNumber(totals.vendas, m.total_pedidos, m.vendas, record?.orders);
+            const vendasRaw = resolveOrderCount(
+                totals.total_pedidos,
+                m.total_pedidos,
+                record?.orders,
+                totals.vendas,
+                m.vendas
+            );
             const ticketRaw = pickNumber(totals.ticket_medio, m.ticket_medio, record?.ticket);
             const valorBrutoRaw = pickNumber(totals.valorBruto, m.valor_bruto);
             const liquidoRaw = pickNumber(totals.liquido, m.liquido, record?.revenue);
