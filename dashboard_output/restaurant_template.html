@@ -436,6 +436,16 @@ function toNumber(value, fallback = 0) {
     return Number.isFinite(n) ? n : fallback;
 }
 
+function resolveCount(...values) {
+    const nums = values
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value >= 0);
+    if (!nums.length) return 0;
+    const positive = nums.filter((value) => value > 0);
+    if (positive.length) return Math.max(...positive);
+    return nums[0];
+}
+
 function normalizeOrderStatus(order) {
     if (!order || typeof order !== 'object') return 'UNKNOWN';
     const raw = String(
@@ -579,9 +589,13 @@ function updateUI() {
     const inferredCancelRate = inferred ? inferred.cancel_rate : 0;
     const inferredRevenue = inferred ? inferred.concluded_revenue : 0;
     const backendRevenue = toNumber(m.liquido, toNumber(restaurantData.revenue, 0));
-    const backendTotalOrders = toNumber(m.total_pedidos, toNumber(m.vendas, toNumber(restaurantData.orders, 0)));
-    const backendConcludedOrders = toNumber(m.vendas, toNumber(restaurantData.orders, 0));
-    const backendCancelledOrders = toNumber(m.cancelamentos, 0);
+    const backendTotalOrders = resolveCount(
+        m.total_pedidos,
+        restaurantData.orders,
+        m.vendas
+    );
+    const backendConcludedOrders = resolveCount(m.vendas, restaurantData.orders);
+    const backendCancelledOrders = resolveCount(m.cancelamentos, 0);
     const backendCancelRate = toNumber(m.percent_cancelamento, 0);
 
     const effectiveRevenue = backendRevenue > 0 ? backendRevenue : inferredRevenue;
