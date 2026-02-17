@@ -2,9 +2,46 @@
 
 from flask import Blueprint
 from app_services import restaurants_service
+from app_routes.dependencies import bind_dependencies
+
+
+REQUIRED_DEPS = [
+    'IFOOD_API',
+    'IFoodDataProcessor',
+    'LAST_DATA_REFRESH',
+    'ORG_DATA',
+    '_extract_status_message_text',
+    'admin_required',
+    'copy',
+    'datetime',
+    'detect_restaurant_closure',
+    'ensure_restaurant_orders_cache',
+    'evaluate_restaurant_quality',
+    'filter_orders_by_month',
+    'find_restaurant_by_identifier',
+    'get_cached_restaurants',
+    'get_current_org_id',
+    'get_current_org_restaurants',
+    'get_json_payload',
+    'get_order_status',
+    'get_resilient_api_client',
+    'get_user_allowed_restaurant_ids',
+    'internal_error_response',
+    'invalidate_cache',
+    'jsonify',
+    'log_exception',
+    'login_required',
+    'month_filter_label',
+    'normalize_order_payload',
+    'normalize_order_status_value',
+    'parse_month_filter',
+    'request',
+    'session',
+    'set_cached_restaurants',
+]
 
 def register(app, deps):
-    globals().update(deps)
+    bind_dependencies(globals(), deps, REQUIRED_DEPS)
     bp = Blueprint('restaurants_routes', __name__)
 
     @bp.route('/api/restaurants')

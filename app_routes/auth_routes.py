@@ -1,9 +1,25 @@
 """Authentication route registrations."""
 
 from flask import Blueprint
+from app_routes.dependencies import bind_dependencies
+
+
+REQUIRED_DEPS = [
+    'db',
+    'ensure_csrf_token',
+    'get_current_org_id',
+    'get_json_payload',
+    'is_platform_admin_user',
+    'jsonify',
+    'log_exception',
+    'login_required',
+    'rate_limit',
+    'session',
+    'url_for',
+]
 
 def register(app, deps):
-    globals().update(deps)
+    bind_dependencies(globals(), deps, REQUIRED_DEPS)
     bp = Blueprint('auth_routes', __name__)
 
     @bp.route('/api/login', methods=['POST'])

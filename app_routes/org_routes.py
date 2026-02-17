@@ -2,9 +2,36 @@
 
 from flask import Blueprint
 from app_services.org_service import build_org_capabilities_payload
+from app_routes.dependencies import bind_dependencies
+
+
+REQUIRED_DEPS = [
+    'IFOOD_API',
+    'IFOOD_CONFIG',
+    'ORG_DATA',
+    'PLAN_CATALOG_UI',
+    '_init_org_ifood',
+    '_load_org_restaurants',
+    'db',
+    'enrich_plan_payload',
+    'get_current_org_id',
+    'get_json_payload',
+    'get_org_data',
+    'get_public_base_url',
+    'is_platform_admin_user',
+    'json',
+    'jsonify',
+    'login_required',
+    'org_owner_required',
+    'os',
+    'rate_limit',
+    'request',
+    'session',
+    'url_for',
+]
 
 def register(app, deps):
-    globals().update(deps)
+    bind_dependencies(globals(), deps, REQUIRED_DEPS)
     bp = Blueprint('org_routes', __name__)
 
     def _coerce_int(value):

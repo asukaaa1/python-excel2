@@ -2,9 +2,48 @@
 
 from flask import Blueprint
 from app_services import groups_service, restaurants_service
+from app_routes.dependencies import bind_dependencies
+
+
+REQUIRED_DEPS = [
+    'DASHBOARD_OUTPUT',
+    'IFoodDataProcessor',
+    'ORG_DATA',
+    'Response',
+    '_calculate_period_metrics',
+    '_filter_orders_by_date',
+    '_table_has_org_id',
+    'admin_required',
+    'datetime',
+    'db',
+    'ensure_restaurant_orders_cache',
+    'escape_html_text',
+    'find_restaurant_by_identifier',
+    'find_restaurant_in_org',
+    'get_current_org_id',
+    'get_current_org_restaurants',
+    'get_json_payload',
+    'get_public_base_url',
+    'get_user_allowed_restaurant_ids',
+    'internal_error_response',
+    'is_platform_admin_user',
+    'jsonify',
+    'log_exception',
+    'login_required',
+    'normalize_order_payload',
+    'rate_limit',
+    'redirect',
+    'request',
+    'require_feature',
+    'safe_json_for_script',
+    'send_file',
+    'session',
+    'time',
+    'timedelta',
+]
 
 def register(app, deps):
-    globals().update(deps)
+    bind_dependencies(globals(), deps, REQUIRED_DEPS)
     bp = Blueprint('groups_routes', __name__)
 
     # Page route for grupos
