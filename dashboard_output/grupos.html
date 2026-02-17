@@ -51,7 +51,8 @@
         .sidebar-header { padding: 1.5rem; border-bottom: 1px solid var(--border-light); }
         .sidebar-brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; }
         .sidebar-logo { display: flex; align-items: center; }
-        .sidebar-logo img { height: 26px; width: auto; display: block; object-fit: contain; }
+        .sidebar-logo img { height: 26px; width: auto; display: block; object-fit: contain; filter: brightness(0); transition: filter 0.3s ease; }
+        [data-theme="dark"] .sidebar-logo img { filter: none; }
         .sidebar-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em; }
         .sidebar-user { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--radius-lg); }
         .sidebar-avatar { width: 44px; height: 44px; border-radius: var(--radius-lg); background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; }

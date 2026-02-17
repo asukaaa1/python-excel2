@@ -228,6 +228,8 @@
             width: auto;
             display: block;
             object-fit: contain;
+            filter: brightness(0);
+            transition: filter 0.3s ease;
         }
 
         .header-logo {
@@ -236,6 +238,13 @@
             display: block;
             object-fit: contain;
             margin-top: 2px;
+            filter: brightness(0);
+            transition: filter 0.3s ease;
+        }
+
+        [data-theme="dark"] .sidebar-logo img,
+        [data-theme="dark"] .header-logo {
+            filter: none;
         }
 
         .sidebar-brand-text {
@@ -1465,7 +1474,7 @@
         </header>
 
         <!-- KPI Overview Strip -->
-        <div class="kpi-strip" id="kpiStrip" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
+        <div class="kpi-strip" id="kpiStrip" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
             <div class="kpi-overview-card" style="background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:var(--radius-xl);padding:20px;position:relative;overflow:hidden;box-shadow:var(--shadow-xs)">
                 <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:rgba(249,112,21,.04)"></div>
                 <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Faturamento Total</div>
@@ -1483,14 +1492,6 @@
                 <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Lojas Ativas</div>
                 <div style="font-family:var(--font-mono);font-size:24px;font-weight:500;color:var(--text-primary)" id="overviewStores">0</div>
                 <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px" id="overviewLastRefresh">Última atualização: --</div>
-            </div>
-            <div class="kpi-overview-card" style="background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:var(--radius-xl);padding:20px;position:relative;overflow:hidden;box-shadow:var(--shadow-xs)">
-                <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:rgba(16,185,129,.05)"></div>
-                <div style="font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Plano e Limites</div>
-                <div style="font-family:var(--font-mono);font-size:20px;font-weight:600;color:var(--text-primary)" id="overviewPlan">--</div>
-                <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px" id="usageRestaurants">Lojas: --/--</div>
-                <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px" id="usageUsers">Usuarios: --/--</div>
-                <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px" id="usageHint">Dentro da capacidade</div>
             </div>
         </div>
 
@@ -1632,6 +1633,9 @@
         let orgCapabilities = null;
         let savedViews = [];
         let sharedViewToken = null;
+        let liveFeedOrders = [];
+        let _sseSource = null;
+        let _autoRefreshTimer = null;
 
         // Formatters
         const formatCurrency = (v) => v ? 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'R$ 0,00';
@@ -2526,6 +2530,12 @@
             checkUser();
             loadRestaurants(currentMonthFilter).then(async () => {
                 await applySharedViewFromUrl();
+                // Auto-refresh every 60s as fallback when SSE is unavailable
+                _autoRefreshTimer = setInterval(() => {
+                    if (!_sseSource || _sseSource.readyState === EventSource.CLOSED) {
+                        loadRestaurants(currentMonthFilter);
+                    }
+                }, 60000);
             });
         })();
 
@@ -2555,7 +2565,47 @@
         
         
         
-        /* Real-time feed disabled
+        function initSSE() {
+            if (_sseSource) { _sseSource.close(); }
+            try {
+                _sseSource = new EventSource('/api/events');
+            } catch(e) { return; }
+
+            _sseSource.addEventListener('new_order', function(e) {
+                try {
+                    const order = JSON.parse(e.data);
+                    liveFeedOrders.unshift({ ...order, timestamp: order.timestamp || new Date().toISOString() });
+                    if (liveFeedOrders.length > 50) liveFeedOrders.length = 50;
+                    showOrderToast(order);
+                    renderLiveFeed();
+                    // Refresh main list so new order count reflects immediately
+                    loadRestaurants(currentMonthFilter);
+                } catch(_) {}
+            });
+
+            _sseSource.addEventListener('data_updated', function(e) {
+                try {
+                    loadRestaurants(currentMonthFilter);
+                } catch(_) {}
+            });
+
+            _sseSource.addEventListener('refresh_status', function(e) {
+                try {
+                    const d = JSON.parse(e.data);
+                    if (d.status === 'complete' || d.status === 'error') {
+                        loadRestaurants(currentMonthFilter);
+                    }
+                } catch(_) {}
+            });
+
+            _sseSource.onerror = function() {
+                _sseSource.close();
+                _sseSource = null;
+                // Reconnect after 15s on error
+                setTimeout(initSSE, 15000);
+            };
+        }
+
         function toggleLiveFeed() {
             let panel = document.getElementById('liveFeedPanel');
             if (!panel) {
@@ -2610,7 +2660,6 @@
         
         // Start SSE connection after initial data is loaded (non-blocking)
         setTimeout(initSSE, 2000);
-        */
     </script>
     <style>@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}</style>
 </body>

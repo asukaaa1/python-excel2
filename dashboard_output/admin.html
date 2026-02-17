@@ -59,7 +59,8 @@
         .sidebar-header { padding: 1.5rem; border-bottom: 1px solid var(--border-light); }
         .sidebar-brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; }
         .sidebar-logo { display: flex; align-items: center; }
-        .sidebar-logo img { height: 26px; width: auto; display: block; object-fit: contain; }
+        .sidebar-logo img { height: 26px; width: auto; display: block; object-fit: contain; filter: brightness(0); transition: filter 0.3s ease; }
+        [data-theme="dark"] .sidebar-logo img { filter: none; }
         .sidebar-brand-text { font-size: 1.25rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em; }
         .sidebar-user { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: var(--radius-lg); }
         .sidebar-avatar { width: 44px; height: 44px; border-radius: var(--radius-lg); background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 1rem; }
@@ -1015,9 +1016,33 @@
 
                 const users = usage.users || { current: 0, max: 0 };
                 const restaurants = usage.restaurants || { current: 0, max: 0 };
+                const usersCurrentRaw = Number(users.current);
+                const usersMaxRaw = Number(users.max);
+                const restaurantsCurrentRaw = Number(restaurants.current);
+                const restaurantsMaxRaw = Number(restaurants.max);
+                const usersCurrent = Number.isFinite(usersCurrentRaw) ? usersCurrentRaw : '--';
+                const usersMax = Number.isFinite(usersMaxRaw) && usersMaxRaw > 0 ? usersMaxRaw : '--';
+                const restaurantsCurrent = Number.isFinite(restaurantsCurrentRaw) ? restaurantsCurrentRaw : '--';
+                const restaurantsMax = Number.isFinite(restaurantsMaxRaw) && restaurantsMaxRaw > 0 ? restaurantsMaxRaw : '--';
+                const usersUsagePctRaw = Number(users.usage_pct);
+                const restaurantsUsagePctRaw = Number(restaurants.usage_pct);
+                const usersUsagePct = Number.isFinite(usersUsagePctRaw)
+                    ? usersUsagePctRaw
+                    : (Number.isFinite(usersCurrentRaw) && Number.isFinite(usersMaxRaw) && usersMaxRaw > 0
+                        ? (usersCurrentRaw / usersMaxRaw) * 100
+                        : 0);
+                const restaurantsUsagePct = Number.isFinite(restaurantsUsagePctRaw)
+                    ? restaurantsUsagePctRaw
+                    : (Number.isFinite(restaurantsCurrentRaw) && Number.isFinite(restaurantsMaxRaw) && restaurantsMaxRaw > 0
+                        ? (restaurantsCurrentRaw / restaurantsMaxRaw) * 100
+                        : 0);
+                const nearLimit = usersUsagePct >= 80 || restaurantsUsagePct >= 80;
+                const usageHint = nearLimit ? 'Limite proximo. Considere upgrade.' : 'Dentro da capacidade';
                 document.getElementById('subscriptionUsageText').innerHTML = `
-                    <span>Usuarios: <strong>${users.current}/${users.max}</strong></span>
-                    <span>Lojas: <strong>${restaurants.current}/${restaurants.max}</strong></span>
+                    <span>Plano: <strong>${escapeHtml(String(currentPlanDisplay))}</strong></span>
+                    <span>Usuarios: <strong>${usersCurrent}/${usersMax}</strong></span>
+                    <span>Lojas: <strong>${restaurantsCurrent}/${restaurantsMax}</strong></span>
+                    <span>Status: <strong style="color:${nearLimit ? 'var(--error-500)' : 'var(--text-tertiary)'}">${usageHint}</strong></span>
                 `;
 
                 const planBadge = document.getElementById('planBadge');
