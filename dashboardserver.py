@@ -789,7 +789,37 @@ def _reconcile_org_restaurants_with_config(org: dict, org_config: dict):
     restaurants = list(org.get('restaurants') or [])
     configured_merchants = _normalize_org_merchants_config(org_config)
     if not configured_merchants:
+        # If org config explicitly has no merchants, treat it as authoritative.
+        if isinstance(org_config, dict) and 'merchants' in org_config:
+            if restaurants:
+                org['restaurants'] = []
+                org['last_refresh'] = datetime.now()
+            return []
         return restaurants
+
+    configured_ids = {
+        merchant.get('merchant_id')
+        for merchant in configured_merchants
+        if isinstance(merchant, dict) and merchant.get('merchant_id')
+    }
+
+    pruned_restaurants = []
+    removed = 0
+    for restaurant in restaurants:
+        if not isinstance(restaurant, dict):
+            continue
+        merchant_id = normalize_merchant_id(
+            restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or restaurant.get('id')
+            or restaurant.get('ifood_merchant_id')
+            or restaurant.get('_resolved_merchant_id')
+        )
+        if not merchant_id or merchant_id not in configured_ids:
+            removed += 1
+            continue
+        pruned_restaurants.append(restaurant)
+    restaurants = pruned_restaurants
 
     existing_ids = set()
     for restaurant in restaurants:
@@ -821,7 +851,7 @@ def _reconcile_org_restaurants_with_config(org: dict, org_config: dict):
         existing_ids.add(merchant_id)
         added += 1
 
-    if added > 0:
+    if added > 0 or removed > 0:
         org['restaurants'] = restaurants
         org['last_refresh'] = datetime.now()
     return restaurants

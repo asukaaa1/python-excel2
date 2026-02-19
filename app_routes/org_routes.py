@@ -23,6 +23,7 @@ REQUIRED_DEPS = [
     'json',
     'jsonify',
     'login_required',
+    'normalize_merchant_id',
     'org_owner_required',
     'os',
     'rate_limit',
@@ -43,6 +44,46 @@ def register(app, deps):
             if text.isdigit():
                 return int(text)
         return None
+
+    def _normalize_merchant_entries(raw_merchants):
+        """Normalize merchant config entries to a stable dict list."""
+        merchants_value = raw_merchants or []
+        if isinstance(merchants_value, str):
+            try:
+                merchants_value = json.loads(merchants_value)
+            except Exception:
+                merchants_value = []
+        if not isinstance(merchants_value, list):
+            return []
+
+        normalized = []
+        seen = set()
+        for entry in merchants_value:
+            if isinstance(entry, dict):
+                merchant_id = normalize_merchant_id(entry.get('merchant_id') or entry.get('id'))
+                name = str(entry.get('name') or '').strip()
+                manager = str(entry.get('manager') or '').strip()
+                neighborhood = str(entry.get('neighborhood') or '').strip()
+            else:
+                merchant_id = normalize_merchant_id(entry)
+                name = ''
+                manager = ''
+                neighborhood = ''
+
+            if not merchant_id or merchant_id in seen:
+                continue
+            seen.add(merchant_id)
+
+            payload = {
+                'merchant_id': merchant_id,
+                'name': name or f"Restaurant {str(merchant_id)[:8]}",
+                'manager': manager or 'Gerente',
+            }
+            if neighborhood:
+                payload['neighborhood'] = neighborhood
+            normalized.append(payload)
+
+        return normalized
 
     def _resolve_target_org(payload=None):
         """Resolve org context, allowing platform-admin override via org_id."""
@@ -248,7 +289,7 @@ def register(app, deps):
             config = db.get_org_ifood_config(org_id) or {}
             client_id = config.get('client_id')
             client_secret = config.get('client_secret')
-            merchants = config.get('merchants', []) or []
+            merchants = _normalize_merchant_entries(config.get('merchants', []))
 
             org_has_credentials = bool((client_id or '').strip() and (client_secret or '').strip())
             org_mode = 'none'
@@ -323,12 +364,15 @@ def register(app, deps):
         client_secret_update = None
         if isinstance(client_secret_payload, str) and client_secret_payload.strip() and client_secret_payload != '****':
             client_secret_update = client_secret_payload.strip()
+        merchants_update = None
+        if merchants_payload is not None:
+            merchants_update = _normalize_merchant_entries(merchants_payload)
 
         db.update_org_ifood_config(
             org_id,
             client_id=client_id_update,
             client_secret=client_secret_update,
-            merchants=merchants_payload
+            merchants=merchants_update
         )
         invalidate_cache(org_id)
         db.log_action('org.ifood_config_updated', org_id=org_id, user_id=session['user']['id'], ip_address=request.remote_addr)
