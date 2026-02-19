@@ -83,9 +83,42 @@ def register(app, deps):
                     continue
                 merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(r)
 
-                # Always hydrate raw orders when cache is missing.
-                # This prevents "all months" from serving stale snapshot-only metrics.
-                if not (r.get('_orders_cache') or []):
+                existing_orders_cache = [
+                    o for o in (r.get('_orders_cache') or [])
+                    if isinstance(o, dict)
+                ]
+                orders_have_identifiable_ids = any(
+                    str(o.get('id') or o.get('orderId') or o.get('order_id') or '').strip()
+                    for o in existing_orders_cache
+                )
+                metrics_snapshot = r.get('metrics') if isinstance(r.get('metrics'), dict) else {}
+                try:
+                    snapshot_orders_total = int(
+                        (metrics_snapshot or {}).get('total_pedidos')
+                        or (metrics_snapshot or {}).get('vendas')
+                        or r.get('orders')
+                        or 0
+                    )
+                except Exception:
+                    snapshot_orders_total = 0
+                try:
+                    snapshot_revenue_total = float(
+                        (metrics_snapshot or {}).get('liquido')
+                        or (metrics_snapshot or {}).get('valor_bruto')
+                        or r.get('revenue')
+                        or 0
+                    )
+                except Exception:
+                    snapshot_revenue_total = 0.0
+
+                # Keep list payload aligned with detail endpoint:
+                # hydrate when cache is missing/sparse or metrics look stale-zero.
+                needs_hydration = (
+                    (not existing_orders_cache)
+                    or (not orders_have_identifiable_ids)
+                    or (snapshot_orders_total <= 0 and snapshot_revenue_total <= 0)
+                )
+                if needs_hydration:
                     hydrated_orders = ensure_restaurant_orders_cache(r, merchant_lookup_id)
                     if hydrated_orders:
                         resolved_lookup_id = (
