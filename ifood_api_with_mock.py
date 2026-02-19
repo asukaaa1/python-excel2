@@ -6,6 +6,7 @@ Fixed mock data structure to properly return merchant details and orders separat
 import requests
 import json
 import os
+import re
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 from pathlib import Path
@@ -21,6 +22,11 @@ try:
 except ImportError:
     MOCK_AVAILABLE = False
     print("âš ï¸  Mock data generator not available")
+
+
+_MERCHANT_UUID_RE = re.compile(
+    r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+)
 
 
 class IFoodAPI:
@@ -115,6 +121,69 @@ class IFoodAPI:
             or f"{order.get('createdAt')}:{order.get('orderStatus')}"
         )
 
+    def _normalize_merchant_id(self, value) -> str:
+        text = str(value or '').strip()
+        if not text:
+            return ''
+        uuid_match = _MERCHANT_UUID_RE.search(text)
+        if uuid_match:
+            return uuid_match.group(0).lower()
+        return text.lower()
+
+    def _is_monetary_key(self, key_name: str) -> bool:
+        key_text = str(key_name or '').lower()
+        monetary_tokens = (
+            'price',
+            'amount',
+            'total',
+            'fee',
+            'benefit',
+            'revenue',
+            'value',
+            'discount',
+            'subtotal',
+            'sub_total',
+            'paid',
+        )
+        return any(token in key_text for token in monetary_tokens)
+
+    def _merge_order_payloads(self, existing_payload, incoming_payload, parent_key: str = ''):
+        """Merge sparse incoming payloads without dropping richer cached fields."""
+        if not isinstance(existing_payload, dict):
+            return incoming_payload if isinstance(incoming_payload, dict) else existing_payload
+        if not isinstance(incoming_payload, dict):
+            return existing_payload
+
+        merged_payload = dict(existing_payload)
+        for key, incoming_value in incoming_payload.items():
+            key_path = f"{parent_key}.{key}" if parent_key else str(key)
+            existing_value = merged_payload.get(key)
+
+            if isinstance(existing_value, dict) and isinstance(incoming_value, dict):
+                merged_payload[key] = self._merge_order_payloads(
+                    existing_value,
+                    incoming_value,
+                    parent_key=key_path
+                )
+                continue
+
+            if incoming_value is None:
+                continue
+            if isinstance(incoming_value, str) and not incoming_value.strip():
+                continue
+            if isinstance(incoming_value, (list, tuple, set, dict)) and len(incoming_value) == 0:
+                continue
+
+            if self._is_monetary_key(key_path):
+                existing_amount = self._safe_float_amount(existing_value)
+                incoming_amount = self._safe_float_amount(incoming_value)
+                if existing_amount > 0 and incoming_amount <= 0:
+                    continue
+
+            merged_payload[key] = incoming_value
+
+        return merged_payload
+
     def _merge_orders_into_local_cache(self, merchant_id: str, orders: List[Dict]) -> List[Dict]:
         merchant_key = str(merchant_id or '').strip()
         if not merchant_key:
@@ -135,7 +204,11 @@ class IFoodAPI:
             normalized_order = self._normalize_order_payload(order)
             key = self._order_cache_key(normalized_order)
             if key:
-                merged[key] = normalized_order
+                if key in merged:
+                    combined = self._merge_order_payloads(merged.get(key), normalized_order)
+                    merged[key] = self._normalize_order_payload(combined)
+                else:
+                    merged[key] = normalized_order
 
         merged_list = list(merged.values())
         self._merchant_orders_cache[merchant_key] = merged_list
@@ -330,7 +403,21 @@ class IFoodAPI:
                         details['orderStatus'] = event_info['status']
                 resolved_orders.append(details)
 
-        candidate_orders = resolved_orders + direct_orders
+        candidate_orders_map = {}
+        # Prefer richer order details over sparse direct polling payloads.
+        for order in direct_orders + resolved_orders:
+            if not isinstance(order, dict):
+                continue
+            order_key = self._order_cache_key(order)
+            if not order_key:
+                continue
+            existing = candidate_orders_map.get(order_key)
+            if existing is None:
+                candidate_orders_map[order_key] = order
+            else:
+                merged_order = self._merge_order_payloads(existing, order)
+                candidate_orders_map[order_key] = self._normalize_order_payload(merged_order)
+        candidate_orders = list(candidate_orders_map.values())
 
         # Fallback attempt: some tenants expose list/search endpoint.
         if not candidate_orders and self._order_list_fallback_supported:
@@ -707,8 +794,39 @@ class IFoodAPI:
         return status
 
     def _safe_float_amount(self, value) -> float:
+        if isinstance(value, dict):
+            for key in ('value', 'amount', 'total', 'orderAmount', 'totalPrice', 'subTotal', 'deliveryFee', 'paidAmount'):
+                if key not in value:
+                    continue
+                nested_value = self._safe_float_amount(value.get(key))
+                if nested_value != 0:
+                    return nested_value
+            return 0.0
+        if isinstance(value, (int, float)):
+            try:
+                parsed = float(value)
+            except Exception:
+                return 0.0
+            if parsed != parsed or parsed in (float('inf'), float('-inf')):
+                return 0.0
+            return parsed
+        text = str(value or '').strip()
+        if not text:
+            return 0.0
+        cleaned = text.replace('R$', '').replace('BRL', '').replace('\u00a0', ' ').strip()
+        cleaned = cleaned.replace(' ', '')
+        if ',' in cleaned and '.' in cleaned:
+            if cleaned.rfind(',') > cleaned.rfind('.'):
+                cleaned = cleaned.replace('.', '').replace(',', '.')
+            else:
+                cleaned = cleaned.replace(',', '')
+        elif ',' in cleaned:
+            cleaned = cleaned.replace('.', '').replace(',', '.')
         try:
-            return float(value)
+            parsed = float(cleaned)
+            if parsed != parsed or parsed in (float('inf'), float('-inf')):
+                return 0.0
+            return parsed
         except Exception:
             return 0.0
 
@@ -817,16 +935,23 @@ class IFoodAPI:
     def _order_matches_merchant(self, order: Dict, merchant_id: str) -> bool:
         if not isinstance(order, dict):
             return False
+        wanted_merchant_id = self._normalize_merchant_id(merchant_id)
+        if not wanted_merchant_id:
+            return True
         merchant_candidates = [
             order.get('merchantId'),
             order.get('merchant_id'),
             (order.get('merchant') or {}).get('id') if isinstance(order.get('merchant'), dict) else None,
             (order.get('merchant') or {}).get('merchantId') if isinstance(order.get('merchant'), dict) else None,
         ]
-        merchant_candidates = [str(c) for c in merchant_candidates if c]
+        merchant_candidates = [
+            self._normalize_merchant_id(c)
+            for c in merchant_candidates
+            if c
+        ]
         if not merchant_candidates:
             return True  # keep when API omits merchant id in payload
-        return str(merchant_id) in merchant_candidates
+        return wanted_merchant_id in merchant_candidates
 
     def _filter_orders(self, orders: List[Dict], merchant_id: str, start_date: str = None,
                        end_date: str = None, status: str = None) -> List[Dict]:

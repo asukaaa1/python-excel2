@@ -1134,8 +1134,39 @@ def get_order_status(order):
 
 
 def _safe_float_amount(value):
+    if isinstance(value, dict):
+        for key in ('value', 'amount', 'total', 'orderAmount', 'totalPrice', 'subTotal', 'deliveryFee', 'paidAmount'):
+            if key not in value:
+                continue
+            nested_value = _safe_float_amount(value.get(key))
+            if nested_value != 0:
+                return nested_value
+        return 0.0
+    if isinstance(value, (int, float)):
+        try:
+            parsed = float(value)
+        except Exception:
+            return 0.0
+        if parsed != parsed or parsed in (float('inf'), float('-inf')):
+            return 0.0
+        return parsed
+    text = str(value or '').strip()
+    if not text:
+        return 0.0
+    cleaned = text.replace('R$', '').replace('BRL', '').replace('\u00a0', ' ').strip()
+    cleaned = cleaned.replace(' ', '')
+    if ',' in cleaned and '.' in cleaned:
+        if cleaned.rfind(',') > cleaned.rfind('.'):
+            cleaned = cleaned.replace('.', '').replace(',', '.')
+        else:
+            cleaned = cleaned.replace(',', '')
+    elif ',' in cleaned:
+        cleaned = cleaned.replace('.', '').replace(',', '.')
     try:
-        return float(value)
+        parsed = float(cleaned)
+        if parsed != parsed or parsed in (float('inf'), float('-inf')):
+            return 0.0
+        return parsed
     except Exception:
         return 0.0
 
@@ -2651,13 +2682,71 @@ def _resolve_orders_from_event_batch(api_client, merchant_id: str, merchant_even
             event_order['merchantId'] = str(merchant_id)
         direct_orders.append(normalize_order_payload(event_order))
 
+    def _is_monetary_key(key_name: str) -> bool:
+        key_text = str(key_name or '').lower()
+        monetary_tokens = (
+            'price',
+            'amount',
+            'total',
+            'fee',
+            'benefit',
+            'revenue',
+            'value',
+            'discount',
+            'subtotal',
+            'sub_total',
+            'paid',
+        )
+        return any(token in key_text for token in monetary_tokens)
+
+    def _merge_order_payloads(existing_payload, incoming_payload, parent_key: str = ''):
+        if not isinstance(existing_payload, dict):
+            return incoming_payload if isinstance(incoming_payload, dict) else existing_payload
+        if not isinstance(incoming_payload, dict):
+            return existing_payload
+
+        merged_payload = dict(existing_payload)
+        for key, incoming_value in incoming_payload.items():
+            key_path = f"{parent_key}.{key}" if parent_key else str(key)
+            existing_value = merged_payload.get(key)
+
+            if isinstance(existing_value, dict) and isinstance(incoming_value, dict):
+                merged_payload[key] = _merge_order_payloads(
+                    existing_value,
+                    incoming_value,
+                    parent_key=key_path
+                )
+                continue
+
+            if incoming_value is None:
+                continue
+            if isinstance(incoming_value, str) and not incoming_value.strip():
+                continue
+            if isinstance(incoming_value, (list, tuple, set, dict)) and len(incoming_value) == 0:
+                continue
+
+            if _is_monetary_key(key_path):
+                existing_amount = _safe_float_amount(existing_value)
+                incoming_amount = _safe_float_amount(incoming_value)
+                if existing_amount > 0 and incoming_amount <= 0:
+                    continue
+
+            merged_payload[key] = incoming_value
+
+        return merged_payload
+
     merged_orders = {}
-    for order in resolved_orders + direct_orders:
+    # Prefer richer order details over sparse direct polling payloads.
+    for order in direct_orders + resolved_orders:
         if not isinstance(order, dict):
             continue
         key = _order_cache_key(order)
         if key:
-            merged_orders[key] = order
+            existing = merged_orders.get(key)
+            if existing is None:
+                merged_orders[key] = order
+            else:
+                merged_orders[key] = normalize_order_payload(_merge_order_payloads(existing, order))
     return list(merged_orders.values())
 
 
@@ -2993,16 +3082,24 @@ def _merge_orders_into_restaurant_cache(restaurant: dict, incoming_orders: list)
     if not isinstance(restaurant, dict):
         return {'added': 0, 'updated': 0, 'total': 0}
 
-    def _has_meaningful_value(value):
-        if value is None:
-            return False
-        if isinstance(value, str):
-            return bool(value.strip())
-        if isinstance(value, (list, tuple, set, dict)):
-            return len(value) > 0
-        return True
+    def _is_monetary_key(key_name: str) -> bool:
+        key_text = str(key_name or '').lower()
+        monetary_tokens = (
+            'price',
+            'amount',
+            'total',
+            'fee',
+            'benefit',
+            'revenue',
+            'value',
+            'discount',
+            'subtotal',
+            'sub_total',
+            'paid',
+        )
+        return any(token in key_text for token in monetary_tokens)
 
-    def _merge_order_payloads(existing_payload, incoming_payload):
+    def _merge_order_payloads(existing_payload, incoming_payload, parent_key: str = ''):
         """Merge sparse incoming payloads without dropping richer cached fields."""
         if not isinstance(existing_payload, dict):
             return incoming_payload if isinstance(incoming_payload, dict) else existing_payload
@@ -3011,15 +3108,31 @@ def _merge_orders_into_restaurant_cache(restaurant: dict, incoming_orders: list)
 
         merged_payload = dict(existing_payload)
         for key, incoming_value in incoming_payload.items():
-            if key in merged_payload and isinstance(merged_payload.get(key), dict) and isinstance(incoming_value, dict):
-                nested = dict(merged_payload.get(key) or {})
-                for nested_key, nested_value in incoming_value.items():
-                    if _has_meaningful_value(nested_value):
-                        nested[nested_key] = nested_value
-                merged_payload[key] = nested
+            key_path = f"{parent_key}.{key}" if parent_key else str(key)
+            existing_value = merged_payload.get(key)
+
+            if isinstance(existing_value, dict) and isinstance(incoming_value, dict):
+                merged_payload[key] = _merge_order_payloads(
+                    existing_value,
+                    incoming_value,
+                    parent_key=key_path
+                )
                 continue
-            if _has_meaningful_value(incoming_value):
-                merged_payload[key] = incoming_value
+
+            if incoming_value is None:
+                continue
+            if isinstance(incoming_value, str) and not incoming_value.strip():
+                continue
+            if isinstance(incoming_value, (list, tuple, set, dict)) and len(incoming_value) == 0:
+                continue
+
+            if _is_monetary_key(key_path):
+                existing_amount = _safe_float_amount(existing_value)
+                incoming_amount = _safe_float_amount(incoming_value)
+                if existing_amount > 0 and incoming_amount <= 0:
+                    continue
+
+            merged_payload[key] = incoming_value
         return merged_payload
 
     merged = {}
@@ -3880,17 +3993,81 @@ def _load_org_restaurants(org_id):
                 break
         if previous_orders:
             if orders:
+                def _is_monetary_key(key_name: str) -> bool:
+                    key_text = str(key_name or '').lower()
+                    monetary_tokens = (
+                        'price',
+                        'amount',
+                        'total',
+                        'fee',
+                        'benefit',
+                        'revenue',
+                        'value',
+                        'discount',
+                        'subtotal',
+                        'sub_total',
+                        'paid',
+                    )
+                    return any(token in key_text for token in monetary_tokens)
+
+                def _merge_refresh_payload(existing_payload, incoming_payload, parent_key: str = ''):
+                    if not isinstance(existing_payload, dict):
+                        return incoming_payload if isinstance(incoming_payload, dict) else existing_payload
+                    if not isinstance(incoming_payload, dict):
+                        return existing_payload
+
+                    merged_payload = dict(existing_payload)
+                    for key, incoming_value in incoming_payload.items():
+                        key_path = f"{parent_key}.{key}" if parent_key else str(key)
+                        existing_value = merged_payload.get(key)
+
+                        if isinstance(existing_value, dict) and isinstance(incoming_value, dict):
+                            merged_payload[key] = _merge_refresh_payload(
+                                existing_value,
+                                incoming_value,
+                                parent_key=key_path
+                            )
+                            continue
+
+                        if incoming_value is None:
+                            continue
+                        if isinstance(incoming_value, str) and not incoming_value.strip():
+                            continue
+                        if isinstance(incoming_value, (list, tuple, set, dict)) and len(incoming_value) == 0:
+                            continue
+
+                        if _is_monetary_key(key_path):
+                            existing_amount = _safe_float_amount(existing_value)
+                            incoming_amount = _safe_float_amount(incoming_value)
+                            if existing_amount > 0 and incoming_amount <= 0:
+                                continue
+
+                        merged_payload[key] = incoming_value
+
+                    return merged_payload
+
                 merged = {}
-                for order in previous_orders + orders:
+                for order in previous_orders:
                     if not isinstance(order, dict):
                         continue
-                    order_key = str(
-                        order.get('id')
-                        or order.get('orderId')
-                        or order.get('displayId')
-                        or f"{order.get('createdAt')}:{order.get('orderStatus')}"
-                    )
-                    merged[order_key] = order
+                    normalized_order = normalize_order_payload(order)
+                    order_key = _order_cache_key(normalized_order)
+                    if order_key:
+                        merged[order_key] = normalized_order
+                for order in orders:
+                    if not isinstance(order, dict):
+                        continue
+                    normalized_order = normalize_order_payload(order)
+                    order_key = _order_cache_key(normalized_order)
+                    if not order_key:
+                        continue
+                    existing_order = merged.get(order_key)
+                    if existing_order is None:
+                        merged[order_key] = normalized_order
+                    else:
+                        merged[order_key] = normalize_order_payload(
+                            _merge_refresh_payload(existing_order, normalized_order)
+                        )
                 orders = list(merged.values())
             else:
                 orders = previous_orders

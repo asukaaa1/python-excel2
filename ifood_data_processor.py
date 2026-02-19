@@ -13,8 +13,39 @@ class IFoodDataProcessor:
 
     @staticmethod
     def _safe_float(value, default: float = 0.0) -> float:
+        if isinstance(value, dict):
+            for key in ('value', 'amount', 'total', 'orderAmount', 'totalPrice', 'subTotal', 'deliveryFee', 'paidAmount'):
+                if key not in value:
+                    continue
+                nested_value = IFoodDataProcessor._safe_float(value.get(key), default=0.0)
+                if nested_value != 0:
+                    return nested_value
+            return float(default)
+        if isinstance(value, (int, float)):
+            try:
+                parsed = float(value)
+            except Exception:
+                return float(default)
+            if parsed != parsed or parsed in (float('inf'), float('-inf')):
+                return float(default)
+            return parsed
+        text = str(value or '').strip()
+        if not text:
+            return float(default)
+        cleaned = text.replace('R$', '').replace('BRL', '').replace('\u00a0', ' ').strip()
+        cleaned = cleaned.replace(' ', '')
+        if ',' in cleaned and '.' in cleaned:
+            if cleaned.rfind(',') > cleaned.rfind('.'):
+                cleaned = cleaned.replace('.', '').replace(',', '.')
+            else:
+                cleaned = cleaned.replace(',', '')
+        elif ',' in cleaned:
+            cleaned = cleaned.replace('.', '').replace(',', '.')
         try:
-            return float(value)
+            parsed = float(cleaned)
+            if parsed != parsed or parsed in (float('inf'), float('-inf')):
+                return float(default)
+            return parsed
         except Exception:
             return float(default)
 
