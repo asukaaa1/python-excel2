@@ -625,6 +625,7 @@
         let memberManagementOrgId = null;
         let memberManagementOrgName = '';
         let assignTargetOrgId = null;
+        function orgIfoodConfigUrl() { return `/api/org/ifood-config?_=${Date.now()}`; }
         async function loadData() { await Promise.all([loadUsers(), loadIfoodConfig(), loadSubscription(), loadOnboarding(), loadDataQualitySummary()]); }
 
         async function refreshOrgContext() {
@@ -961,7 +962,7 @@
 
         async function loadIfoodConfigLegacy() {
             try {
-                const response = await fetch('/api/org/ifood-config');
+                const response = await fetch(orgIfoodConfigUrl(), { cache: 'no-store' });
                 const data = await response.json();
                 const cfg = data.config || {};
                 const configured = !!(cfg.has_credentials || cfg.client_id);
@@ -1491,7 +1492,7 @@
         // Override with org-scoped iFood + org context aware sidebar refresh.
         async function loadIfoodConfig() {
             try {
-                const response = await fetch('/api/org/ifood-config');
+                const response = await fetch(orgIfoodConfigUrl(), { cache: 'no-store' });
                 const data = await response.json();
                 if (!(response.ok && data.success && data.config)) {
                     document.getElementById('apiStatus').textContent = 'Erro';
@@ -1560,7 +1561,7 @@
                 return;
             }
             try {
-                const currentConfigResponse = await fetch('/api/org/ifood-config');
+                const currentConfigResponse = await fetch(orgIfoodConfigUrl(), { cache: 'no-store' });
                 const currentConfigData = await currentConfigResponse.json();
                 if (!currentConfigResponse.ok || !currentConfigData.success) {
                     showToast(currentConfigData.error || 'Erro ao carregar configuracao atual', 'error');
@@ -1568,13 +1569,15 @@
                 }
                 const currentConfig = currentConfigData.config || {};
                 const merchants = Array.isArray(currentConfig.merchants) ? [...currentConfig.merchants] : [];
-                if (merchants.some(m => String(m.merchant_id || '').trim() === merchantId)) {
+                const normalizedMerchantId = String(merchantId || '').trim().toLowerCase();
+                if (merchants.some(m => String(m.merchant_id || '').trim().toLowerCase() === normalizedMerchantId)) {
                     showToast('Merchant ja existe', 'error');
                     return;
                 }
                 merchants.push({ merchant_id: merchantId, name, manager });
-                const saveResponse = await fetch('/api/org/ifood-config', {
+                const saveResponse = await fetch(orgIfoodConfigUrl(), {
                     method: 'POST',
+                    cache: 'no-store',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         client_id: currentConfig.client_id || null,
@@ -1598,7 +1601,7 @@
         async function removeMerchant(merchantId, name) {
             if (!confirm(`Remover "${name}"?`)) return;
             try {
-                const currentConfigResponse = await fetch('/api/org/ifood-config');
+                const currentConfigResponse = await fetch(orgIfoodConfigUrl(), { cache: 'no-store' });
                 const currentConfigData = await currentConfigResponse.json();
                 if (!currentConfigResponse.ok || !currentConfigData.success) {
                     showToast(currentConfigData.error || 'Erro ao carregar configuracao atual', 'error');
@@ -1606,13 +1609,15 @@
                 }
                 const currentConfig = currentConfigData.config || {};
                 const merchants = Array.isArray(currentConfig.merchants) ? currentConfig.merchants : [];
-                const nextMerchants = merchants.filter(m => String(m.merchant_id || '') !== String(merchantId));
+                const normalizedMerchantId = String(merchantId || '').trim().toLowerCase();
+                const nextMerchants = merchants.filter(m => String(m.merchant_id || '').trim().toLowerCase() !== normalizedMerchantId);
                 if (nextMerchants.length === merchants.length) {
                     showToast('Merchant nao encontrado', 'error');
                     return;
                 }
-                const saveResponse = await fetch('/api/org/ifood-config', {
+                const saveResponse = await fetch(orgIfoodConfigUrl(), {
                     method: 'POST',
+                    cache: 'no-store',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         client_id: currentConfig.client_id || null,

@@ -175,6 +175,17 @@ print(f"Dashboard output: {DASHBOARD_OUTPUT}")
 @app.after_request
 def add_cache_headers(response):
     """Set caching and compression headers"""
+    no_store_paths = (
+        '/api/org/ifood-config',
+        '/api/ifood/config',
+        '/api/ifood/merchants',
+    )
+    if any(request.path.startswith(p) for p in no_store_paths):
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+
     if response.content_type and 'text/html' in response.content_type:
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
@@ -4315,14 +4326,18 @@ def initialize_all_orgs():
     print(f"\nÃ°Å¸ÂÂ¢ Initializing {len(orgs)} organization(s)...")
     for org_info in orgs:
         org_id = org_info['id']
+        od = get_org_data(org_id)
+        if not isinstance(od.get('config'), dict) or not od.get('config'):
+            od['config'] = db.get_org_ifood_config(org_id) or {}
         # Try cache first
         cached_meta = db.load_org_data_cache_meta(org_id, 'restaurants', max_age_hours=2)
         cached = cached_meta.get('data') if isinstance(cached_meta, dict) else None
         if cached:
-            od = get_org_data(org_id)
             od['restaurants'] = cached
             cache_created_at = cached_meta.get('created_at') if isinstance(cached_meta, dict) else None
             od['last_refresh'] = cache_created_at if isinstance(cache_created_at, datetime) else datetime.now()
+            # Prevent stale cache entries from reviving removed merchants after restart.
+            _reconcile_org_restaurants_with_config(od, od.get('config') or {})
             print(f"  Ã¢Å¡Â¡ Org {org_id} ({org_info['name']}): {len(cached)} restaurants from cache")
             # Init API in background
             threading.Thread(target=_init_and_refresh_org, args=(org_id,), daemon=True).start()

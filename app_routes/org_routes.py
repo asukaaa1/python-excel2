@@ -282,6 +282,12 @@ def register(app, deps):
     @org_owner_required
     def api_org_ifood_config():
         """Get or update iFood credentials for current org"""
+        def _with_no_store(resp):
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+            return resp
+
         org_id = get_current_org_id()
         if not org_id:
             return jsonify({'success': False, 'error': 'No organization'}), 403
@@ -336,7 +342,7 @@ def register(app, deps):
             if client_secret:
                 s = client_secret
                 masked = s[:4] + '****' + s[-4:] if len(s) > 8 else '****'
-            return jsonify({
+            return _with_no_store(jsonify({
                 'success': True,
                 'config': {
                     'client_id': client_id,
@@ -351,7 +357,7 @@ def register(app, deps):
                     'using_legacy_fallback': bool(using_legacy_fallback),
                     'use_mock_data': effective_mode == 'mock'
                 }
-            })
+            }))
         # POST
         data = get_json_payload()
         if not data:
@@ -375,12 +381,38 @@ def register(app, deps):
             merchants=merchants_update
         )
         invalidate_cache(org_id)
+        if merchants_update is not None:
+            org_data = get_org_data(org_id)
+            configured_ids = {
+                normalize_merchant_id(m.get('merchant_id') or m.get('id'))
+                for m in merchants_update
+                if isinstance(m, dict)
+            }
+            configured_ids = {mid for mid in configured_ids if mid}
+            current_restaurants = org_data.get('restaurants') or []
+            if configured_ids:
+                org_data['restaurants'] = [
+                    r for r in current_restaurants
+                    if normalize_merchant_id(
+                        (r or {}).get('merchant_id')
+                        or (r or {}).get('merchantId')
+                        or (r or {}).get('id')
+                        or (r or {}).get('ifood_merchant_id')
+                        or (r or {}).get('_resolved_merchant_id')
+                    ) in configured_ids
+                ]
+            else:
+                org_data['restaurants'] = []
         db.log_action('org.ifood_config_updated', org_id=org_id, user_id=session['user']['id'], ip_address=request.remote_addr)
         # Reinitialize this org's API connection
         api = _init_org_ifood(org_id)
         if api:
             _load_org_restaurants(org_id)
-        return jsonify({'success': True, 'connection_active': bool(api), 'restaurant_count': len(ORG_DATA.get(org_id, {}).get('restaurants') or [])})
+        return _with_no_store(jsonify({
+            'success': True,
+            'connection_active': bool(api),
+            'restaurant_count': len(ORG_DATA.get(org_id, {}).get('restaurants') or [])
+        }))
 
 
     @bp.route('/api/org/invite', methods=['POST'])
