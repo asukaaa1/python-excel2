@@ -4038,12 +4038,20 @@ def _load_org_restaurants(org_id):
             merchants_config = json.loads(merchants_config)
         except Exception:
             merchants_config = []
-    if not merchants_config:
+    # Optional one-time bootstrap from API merchant listing.
+    # Disabled by default because it can re-add merchants that an admin removed.
+    allow_bootstrap = str(os.environ.get('IFOOD_BOOTSTRAP_MERCHANTS', '0')).strip().lower() in (
+        '1', 'true', 'yes', 'on'
+    )
+    if not merchants_config and allow_bootstrap:
         try:
             merchants = api.get_merchants()
             if merchants:
                 merchants_config = [{'merchant_id': m.get('id'), 'name': m.get('name', 'Restaurant')} for m in merchants]
                 db.update_org_ifood_config(org_id, merchants=merchants_config)
+                # Keep in-memory config aligned with persisted bootstrap state.
+                if isinstance(org.get('config'), dict):
+                    org['config']['merchants'] = merchants_config
         except Exception as merchants_error:
             logger.debug("Org %s merchants bootstrap skipped: %s", org_id, merchants_error)
     if not merchants_config:
