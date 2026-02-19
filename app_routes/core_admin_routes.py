@@ -224,13 +224,14 @@ def register_routes(bp, ctx: RouteContext):
     @bp.route('/api/users/<int:user_id>', methods=['DELETE'])
     @admin_required
     def api_delete_user(user_id):
-        """Delete a user account (platform admin only)."""
+        """Delete a user account (site/platform admin only)."""
         try:
-            if not is_platform_admin_user(session.get('user', {})):
-                return jsonify({'success': False, 'error': 'Platform admin access required'}), 403
+            current_user = session.get('user', {})
+            if not is_platform_admin_user(current_user):
+                return jsonify({'success': False, 'error': 'Site admin access required'}), 403
 
             # Prevent self-deletion
-            current_user_id = (session.get('user') or {}).get('id')
+            current_user_id = current_user.get('id')
             if str(current_user_id or '').strip() == str(user_id):
                 return jsonify({
                     'success': False,
@@ -247,7 +248,7 @@ def register_routes(bp, ctx: RouteContext):
             cursor = conn.cursor()
         
             # Check if user exists
-            cursor.execute("SELECT username FROM dashboard_users WHERE id = %s", (user_id,))
+            cursor.execute("SELECT username, role FROM dashboard_users WHERE id = %s", (user_id,))
             user = cursor.fetchone()
         
             if not user:
@@ -257,12 +258,35 @@ def register_routes(bp, ctx: RouteContext):
                     'success': False,
                     'error': 'User not found'
                 }), 404
+
+            target_role = str(user[1] or '').strip().lower()
+            if target_role == 'site_admin':
+                cursor.execute("SELECT COUNT(*) FROM dashboard_users WHERE LOWER(role) = 'site_admin'")
+                site_admin_count = int(cursor.fetchone()[0] or 0)
+                if site_admin_count <= 1:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({
+                        'success': False,
+                        'error': 'Cannot delete the last site admin'
+                    }), 409
         
             # Delete user
             cursor.execute("DELETE FROM dashboard_users WHERE id = %s", (user_id,))
             conn.commit()
             cursor.close()
             conn.close()
+
+            try:
+                db.log_action(
+                    'user.deleted',
+                    org_id=get_current_org_id(),
+                    user_id=current_user_id,
+                    details={'target_user_id': user_id, 'username': user[0]},
+                    ip_address=request.remote_addr
+                )
+            except Exception:
+                pass
         
             return jsonify({
                 'success': True,

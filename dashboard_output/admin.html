@@ -909,6 +909,7 @@
                                     <option value="admin" ${String(user.role || 'user').toLowerCase() === 'admin' ? 'selected' : ''}>Administrador</option>
                                     <option value="site_admin" ${String(user.role || 'user').toLowerCase() === 'site_admin' ? 'selected' : ''}>Site Admin</option>
                                 </select>
+                                ${Number(user.id) !== Number(currentUserId) ? `<button class="btn btn-secondary btn-danger" onclick="deleteUser(${user.id}, '${escapeJs(user.name || user.username || 'Usuario')}')">Excluir</button>` : ''}
                                 ${Number(user.id) === Number(currentUserId) ? '<span class="badge badge-user">Seu usuario</span>' : ''}
                             </td>
                         </tr>
@@ -1391,6 +1392,42 @@
             } catch (error) {
                 showToast('Erro ao atualizar funcao global', 'error');
                 await loadUsers();
+            }
+        }
+
+        async function deleteUser(userId, name) {
+            if (!isPlatformAdmin) {
+                showToast('Apenas Site Admin pode excluir usuarios', 'error');
+                return;
+            }
+
+            const targetId = Number(userId || 0);
+            if (!targetId) {
+                showToast('Usuario invalido', 'error');
+                return;
+            }
+            if (Number(currentUserId) === targetId) {
+                showToast('Voce nao pode excluir seu proprio usuario', 'error');
+                return;
+            }
+            if (!confirm(`Excluir usuario "${name}"? Esta acao e permanente.`)) return;
+
+            try {
+                const response = await fetch(`/api/users/${targetId}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    showToast(data.error || 'Erro ao excluir usuario', 'error');
+                    return;
+                }
+
+                showToast(data.message || 'Usuario excluido com sucesso', 'success');
+                if (memberManagementOrgId) {
+                    await loadOrgMembersForManagement();
+                }
+                await loadUsers();
+                await loadOrganizations(false);
+            } catch (error) {
+                showToast('Erro de conexao', 'error');
             }
         }
 
