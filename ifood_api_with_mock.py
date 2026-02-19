@@ -419,8 +419,9 @@ class IFoodAPI:
                 candidate_orders_map[order_key] = self._normalize_order_payload(merged_order)
         candidate_orders = list(candidate_orders_map.values())
 
-        # Fallback attempt: some tenants expose list/search endpoint.
-        if not candidate_orders and self._order_list_fallback_supported:
+        # Complement events/details with list/search endpoint when available.
+        # Some environments expose broader historical data here.
+        if self._order_list_fallback_supported:
             fallback_params = {'merchantId': merchant_id}
             if start_date:
                 fallback_params['createdAtStart'] = f"{start_date}T00:00:00Z"
@@ -429,7 +430,7 @@ class IFoodAPI:
             if status:
                 fallback_params['status'] = status
             fallback_result = self._request('GET', '/order/v1.0/orders', params=fallback_params)
-            candidate_orders = self._extract_order_payload_list(fallback_result)
+            fallback_orders = self._extract_order_payload_list(fallback_result)
             last_error = self._last_http_error if isinstance(self._last_http_error, dict) else {}
             if (
                 fallback_result is None
@@ -442,6 +443,8 @@ class IFoodAPI:
                     if not self._order_list_fallback_disabled_logged:
                         print("iFood info: /order/v1.0/orders is not available for this credential scope; using events/details only")
                         self._order_list_fallback_disabled_logged = True
+            if fallback_orders:
+                candidate_orders.extend(fallback_orders)
 
         normalized_candidates = [
             self._normalize_order_payload(order)
@@ -717,17 +720,52 @@ class IFoodAPI:
             return [payload]
         return []
 
+    def _looks_like_order_payload(self, payload) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        has_identity = any(
+            payload.get(key) not in (None, '')
+            for key in ('id', 'orderId', 'order_id', 'displayId')
+        )
+        has_status = any(
+            payload.get(key) not in (None, '')
+            for key in ('orderStatus', 'status', 'state', 'fullCode', 'code')
+        )
+        has_timestamp = any(
+            payload.get(key) not in (None, '')
+            for key in ('createdAt', 'created_at', 'orderCreatedAt', 'createdDate', 'timestamp')
+        )
+        has_order_shape = any(
+            key in payload
+            for key in ('totalPrice', 'total', 'payment', 'payments', 'items', 'merchantId', 'customer')
+        )
+        return bool(
+            has_identity
+            or (has_status and (has_timestamp or has_order_shape))
+            or (has_timestamp and has_order_shape)
+        )
+
     def _extract_order_payload_list(self, payload) -> List[Dict]:
         if not payload:
             return []
         if isinstance(payload, list):
             return [p for p in payload if isinstance(p, dict)]
         if isinstance(payload, dict):
-            for key in ('orders', 'data', 'items'):
+            for key in ('orders', 'data', 'items', 'results', 'content'):
                 value = payload.get(key)
                 if isinstance(value, list):
                     return [p for p in value if isinstance(p, dict)]
-            return [payload]
+                if isinstance(value, dict):
+                    for nested_key in ('orders', 'data', 'items', 'results', 'content'):
+                        nested_value = value.get(nested_key)
+                        if isinstance(nested_value, list):
+                            return [p for p in nested_value if isinstance(p, dict)]
+            single_order = payload.get('order')
+            if isinstance(single_order, dict):
+                return [single_order]
+            if self._looks_like_order_payload(payload):
+                return [payload]
+            return []
         return []
 
     def _extract_order_id_from_event(self, event: Dict) -> Optional[str]:
@@ -737,12 +775,33 @@ class IFoodAPI:
             value = event.get(key)
             if value:
                 return str(value)
+        nested_order = event.get('order')
+        if isinstance(nested_order, dict):
+            for key in ('id', 'orderId', 'order_id'):
+                value = nested_order.get(key)
+                if value:
+                    return str(value)
+        if (
+            event.get('id')
+            and (
+                ('orderStatus' in event)
+                or ('totalPrice' in event)
+                or ('total' in event)
+            )
+        ):
+            return str(event.get('id'))
         metadata = event.get('metadata')
         if isinstance(metadata, dict):
             for key in ('orderId', 'order_id'):
                 value = metadata.get(key)
                 if value:
                     return str(value)
+            nested_meta_order = metadata.get('order')
+            if isinstance(nested_meta_order, dict):
+                for key in ('id', 'orderId', 'order_id'):
+                    value = nested_meta_order.get(key)
+                    if value:
+                        return str(value)
         return None
 
     def _extract_order_status_from_event(self, event: Dict):

@@ -594,7 +594,7 @@ function updateUI() {
         restaurantData.orders,
         m.vendas
     );
-    const backendConcludedOrders = resolveCount(m.vendas, restaurantData.orders);
+    const backendConcludedOrders = resolveCount(m.vendas, 0);
     const backendCancelledOrders = resolveCount(m.cancelamentos, 0);
     const backendCancelRate = toNumber(m.percent_cancelamento, 0);
 
