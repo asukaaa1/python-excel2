@@ -19,6 +19,7 @@ REQUIRED_DEPS = [
     'get_org_data',
     'get_public_base_url',
     'is_platform_admin_user',
+    'invalidate_cache',
     'json',
     'jsonify',
     'login_required',
@@ -329,6 +330,7 @@ def register(app, deps):
             client_secret=client_secret_update,
             merchants=merchants_payload
         )
+        invalidate_cache(org_id)
         db.log_action('org.ifood_config_updated', org_id=org_id, user_id=session['user']['id'], ip_address=request.remote_addr)
         # Reinitialize this org's API connection
         api = _init_org_ifood(org_id)

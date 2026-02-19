@@ -696,15 +696,151 @@ def _sync_org_restaurants_from_cache(org_id: int, org: dict, max_age_hours: int 
             org['last_refresh'] = cache_created_at
 
 
+def _normalize_org_merchants_config(org_config):
+    """Normalize org merchant config into a consistent list of dict entries."""
+    if not isinstance(org_config, dict):
+        return []
+    merchants = org_config.get('merchants') or []
+    if isinstance(merchants, str):
+        try:
+            merchants = json.loads(merchants)
+        except Exception:
+            merchants = []
+    if not isinstance(merchants, list):
+        return []
+
+    normalized = []
+    seen = set()
+    for merchant in merchants:
+        if isinstance(merchant, str):
+            merchant_id = normalize_merchant_id(merchant)
+            merchant_name = ''
+            merchant_manager = ''
+            neighborhood = ''
+        elif isinstance(merchant, dict):
+            merchant_id = normalize_merchant_id(merchant.get('merchant_id') or merchant.get('id'))
+            merchant_name = sanitize_merchant_name(merchant.get('name'))
+            merchant_manager = sanitize_merchant_name(merchant.get('manager'))
+            neighborhood = sanitize_merchant_name(merchant.get('neighborhood'))
+        else:
+            continue
+
+        if not merchant_id or merchant_id in seen:
+            continue
+        seen.add(merchant_id)
+        normalized.append({
+            'merchant_id': merchant_id,
+            'name': merchant_name or f"Restaurant {str(merchant_id)[:8]}",
+            'manager': merchant_manager or 'Gerente',
+            'neighborhood': neighborhood or 'Centro',
+        })
+    return normalized
+
+
+def _build_config_merchant_placeholder_restaurant(merchant_id: str, name: str, manager: str, neighborhood: str):
+    """Create a zero-metrics restaurant entry from configured merchant metadata."""
+    return {
+        'id': merchant_id,
+        'merchant_id': merchant_id,
+        'name': name,
+        'manager': manager,
+        'neighborhood': neighborhood or 'Centro',
+        'platforms': ['iFood'],
+        'revenue': 0,
+        'orders': 0,
+        'ticket': 0,
+        'trend': 0,
+        'approval_rate': 0,
+        'avatar_color': '#f97015',
+        'rating': 0,
+        'isSuper': False,
+        'is_closed': False,
+        'closure_reason': None,
+        'closed_until': None,
+        'active_interruptions_count': 0,
+        'metrics': {
+            'vendas': 0,
+            'ticket_medio': 0,
+            'valor_bruto': 0,
+            'liquido': 0,
+            'totals': {
+                'vendas': 0,
+                'ticket_medio': 0,
+                'valorBruto': 0,
+                'liquido': 0
+            },
+            'trends': {
+                'vendas': 0,
+                'ticket_medio': 0,
+                'valor_bruto': 0,
+                'liquido': 0
+            }
+        }
+    }
+
+
+def _reconcile_org_restaurants_with_config(org: dict, org_config: dict):
+    """
+    Ensure all configured merchants are represented in org restaurants.
+    This keeps newly added merchants visible even before a full API hydration.
+    """
+    if not isinstance(org, dict):
+        return []
+    restaurants = list(org.get('restaurants') or [])
+    configured_merchants = _normalize_org_merchants_config(org_config)
+    if not configured_merchants:
+        return restaurants
+
+    existing_ids = set()
+    for restaurant in restaurants:
+        if not isinstance(restaurant, dict):
+            continue
+        merchant_id = normalize_merchant_id(
+            restaurant.get('merchant_id')
+            or restaurant.get('merchantId')
+            or restaurant.get('id')
+            or restaurant.get('ifood_merchant_id')
+            or restaurant.get('_resolved_merchant_id')
+        )
+        if merchant_id:
+            existing_ids.add(merchant_id)
+
+    added = 0
+    for merchant in configured_merchants:
+        merchant_id = merchant.get('merchant_id')
+        if not merchant_id or merchant_id in existing_ids:
+            continue
+        restaurants.append(
+            _build_config_merchant_placeholder_restaurant(
+                merchant_id=merchant_id,
+                name=merchant.get('name') or f"Restaurant {str(merchant_id)[:8]}",
+                manager=merchant.get('manager') or 'Gerente',
+                neighborhood=merchant.get('neighborhood') or 'Centro'
+            )
+        )
+        existing_ids.add(merchant_id)
+        added += 1
+
+    if added > 0:
+        org['restaurants'] = restaurants
+        org['last_refresh'] = datetime.now()
+    return restaurants
+
+
 def get_current_org_restaurants():
     """Get restaurant data for the current session's org"""
     org_id = get_current_org_id()
     if org_id:
         org = get_org_data(org_id)
         _sync_org_restaurants_from_cache(org_id, org, max_age_hours=12)
+        org_config = org.get('config')
+        if not isinstance(org_config, dict) or not org_config:
+            org_config = db.get_org_ifood_config(org_id) or {}
+            if isinstance(org_config, dict):
+                org['config'] = org_config
         org_restaurants = org.get('restaurants') or []
         if org_restaurants:
-            return org_restaurants
+            return _reconcile_org_restaurants_with_config(org, org_config)
 
         # Load tenant cache on-demand so newly selected orgs immediately show stores.
         cached_org_meta = db.load_org_data_cache_meta(org_id, 'restaurants', max_age_hours=12)
@@ -713,7 +849,7 @@ def get_current_org_restaurants():
             org['restaurants'] = cached_org_data
             cached_created_at = cached_org_meta.get('created_at') if isinstance(cached_org_meta, dict) else None
             org['last_refresh'] = cached_created_at if isinstance(cached_created_at, datetime) else datetime.now()
-            return cached_org_data
+            return _reconcile_org_restaurants_with_config(org, org_config)
 
         # Retry iFood init occasionally (supports env fallback credentials).
         now = time.time()
@@ -725,7 +861,12 @@ def get_current_org_restaurants():
                 _load_org_restaurants(org_id)
                 org_restaurants = org.get('restaurants') or []
                 if org_restaurants:
-                    return org_restaurants
+                    return _reconcile_org_restaurants_with_config(org, org_config)
+
+        # Keep configured merchants visible in local/test environments even when API is offline.
+        placeholder_restaurants = _reconcile_org_restaurants_with_config(org, org_config)
+        if placeholder_restaurants:
+            return placeholder_restaurants
     return []
 
 

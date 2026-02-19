@@ -1662,17 +1662,24 @@
 
                 currentOrgId = Number(data.org_id || currentOrgId || 0);
                 const orgSwitcher = document.getElementById('orgSwitcher');
-                if (orgSwitcher) orgSwitcher.style.display = hasOrgAssignment ? '' : 'none';
+                if (orgSwitcher) orgSwitcher.style.display = '';
                 const org = data.org || {};
+                const orgName = document.getElementById('orgName');
+                const orgAvatar = document.getElementById('orgAvatar');
+                const planBadge = document.getElementById('planBadge');
+                const orgStoreCount = document.getElementById('orgStoreCount');
                 if (hasOrgAssignment && org.name) {
-                    const orgName = document.getElementById('orgName');
                     if (orgName) orgName.textContent = org.name;
-                    const orgAvatar = document.getElementById('orgAvatar');
                     if (orgAvatar) orgAvatar.innerHTML = personIcon;
+                    if (orgStoreCount) orgStoreCount.textContent = '0 lojas';
+                } else {
+                    if (orgName) orgName.textContent = 'Sem organizacao';
+                    if (orgAvatar) orgAvatar.textContent = 'NEW';
+                    if (planBadge) planBadge.textContent = 'CRIAR';
+                    if (orgStoreCount) orgStoreCount.textContent = 'Clique para criar';
                 }
-                if (hasOrgAssignment && (org.plan_display || org.plan)) {
-                    const planBadge = document.getElementById('planBadge');
-                    if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
+                if (hasOrgAssignment && (org.plan_display || org.plan) && planBadge) {
+                    planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
                 }
                 renderGlobalOrganizationsTable();
             } catch (error) {
@@ -1721,16 +1728,22 @@
 
                     const org = data.org || {};
                     const orgSwitcher = document.getElementById('orgSwitcher');
-                    if (orgSwitcher) orgSwitcher.style.display = hasOrgAssignmentLegacy ? '' : 'none';
+                    if (orgSwitcher) orgSwitcher.style.display = '';
+                    const orgName = document.getElementById('orgName');
+                    const orgAvatar = document.getElementById('orgAvatar');
+                    const planBadge = document.getElementById('planBadge');
+                    const orgStoreCount = document.getElementById('orgStoreCount');
                     if (hasOrgAssignmentLegacy && org.name) {
-                        const orgName = document.getElementById('orgName');
                         if (orgName) orgName.textContent = org.name;
-                        const orgAvatar = document.getElementById('orgAvatar');
                         if (orgAvatar) orgAvatar.innerHTML = personIcon;
+                    } else {
+                        if (orgName) orgName.textContent = 'Sem organizacao';
+                        if (orgAvatar) orgAvatar.textContent = 'NEW';
+                        if (planBadge) planBadge.textContent = 'CRIAR';
+                        if (orgStoreCount) orgStoreCount.textContent = 'Clique para criar';
                     }
-                    if (hasOrgAssignmentLegacy && (org.plan_display || org.plan)) {
-                        const planBadge = document.getElementById('planBadge');
-                        if (planBadge) planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
+                    if (hasOrgAssignmentLegacy && (org.plan_display || org.plan) && planBadge) {
+                        planBadge.textContent = String(org.plan_display || org.plan).toUpperCase();
                     }
                 } else { window.location.href = '/login'; }
             }).catch(() => { window.location.href = '/login'; });
@@ -1746,6 +1759,8 @@
             await loadUserInfo();
             if (hasOrgAssignment) {
                 await loadData();
+            } else {
+                await openOrgSwitcherModal();
             }
             await loadOrganizations(false);
         })();
