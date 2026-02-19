@@ -959,41 +959,6 @@
             if (role === 'admin') return '<span class="badge badge-admin">Admin</span>';
             return '<span class="badge badge-user">Usuário</span>';
         }
-
-        async function loadIfoodConfigLegacy() {
-            try {
-                const response = await fetch(orgIfoodConfigUrl(), { cache: 'no-store' });
-                const data = await response.json();
-                const cfg = data.config || {};
-                const configured = !!(cfg.has_credentials || cfg.client_id);
-                if (data.success && data.config) {
-                    document.getElementById('clientId').textContent = data.config.configured ? 'Configurado' : 'Não configurado';
-                    document.getElementById('clientId').textContent = configured ? 'Configurado' : 'Nao configurado';
-                    const statusBadge = document.getElementById('connectionStatus');
-                    const apiStatus = document.getElementById('apiStatus');
-                    if (configured) { statusBadge.className = 'badge badge-connected'; statusBadge.textContent = 'Conectado'; apiStatus.textContent = 'Ativo'; }
-                    else { statusBadge.className = 'badge badge-disconnected'; statusBadge.textContent = 'Desconectado'; apiStatus.textContent = 'Inativo'; }
-                    
-                    // Also populate merchants table from the same response
-                    const merchants = data.config.merchants || [];
-                    document.getElementById('merchantCount').textContent = merchants.length;
-                    const orgStoreCount = document.getElementById('orgStoreCount');
-                    if (orgStoreCount) orgStoreCount.textContent = `${merchants.length} lojas`;
-                    const tbody = document.getElementById('merchantsTable');
-                    if (merchants.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum merchant configurado</td></tr>'; return; }
-                    tbody.innerHTML = merchants.map(merchant => `
-                        <tr>
-                            <td style="font-family: var(--font-mono); font-size: 0.75rem;">${String(merchant.merchant_id || '').substring(0, 8)}...</td>
-                            <td>${escapeHtml(merchant.name || '-')}</td>
-                            <td>${escapeHtml(merchant.manager || '-')}</td>
-                            <td><span class="badge badge-connected">Ativo</span></td>
-                            <td><button class="btn btn-secondary btn-danger" onclick="removeMerchant('${escapeJs(merchant.merchant_id || '')}', '${escapeJs(merchant.name || '')}')">Remover</button></td>
-                        </tr>
-                    `).join('');
-                }
-            } catch (error) { console.error('Error loading config:', error); document.getElementById('apiStatus').textContent = 'Erro'; }
-        }
-
         async function loadSubscription() {
             try {
                 const response = await fetch('/api/org/subscription');
@@ -1335,30 +1300,6 @@
                 showToast('Erro de conexao ao vincular usuario', 'error');
             }
         }
-
-        async function addMerchantLegacy() {
-            const merchantId = document.getElementById('merchantId').value.trim();
-            const name = document.getElementById('merchantName').value.trim();
-            const manager = document.getElementById('merchantManager').value.trim();
-            if (!merchantId || !name) { showToast('Preencha ID e nome do merchant', 'error'); return; }
-            try {
-                const response = await fetch('/api/ifood/merchants', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ merchant_id: merchantId, name, manager }) });
-                const data = await response.json();
-                if (data.success) { showToast('Merchant adicionado!', 'success'); closeModal('addMerchantModal'); await loadIfoodConfig(); }
-                else { showToast(data.error || 'Erro ao adicionar', 'error'); }
-            } catch (error) { showToast('Erro de conexão', 'error'); }
-        }
-
-        async function removeMerchantLegacy(merchantId, name) {
-            if (!confirm(`Remover "${name}"?`)) return;
-            try {
-                const response = await fetch(`/api/ifood/merchants/${merchantId}`, { method: 'DELETE' });
-                const data = await response.json();
-                if (data.success) { showToast('Merchant removido', 'success'); await loadIfoodConfig(); }
-                else { showToast(data.error || 'Erro ao remover', 'error'); }
-            } catch (error) { showToast('Erro de conexão', 'error'); }
-        }
-
         async function addUser() {
             const fullName = document.getElementById('userFullName').value.trim();
             const username = document.getElementById('userUsername').value.trim();
@@ -1775,6 +1716,7 @@
 </script>
 </body>
 </html>
+
 
 
 

@@ -2,7 +2,7 @@
 ## Railway Deployment Notes
 
 - Web service start command:
-  - `gunicorn wsgi:app --preload --bind 0.0.0.0:$PORT --workers ${WEB_CONCURRENCY:-2} --worker-class gevent --worker-connections ${GUNICORN_WORKER_CONNECTIONS:-1000} --timeout 120 --keep-alive 5 --log-level info`
+  - `gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers ${WEB_CONCURRENCY:-2} --worker-class gevent --worker-connections ${GUNICORN_WORKER_CONNECTIONS:-1000} --timeout 120 --keep-alive 5 --log-level info`
 - Worker service start command:
   - `python dashboardserver.py --worker`
 
@@ -16,6 +16,9 @@
 - `USE_REDIS_QUEUE=true`
 - `USE_REDIS_CACHE=true`
 - `USE_REDIS_PUBSUB=true`
+- `DB_POOL_ENABLED=true`
+- `DB_POOL_MIN=1`
+- `DB_POOL_MAX=10`
 - `RUN_REFRESH_WORKER=true` (worker service only)
 - `IFOOD_KEEPALIVE_POLLING=true` (worker service; keeps test stores connected/open)
 - `IFOOD_POLL_INTERVAL_SECONDS=30` (worker service)

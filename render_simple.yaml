@@ -8,7 +8,7 @@ services:
       pip install --upgrade pip
       pip install -r requirements.txt
       python scripts/verify_dashboard_output.py
-    startCommand: gunicorn wsgi:app --preload --bind 0.0.0.0:$PORT --workers 2 --worker-class gevent --worker-connections 1000 --timeout 120 --keep-alive 5 --log-level info
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --worker-class gevent --worker-connections 1000 --timeout 120 --keep-alive 5 --log-level info
     healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION

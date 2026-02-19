@@ -5,12 +5,13 @@ UPDATED VERSION - Supports DATABASE_URL from Render
 """
 
 import psycopg2
-from psycopg2 import sql
+from psycopg2 import sql, pool as psycopg2_pool
 import bcrypt
 import json
 import os
 import sys
 import secrets
+import threading
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from typing import Optional, Dict, List
@@ -22,6 +23,39 @@ try:
         sys.stderr.reconfigure(errors="backslashreplace")
 except Exception:
     pass
+
+
+class _ManagedConnection:
+    """Connection wrapper that returns pooled connections on close()."""
+
+    def __init__(self, raw_conn, release_fn):
+        self._raw_conn = raw_conn
+        self._release_fn = release_fn
+        self._released = False
+
+    def __getattr__(self, name):
+        return getattr(self._raw_conn, name)
+
+    def close(self):
+        if self._released:
+            return
+        try:
+            self._release_fn(self._raw_conn)
+        finally:
+            self._released = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
 
 class DashboardDatabase:
     """Handle PostgreSQL database operations for dashboard authentication"""
@@ -60,13 +94,66 @@ class DashboardDatabase:
                 'client_encoding': 'utf8'
             }
             print(f"ðŸ“Š Using individual DB params: {host}:{port}/{database}")
+
+        self._pool = None
+        self._pool_lock = threading.Lock()
+        self._pool_enabled = str(os.environ.get('DB_POOL_ENABLED', '1')).strip().lower() in ('1', 'true', 'yes', 'on')
+        try:
+            self._pool_minconn = max(1, int(str(os.environ.get('DB_POOL_MIN', '1')).strip() or '1'))
+        except Exception:
+            self._pool_minconn = 1
+        try:
+            self._pool_maxconn = max(self._pool_minconn, int(str(os.environ.get('DB_POOL_MAX', '10')).strip() or '10'))
+        except Exception:
+            self._pool_maxconn = max(10, self._pool_minconn)
+
+    def _new_direct_connection(self):
+        conn = psycopg2.connect(**self.config)
+        conn.set_client_encoding('UTF8')
+        return conn
+
+    def _ensure_pool(self):
+        if not self._pool_enabled:
+            return None
+        if self._pool is not None:
+            return self._pool
+
+        with self._pool_lock:
+            if self._pool is None:
+                self._pool = psycopg2_pool.ThreadedConnectionPool(
+                    self._pool_minconn,
+                    self._pool_maxconn,
+                    **self.config,
+                )
+                print(f"DB connection pool enabled (min={self._pool_minconn}, max={self._pool_maxconn})")
+        return self._pool
+
+    def _release_connection(self, raw_conn):
+        if raw_conn is None:
+            return
+        if self._pool_enabled and self._pool is not None:
+            try:
+                self._pool.putconn(raw_conn, close=False)
+                return
+            except Exception:
+                pass
+        try:
+            raw_conn.close()
+        except Exception:
+            pass
     
     def get_connection(self):
         """Get database connection"""
         try:
-            conn = psycopg2.connect(**self.config)
-            conn.set_client_encoding('UTF8')
-            return conn
+            if self._pool_enabled:
+                pool_obj = self._ensure_pool()
+                if pool_obj is not None:
+                    raw_conn = pool_obj.getconn()
+                    raw_conn.set_client_encoding('UTF8')
+                    return _ManagedConnection(raw_conn, self._release_connection)
+
+            raw_conn = self._new_direct_connection()
+            return _ManagedConnection(raw_conn, self._release_connection)
         except Exception as e:
             print(f"Database connection error: {e}")
             return None
