@@ -324,7 +324,11 @@ def register(app, deps):
             merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant, restaurant_id)
         
             # Ensure orders cache is present even when loaded from DB snapshots.
-            all_orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id)
+            all_orders = ensure_restaurant_orders_cache(
+                restaurant,
+                merchant_lookup_id,
+                force_remote_sync=True
+            )
             merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant, merchant_lookup_id)
         
             # Filter orders by date range if provided
@@ -480,7 +484,11 @@ def register(app, deps):
             status = request.args.get('status')
         
             # Ensure order cache is present (DB cache snapshots may not include raw orders).
-            orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id)
+            orders = ensure_restaurant_orders_cache(
+                restaurant,
+                merchant_lookup_id,
+                force_remote_sync=True
+            )
             merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant, merchant_lookup_id)
         
             # Filter by status if provided
@@ -525,7 +533,11 @@ def register(app, deps):
             top_n = request.args.get('top_n', default=10, type=int)
             top_n = max(1, min(top_n or 10, 50))
 
-            orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id)
+            orders = ensure_restaurant_orders_cache(
+                restaurant,
+                merchant_lookup_id,
+                force_remote_sync=True
+            )
             merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant, merchant_lookup_id)
             if start_date or end_date:
                 orders = restaurants_service.filter_orders_by_date_range(

@@ -1782,7 +1782,7 @@ def _fetch_orders_from_candidate_merchants(api, candidate_ids, start_date, end_d
     return fetched_orders, resolved_merchant_id
 
 
-def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_override: int = None):
+def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_override: int = None, force_remote_sync: bool = False):
     """
     Ensure a store has raw orders cached for detail screens.
     DB snapshots intentionally strip internal cache fields, so this may need
@@ -1822,8 +1822,46 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
             restaurant, api, normalized_existing, current_merchant_hint
         )
         restaurant['_orders_cache'] = normalized_existing
+
+        # Detail pages can request a throttled remote sync to catch newly-created
+        # orders when keepalive polling missed recent events.
+        if force_remote_sync and api:
+            now_ts = time.time()
+            try:
+                last_sync_at = float((restaurant or {}).get('_orders_remote_sync_at') or 0)
+            except Exception:
+                last_sync_at = 0.0
+            if (now_ts - last_sync_at) >= 20:
+                try:
+                    days = resolve_current_org_fetch_days(default_days=30)
+                    end_date = datetime.now().strftime('%Y-%m-%d')
+                    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+                    candidate_ids = _collect_candidate_merchant_ids(
+                        api, restaurant, restaurant_id, org_id_override=org_id_override
+                    )
+                    fetched_orders, resolved_merchant_id = _fetch_orders_from_candidate_merchants(
+                        api,
+                        candidate_ids,
+                        start_date,
+                        end_date,
+                        default_restaurant_id=restaurant_id,
+                    )
+                    normalized_fetched = _normalize_orders_list(fetched_orders)
+                    normalized_fetched = _maybe_enrich_restaurant_orders(
+                        restaurant,
+                        api,
+                        normalized_fetched,
+                        normalize_merchant_id(resolved_merchant_id) or str(resolved_merchant_id or '').strip(),
+                    )
+                    if normalized_fetched:
+                        restaurant['_orders_cache'] = normalized_fetched
+                        _set_restaurant_resolved_merchant_id(restaurant, resolved_merchant_id)
+                except Exception:
+                    pass
+                finally:
+                    restaurant['_orders_remote_sync_at'] = now_ts
         _refresh_metrics_from_cached_orders()
-        return normalized_existing
+        return _normalize_orders_list(restaurant.get('_orders_cache'))
 
     org_id = org_id_override or get_current_org_id()
     if org_id:
