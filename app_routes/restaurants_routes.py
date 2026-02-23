@@ -117,6 +117,10 @@ def register(app, deps):
                     (not existing_orders_cache)
                     or (not orders_have_identifiable_ids)
                     or (snapshot_orders_total <= 0 and snapshot_revenue_total <= 0)
+                    # Keepalive polling can temporarily cache sparse event-derived orders
+                    # (count present, monetary fields missing). Rehydrate/recompute in list
+                    # responses so dashboard cards do not get stuck at zero revenue.
+                    or (snapshot_orders_total > 0 and snapshot_revenue_total <= 0)
                 )
                 if needs_hydration:
                     hydrated_orders = ensure_restaurant_orders_cache(r, merchant_lookup_id)
@@ -239,8 +243,20 @@ def register(app, deps):
                         )
                     except Exception:
                         metrics_total_orders = 0
+                    try:
+                        metrics_total_revenue = float(
+                            (metrics_snapshot or {}).get('liquido')
+                            or (metrics_snapshot or {}).get('valor_bruto')
+                            or r.get('revenue')
+                            or 0
+                        )
+                    except Exception:
+                        metrics_total_revenue = 0.0
                     # Guard against stale metrics staying at zero while raw orders exist.
-                    if orders_snapshot and metrics_total_orders <= 0:
+                    if orders_snapshot and (
+                        metrics_total_orders <= 0
+                        or (metrics_total_orders > 0 and metrics_total_revenue <= 0)
+                    ):
                         try:
                             refreshed = IFoodDataProcessor.process_restaurant_data(
                                 {
