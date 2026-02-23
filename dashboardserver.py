@@ -3468,6 +3468,31 @@ def run_ifood_keepalive_poll_once():
             isinstance(org_data, dict) and org_data.get('api')
             for _, org_data in org_items
         )
+        # Keepalive may start before org API clients are initialized (or after a cold
+        # worker boot with empty in-memory org state). Lazily discover/init active orgs
+        # so polling does not spin with orgs=[] despite valid DB config.
+        if not has_org_api:
+            try:
+                now_ts = time.time()
+                for org_row in db.get_all_active_orgs():
+                    candidate_org_id = org_row.get('id')
+                    if candidate_org_id is None:
+                        continue
+                    org_container = get_org_data(candidate_org_id)
+                    if not isinstance(org_container.get('config'), dict) or not org_container.get('config'):
+                        org_container['config'] = db.get_org_ifood_config(candidate_org_id) or {}
+                    if org_container.get('api'):
+                        has_org_api = True
+                        continue
+                    attempted_at = org_container.get('init_attempted_at')
+                    if attempted_at and (now_ts - attempted_at) < 300:
+                        continue
+                    org_container['init_attempted_at'] = now_ts
+                    if _init_org_ifood(candidate_org_id):
+                        has_org_api = True
+                org_items = _org_data_items_snapshot()
+            except Exception:
+                pass
         # Legacy single-tenant fallback: keepalive must still run when no org API is initialized.
         if IFOOD_API and not has_org_api:
             org_items.append((
