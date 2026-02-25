@@ -8,6 +8,8 @@ REQUIRED_DEPS = [
     'LAST_DATA_REFRESH',
     'ORG_DATA',
     'Response',
+    '_init_org_ifood',
+    '_load_org_restaurants',
     'admin_page_required',
     'admin_required',
     'build_data_quality_payload',
@@ -21,6 +23,7 @@ REQUIRED_DEPS = [
     'get_current_org_id',
     'get_current_org_restaurants',
     'get_json_payload',
+    'get_org_data',
     'get_public_base_url',
     'get_user_allowed_restaurant_ids',
     'jsonify',
@@ -44,6 +47,8 @@ def register_routes(bp, ctx: RouteContext):
     LAST_DATA_REFRESH = deps['LAST_DATA_REFRESH']
     ORG_DATA = deps['ORG_DATA']
     Response = deps['Response']
+    _init_org_ifood = deps['_init_org_ifood']
+    _load_org_restaurants = deps['_load_org_restaurants']
     admin_page_required = deps['admin_page_required']
     admin_required = deps['admin_required']
     build_data_quality_payload = deps['build_data_quality_payload']
@@ -57,6 +62,7 @@ def register_routes(bp, ctx: RouteContext):
     get_current_org_id = deps['get_current_org_id']
     get_current_org_restaurants = deps['get_current_org_restaurants']
     get_json_payload = deps['get_json_payload']
+    get_org_data = deps['get_org_data']
     get_public_base_url = deps['get_public_base_url']
     get_user_allowed_restaurant_ids = deps['get_user_allowed_restaurant_ids']
     jsonify = deps['jsonify']
@@ -163,11 +169,36 @@ def register_routes(bp, ctx: RouteContext):
     @login_required
     def restaurant_page(restaurant_id):
         """Serve individual restaurant dashboard"""
-        # Find restaurant in org data (supports alias IDs).
+        # Fast path: restaurant is already in this worker's memory.
         restaurant = find_restaurant_by_identifier(restaurant_id)
-    
+
         if not restaurant:
-            return "Restaurant not found", 404
+            # The in-memory lookup missed — this happens when a gunicorn worker
+            # hasn't loaded data yet, or when the 30-minute refresh cycle is
+            # mid-flight.  Force a fresh read from the DB cache (written by the
+            # background worker every 30 min) by bypassing the 20-second sync
+            # debounce, then retry.
+            org_id = get_current_org_id()
+            if org_id is not None:
+                org = get_org_data(org_id)
+                org['_cache_sync_checked_at'] = 0.0  # bypass debounce
+                get_current_org_restaurants()         # pulls latest DB snapshot
+                restaurant = find_restaurant_by_identifier(restaurant_id)
+
+            # DB cache also missed (e.g. first-ever load, or cache is being
+            # written right now) — do a live iFood API reload as last resort.
+            if not restaurant and org_id is not None:
+                try:
+                    org = get_org_data(org_id)
+                    api = org.get('api') or _init_org_ifood(org_id)
+                    if api:
+                        _load_org_restaurants(org_id)
+                        restaurant = find_restaurant_by_identifier(restaurant_id)
+                except Exception:
+                    pass
+
+        if not restaurant:
+            return redirect(url_for('dashboard'))
 
         # Ensure canonical merchant id is resolved before rendering template JS.
         try:
