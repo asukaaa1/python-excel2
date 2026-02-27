@@ -413,7 +413,7 @@ class IFoodDataProcessor:
                 'isSuper': is_super,  # iFood Super restaurant status
                 # Complete metrics structure for frontend
                 'metrics': {
-                    'vendas': concluded_orders_count,
+                    'vendas': total_orders,
                     'total_pedidos': total_orders,
                     'ticket_medio': average_ticket,
                     'valor_bruto': gross_revenue,
