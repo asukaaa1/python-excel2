@@ -300,21 +300,36 @@ def invalidate_dashboard_summary_cache(org_id=None):
                 _DASHBOARD_SUMMARY_CACHE.pop(key, None)
 
 
-def get_cached_restaurants(org_id, month_filter):
-    """Get cached processed restaurant data if still fresh"""
+def _is_cached_restaurants_payload_valid(payload, expected_last_refresh_iso=None):
+    if not isinstance(payload, dict):
+        return False
+    if expected_last_refresh_iso is None:
+        return True
+    cached_last_refresh = payload.get('last_refresh')
+    if expected_last_refresh_iso:
+        return str(cached_last_refresh or '') == str(expected_last_refresh_iso)
+    return cached_last_refresh in (None, '')
+
+
+def get_cached_restaurants(org_id, month_filter, expected_last_refresh_iso=None):
+    """Get cached processed restaurant data if still fresh."""
     if USE_REDIS_CACHE:
         r = get_redis_client()
         if r:
             try:
                 raw = r.get(_restaurants_cache_key(org_id, month_filter))
                 if raw:
-                    return json.loads(raw)
+                    payload = json.loads(raw)
+                    if _is_cached_restaurants_payload_valid(payload, expected_last_refresh_iso):
+                        return payload
             except Exception as cache_read_error:
                 logger.debug("Redis restaurants cache read failed: %s", cache_read_error)
     key = (org_id, month_filter)
     cached = _api_cache.get(key)
     if cached and (datetime.now() - cached['timestamp']).total_seconds() < _API_CACHE_TTL:
-        return cached['data']
+        payload = cached.get('data')
+        if _is_cached_restaurants_payload_valid(payload, expected_last_refresh_iso):
+            return payload
     return None
 
 def set_cached_restaurants(org_id, month_filter, data):
@@ -644,6 +659,21 @@ def sanitize_merchant_name(value) -> str:
 
 
 def _count_orders_in_restaurant_list(restaurants) -> int:
+    def _restaurant_orders_metric_count(restaurant: dict) -> int:
+        if not isinstance(restaurant, dict):
+            return 0
+        metrics = restaurant.get('metrics') if isinstance(restaurant.get('metrics'), dict) else {}
+        try:
+            metric_orders = int(
+                (metrics or {}).get('total_pedidos')
+                or (metrics or {}).get('vendas')
+                or restaurant.get('orders')
+                or 0
+            )
+        except Exception:
+            metric_orders = 0
+        return max(0, int(metric_orders))
+
     total = 0
     if not isinstance(restaurants, list):
         return 0
@@ -651,8 +681,8 @@ def _count_orders_in_restaurant_list(restaurants) -> int:
         if not isinstance(restaurant, dict):
             continue
         orders = restaurant.get('_orders_cache') or []
-        if isinstance(orders, list):
-            total += len(orders)
+        raw_count = len(orders) if isinstance(orders, list) else 0
+        total += max(raw_count, _restaurant_orders_metric_count(restaurant))
     return total
 
 
@@ -4402,7 +4432,7 @@ def _load_org_restaurants(org_id):
         for r in new_data:
             mid = normalize_merchant_id(r.get('merchant_id') or r.get('id') or '')
             existing = existing_by_id.get(mid)
-            if existing and int(existing.get('orders') or 0) > 0:
+            if existing and _count_orders_in_restaurant_list([existing]) > 0:
                 preserved = dict(existing)
                 for field in ('is_closed', 'closure_reason', 'closed_until', 'active_interruptions_count'):
                     preserved[field] = r.get(field, preserved.get(field))
@@ -5242,8 +5272,10 @@ def initialize_app():
         bg_refresher.interval = 1800  # 30 min
         bg_refresher.start()
 
-    # Ensure keepalive polling can run on web instances when worker mode is not active.
-    if IFOOD_KEEPALIVE_POLLING and not is_worker_process:
+    # In Redis queue mode, keepalive polling runs inside the dedicated worker loop.
+    # Web processes should not poll in parallel, otherwise they can race and persist
+    # sparse snapshots over richer data.
+    if IFOOD_KEEPALIVE_POLLING and not is_worker_process and not queue_mode:
         start_keepalive_poller()
     
     org_values_snapshot = _org_data_values_snapshot()

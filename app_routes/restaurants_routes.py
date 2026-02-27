@@ -56,7 +56,13 @@ def register(app, deps):
         
             # Check in-memory cache first (avoids re-processing orders every request)
             org_id = get_current_org_id()
-            cached = get_cached_restaurants(org_id, month_filter)
+            org_last_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') if org_id else LAST_DATA_REFRESH
+            org_last_refresh_iso = org_last_refresh.isoformat() if isinstance(org_last_refresh, datetime) else None
+            cached = get_cached_restaurants(
+                org_id,
+                month_filter,
+                expected_last_refresh_iso=org_last_refresh_iso,
+            )
             if cached:
                 cached_restaurants = cached.get('restaurants') if isinstance(cached, dict) else None
                 if restaurants_service.cache_has_closure_payload(cached_restaurants):
@@ -67,7 +73,6 @@ def register(app, deps):
             # Get user's allowed restaurants based on squad membership
             user = session.get('user', {})
             allowed_ids = get_user_allowed_restaurant_ids(user.get('id'), user.get('role'))
-            org_last_refresh = ORG_DATA.get(org_id, {}).get('last_refresh') if org_id else LAST_DATA_REFRESH
             org_api = ORG_DATA.get(org_id, {}).get('api') if org_id else IFOOD_API
         
             # Return data without internal caches
