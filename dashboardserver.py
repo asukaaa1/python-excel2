@@ -1,4 +1,4 @@
-"""
+﻿"""
 Flask Web Server for Restaurant Dashboard - iFood API Version
 Integrated with iFood Merchant API instead of Excel files
 Features: Real-time SSE, Background Refresh, Comparative Analytics, Data Caching
@@ -4424,7 +4424,7 @@ def _load_org_restaurants(org_id):
     # Advance watermark so keepalive cannot overwrite this full-load result with fewer orders.
     saved_count = _count_orders_in_restaurant_list(new_data)
     org['_db_cache_order_watermark'] = max(int(org.get('_db_cache_order_watermark') or 0), saved_count)
-    print(f”Ã¢Å”â€¦ Org {org_id}: loaded {len(new_data)} restaurants”)
+    print(f"  {org_id}: loaded {len(new_data)} restaurants")
 
 
 def initialize_all_orgs():
