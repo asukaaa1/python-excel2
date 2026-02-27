@@ -115,7 +115,7 @@ def main():
 
     # Step 5: Test authentication
     print(f"\n🧪 Testing iFood API authentication...")
-    from ifood_api_with_mock import IFoodAPI
+    from ifood_api import IFoodAPI
 
     api = IFoodAPI(
         client_id=CLIENT_ID,

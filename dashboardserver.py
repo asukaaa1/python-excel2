@@ -7,7 +7,7 @@ Features: Real-time SSE, Background Refresh, Comparative Analytics, Data Caching
 from flask import Flask, request, jsonify, session, redirect, url_for, send_file, Response, stream_with_context
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dashboarddb import DashboardDatabase
-from ifood_api_with_mock import IFoodAPI
+from ifood_api import IFoodAPI
 from ifood_data_processor import IFoodDataProcessor
 import os
 from pathlib import Path
@@ -694,7 +694,7 @@ def _sync_org_restaurants_from_cache(org_id: int, org: dict, max_age_hours: int 
     now_ts = time.time()
     if not force:
         last_sync_check = float(org.get('_cache_sync_checked_at') or 0)
-        if (now_ts - last_sync_check) < 20:
+        if (now_ts - last_sync_check) < 5:
             return
     org['_cache_sync_checked_at'] = now_ts
 
@@ -721,12 +721,11 @@ def _sync_org_restaurants_from_cache(org_id: int, org: dict, max_age_hours: int 
             or (cache_created_at > (current_last_refresh + timedelta(seconds=5)))
         )
         if cache_is_newer:
-            # Do not replace richer in-memory order caches with leaner snapshots.
-            if current_order_count <= 0:
-                should_replace = True
-            elif cached_order_count >= current_order_count:
-                should_replace = True
-            elif len(cached_restaurants) > len(current_restaurants) and cached_order_count > 0:
+            # Trust newer persisted snapshots except when they are clearly sparse
+            # zero-order writes that would blank a non-empty in-memory dataset.
+            if cached_order_count <= 0 < current_order_count:
+                should_replace = False
+            else:
                 should_replace = True
     if not should_replace and current_order_count <= 0 and cached_order_count > 0:
         should_replace = True
@@ -1350,6 +1349,95 @@ def get_order_status(order):
     return 'UNKNOWN'
 
 
+def _is_monetary_key_name(key_name: str) -> bool:
+    key_text = str(key_name or '').lower()
+    monetary_tokens = (
+        'price',
+        'amount',
+        'total',
+        'fee',
+        'benefit',
+        'revenue',
+        'value',
+        'discount',
+        'subtotal',
+        'sub_total',
+        'paid',
+    )
+    return any(token in key_text for token in monetary_tokens)
+
+
+def _extract_order_identifier(order: dict) -> str:
+    """Extract the most stable order identifier available in heterogeneous payloads."""
+    if not isinstance(order, dict):
+        return ''
+
+    direct_candidates = (
+        order.get('id'),
+        order.get('orderId'),
+        order.get('order_id'),
+        order.get('displayId'),
+        order.get('orderDisplayId'),
+    )
+    for candidate in direct_candidates:
+        text = str(candidate or '').strip()
+        if text:
+            return text
+
+    metadata = order.get('metadata')
+    if isinstance(metadata, dict):
+        for key in ('id', 'orderId', 'order_id', 'displayId'):
+            candidate = str(metadata.get(key) or '').strip()
+            if candidate:
+                return candidate
+
+    nested_order = order.get('order')
+    if isinstance(nested_order, dict):
+        for key in ('id', 'orderId', 'order_id', 'displayId'):
+            candidate = str(nested_order.get(key) or '').strip()
+            if candidate:
+                return candidate
+
+    return ''
+
+
+def _merge_order_payload_for_cache(existing_payload, incoming_payload, parent_key: str = ''):
+    """Merge sparse order payloads while keeping richer cached fields intact."""
+    if not isinstance(existing_payload, dict):
+        return incoming_payload if isinstance(incoming_payload, dict) else existing_payload
+    if not isinstance(incoming_payload, dict):
+        return existing_payload
+
+    merged_payload = dict(existing_payload)
+    for key, incoming_value in incoming_payload.items():
+        key_path = f"{parent_key}.{key}" if parent_key else str(key)
+        existing_value = merged_payload.get(key)
+
+        if isinstance(existing_value, dict) and isinstance(incoming_value, dict):
+            merged_payload[key] = _merge_order_payload_for_cache(
+                existing_value,
+                incoming_value,
+                parent_key=key_path
+            )
+            continue
+
+        if incoming_value is None:
+            continue
+        if isinstance(incoming_value, str) and not incoming_value.strip():
+            continue
+        if isinstance(incoming_value, (list, tuple, set, dict)) and len(incoming_value) == 0:
+            continue
+
+        if _is_monetary_key_name(key_path):
+            existing_amount = _safe_float_amount(existing_value)
+            incoming_amount = _safe_float_amount(incoming_value)
+            if existing_amount > 0 and incoming_amount <= 0:
+                continue
+
+        merged_payload[key] = incoming_value
+    return merged_payload
+
+
 def _safe_float_amount(value):
     if isinstance(value, dict):
         for key in ('value', 'amount', 'total', 'orderAmount', 'totalPrice', 'subTotal', 'deliveryFee', 'paidAmount'):
@@ -1540,6 +1628,12 @@ def normalize_order_payload(order):
     order = order.copy()
     normalized_status = get_order_status(order)
     order['orderStatus'] = normalized_status
+    canonical_id = _extract_order_identifier(order)
+    if canonical_id:
+        if not str(order.get('id') or '').strip():
+            order['id'] = canonical_id
+        if not str(order.get('orderId') or '').strip():
+            order['orderId'] = canonical_id
 
     if not order.get('createdAt'):
         created_candidate = None
@@ -1622,12 +1716,27 @@ def resolve_current_org_fetch_days(default_days=30):
 
 
 def _normalize_orders_list(orders_payload):
-    return [normalize_order_payload(o) for o in (orders_payload or []) if isinstance(o, dict)]
+    merged = {}
+    for raw_order in (orders_payload or []):
+        if not isinstance(raw_order, dict):
+            continue
+        normalized_order = normalize_order_payload(raw_order)
+        order_key = _order_cache_key(normalized_order)
+        if not order_key:
+            continue
+        existing = merged.get(order_key)
+        if existing is None:
+            merged[order_key] = normalized_order
+        else:
+            merged[order_key] = normalize_order_payload(
+                _merge_order_payload_for_cache(existing, normalized_order)
+            )
+    return list(merged.values())
 
 
 def _orders_have_identifiable_ids(orders_payload):
     return any(
-        str(o.get('id') or o.get('orderId') or o.get('order_id') or '').strip()
+        _extract_order_identifier(o)
         for o in (orders_payload or [])
         if isinstance(o, dict)
     )
@@ -2660,12 +2769,24 @@ def _extract_org_merchant_ids(org_config):
 def _order_cache_key(order: dict) -> str:
     if not isinstance(order, dict):
         return ''
-    return str(
-        order.get('id')
-        or order.get('orderId')
-        or order.get('displayId')
-        or f"{order.get('createdAt')}:{order.get('orderStatus')}"
-    )
+    order_id = _extract_order_identifier(order)
+    if order_id:
+        return str(order_id)
+
+    created_at = str(order.get('createdAt') or '').strip()
+    merchant_payload = order.get('merchant')
+    merchant_candidate = order.get('merchantId') or order.get('merchant_id')
+    if not merchant_candidate and isinstance(merchant_payload, dict):
+        merchant_candidate = (
+            (merchant_payload or {}).get('id')
+            or (merchant_payload or {}).get('merchantId')
+            or (merchant_payload or {}).get('merchant_id')
+        )
+    merchant_id = normalize_merchant_id(merchant_candidate)
+    amount = round(_safe_float_amount(extract_order_amount(order)), 2)
+    if created_at or merchant_id or amount > 0:
+        return f"fallback:{merchant_id}:{created_at}:{amount}"
+    return ''
 
 
 def _find_org_restaurant_record(org_data: dict, merchant_id: str):
@@ -3092,6 +3213,15 @@ def _persist_org_restaurants_cache(org_id, org_data: dict) -> bool:
     # low-order-count snapshot that overwrites the authoritative full-load DB record.
     # Workers track the maximum order count they have ever persisted (_db_cache_order_watermark).
     watermark = int(org_data.get('_db_cache_order_watermark') or 0)
+    if watermark <= 0:
+        try:
+            existing_cache = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=24)
+            existing_count = _count_orders_in_restaurant_list(existing_cache or [])
+            if existing_count > 0:
+                watermark = existing_count
+                org_data['_db_cache_order_watermark'] = max(watermark, new_order_count)
+        except Exception:
+            pass
     if new_order_count < watermark:
         return False
     cache_order_limit = max(
@@ -3194,6 +3324,14 @@ def _process_ifood_events_for_merchant(org_id, org_data: dict, api_client, merch
                     result['orders_updated'] += updated_count
                     if added_count > 0 or updated_count > 0:
                         result['org_data_changed'] = True
+                        normalized_cache = _normalize_orders_list(restaurant_record.get('_orders_cache'))
+                        normalized_cache = _maybe_enrich_restaurant_orders(
+                            restaurant_record,
+                            api_client,
+                            normalized_cache,
+                            normalized_merchant_id
+                        )
+                        restaurant_record['_orders_cache'] = normalized_cache
                         if _refresh_restaurant_metrics_from_cache(restaurant_record, normalized_merchant_id):
                             result['metrics_refreshed'] += 1
                             result['org_data_changed'] = True
@@ -4370,12 +4508,7 @@ def _load_org_restaurants(org_id):
             else:
                 orders = previous_orders
 
-        normalized_orders = []
-        for order in (orders or []):
-            if not isinstance(order, dict):
-                continue
-            normalized_orders.append(normalize_order_payload(order))
-        orders = normalized_orders
+        orders = _normalize_orders_list(orders)
 
         try:
             restaurant_data = IFoodDataProcessor.process_restaurant_data(details, orders, None)
