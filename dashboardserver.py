@@ -607,7 +607,7 @@ def normalize_merchant_id(value) -> str:
 
     uuid_match = _MERCHANT_UUID_RE.search(text)
     if uuid_match:
-        return uuid_match.group(0)
+        return uuid_match.group(0).lower()
 
     compact = re.sub(r'[\r\n\t]+', ' ', text)
     compact = re.sub(r'\s+', ' ', compact).strip()
@@ -4368,7 +4368,34 @@ def _load_org_restaurants(org_id):
         restaurant_data['closed_until'] = closure.get('closed_until')
         restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
         new_data.append(restaurant_data)
-    org['restaurants'] = new_data
+    # Guard: do not overwrite existing data with zero-metric results.
+    # This happens when a background refresh runs but the iFood API returns no orders
+    # (rate limit, transient failure, etc.) while the in-memory cache already has
+    # real order data — e.g. because a different Gunicorn worker hydrated it earlier.
+    existing_order_count = _count_orders_in_restaurant_list(org.get('restaurants') or [])
+    new_order_count = _count_orders_in_restaurant_list(new_data)
+    if new_order_count > 0 or not org.get('restaurants') or new_order_count >= existing_order_count:
+        org['restaurants'] = new_data
+    else:
+        # Preserve existing metrics; only update non-metric status fields.
+        existing_by_id = {
+            normalize_merchant_id(r.get('merchant_id') or r.get('id') or ''): r
+            for r in (org.get('restaurants') or [])
+            if isinstance(r, dict)
+        }
+        merged = []
+        for r in new_data:
+            mid = normalize_merchant_id(r.get('merchant_id') or r.get('id') or '')
+            existing = existing_by_id.get(mid)
+            if existing and int(existing.get('orders') or 0) > 0:
+                preserved = dict(existing)
+                for field in ('is_closed', 'closure_reason', 'closed_until', 'active_interruptions_count'):
+                    preserved[field] = r.get(field, preserved.get(field))
+                merged.append(preserved)
+            else:
+                merged.append(r)
+        org['restaurants'] = merged
+        new_data = org['restaurants']
     org['last_refresh'] = datetime.now()
     cache_order_limit = max(
         1,
