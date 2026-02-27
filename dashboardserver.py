@@ -705,6 +705,11 @@ def _sync_org_restaurants_from_cache(org_id: int, org: dict, max_age_hours: int 
         org['restaurants'] = cached_restaurants
         if isinstance(cache_created_at, datetime):
             org['last_refresh'] = cache_created_at
+        # Advance watermark: this worker now knows the DB held at least this many orders,
+        # so keepalive must not overwrite it with fewer.
+        org['_db_cache_order_watermark'] = max(
+            int(org.get('_db_cache_order_watermark') or 0), cached_order_count
+        )
 
 
 def _normalize_org_merchants_config(org_config):
@@ -3050,6 +3055,15 @@ def _persist_order_snapshots(org_id, merchant_id: str, source: str, orders: list
 def _persist_org_restaurants_cache(org_id, org_data: dict) -> bool:
     if org_id is None or not isinstance(org_data, dict):
         return False
+    new_order_count = _count_orders_in_restaurant_list(org_data.get('restaurants') or [])
+    # Guard: do not let keepalive writes decrease the DB cache order count.
+    # This prevents a race condition where keepalive fires before _load_org_restaurants
+    # completes (or on a freshly-booted worker with sparse in-memory state), writing a
+    # low-order-count snapshot that overwrites the authoritative full-load DB record.
+    # Workers track the maximum order count they have ever persisted (_db_cache_order_watermark).
+    watermark = int(org_data.get('_db_cache_order_watermark') or 0)
+    if new_order_count < watermark:
+        return False
     cache_order_limit = max(
         1,
         int(str(os.environ.get('ORDERS_CACHE_LIMIT', '300')).strip() or '300')
@@ -3065,6 +3079,7 @@ def _persist_org_restaurants_cache(org_id, org_data: dict) -> bool:
     )
     # Keep org cache timestamp aligned with event ingestion updates.
     org_data['last_refresh'] = datetime.now()
+    org_data['_db_cache_order_watermark'] = max(watermark, new_order_count)
     return True
 
 
@@ -4406,7 +4421,10 @@ def _load_org_restaurants(org_id):
         'restaurants',
         [build_restaurant_cache_record(r, max_orders=cache_order_limit) for r in new_data]
     )
-    print(f"Ã¢Å“â€¦ Org {org_id}: loaded {len(new_data)} restaurants")
+    # Advance watermark so keepalive cannot overwrite this full-load result with fewer orders.
+    saved_count = _count_orders_in_restaurant_list(new_data)
+    org['_db_cache_order_watermark'] = max(int(org.get('_db_cache_order_watermark') or 0), saved_count)
+    print(f”Ã¢Å”â€¦ Org {org_id}: loaded {len(new_data)} restaurants”)
 
 
 def initialize_all_orgs():
@@ -4426,6 +4444,8 @@ def initialize_all_orgs():
             od['restaurants'] = cached
             cache_created_at = cached_meta.get('created_at') if isinstance(cached_meta, dict) else None
             od['last_refresh'] = cache_created_at if isinstance(cache_created_at, datetime) else datetime.now()
+            # Seed watermark so keepalive cannot overwrite this cache with a sparser one.
+            od['_db_cache_order_watermark'] = _count_orders_in_restaurant_list(cached)
             # Prevent stale cache entries from reviving removed merchants after restart.
             _reconcile_org_restaurants_with_config(od, od.get('config') or {})
             print(f"  Ã¢Å¡Â¡ Org {org_id} ({org_info['name']}): {len(cached)} restaurants from cache")
