@@ -4620,9 +4620,18 @@ def initialize_all_orgs():
                 # When an external worker handles refresh, skip the full data
                 # load to avoid split-brain DB writes.  The web process will
                 # sync from the worker's DB cache via _sync_org_restaurants_from_cache.
-                _external_worker_init = bool(REDIS_URL) or str(
-                    os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
-                if not _external_worker_init:
+                _is_worker_init = (
+                    ('--worker' in sys.argv)
+                    or str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+                )
+                _defer_to_worker_init = (
+                    not _is_worker_init
+                    and (
+                        bool(REDIS_URL)
+                        or str(os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+                    )
+                )
+                if not _defer_to_worker_init:
                     _load_org_restaurants(org_id)
     # Set legacy globals for backward compat (use first org's data)
     if orgs:
@@ -4646,11 +4655,18 @@ def _init_and_refresh_org(org_id):
     """
     api = _init_org_ifood(org_id)
     if api:
-        # Skip full data load when a dedicated worker handles refresh.
-        _external_worker = bool(REDIS_URL) or str(
-            os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
-        if _external_worker:
-            return
+        # Skip full data load when a dedicated worker handles refresh,
+        # but ONLY on non-worker processes.  The worker itself must always
+        # be allowed to load data.
+        _is_worker = (
+            ('--worker' in sys.argv)
+            or str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+        )
+        if not _is_worker:
+            _defer_to_worker = bool(REDIS_URL) or str(
+                os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+            if _defer_to_worker:
+                return
         _load_org_restaurants(org_id)
 
 
@@ -5417,10 +5433,14 @@ def initialize_app():
     # DISABLE_WEB_REFRESH is set, the web process should not run its own
     # background refresh or keepalive polling to avoid split-brain races
     # where both services write conflicting data to the shared DB.
+    # Note: the worker process itself is never considered "external" to itself.
     _has_external_worker = (
-        queue_mode
-        or bool(REDIS_URL)
-        or str(os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+        not is_worker_process
+        and (
+            queue_mode
+            or bool(REDIS_URL)
+            or str(os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+        )
     )
 
     org_values_snapshot = _org_data_values_snapshot()
