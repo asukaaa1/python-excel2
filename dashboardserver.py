@@ -3256,6 +3256,7 @@ def _persist_org_restaurants_cache(org_id, org_data: dict) -> bool:
     if org_id is None or not isinstance(org_data, dict):
         return False
     new_order_count = _count_orders_in_restaurant_list(org_data.get('restaurants') or [])
+    new_revenue = _sum_revenue_in_restaurant_list(org_data.get('restaurants') or [])
     # Guard: do not let keepalive writes decrease the DB cache order count.
     # This prevents a race condition where keepalive fires before _load_org_restaurants
     # completes (or on a freshly-booted worker with sparse in-memory state), writing a
@@ -3272,7 +3273,9 @@ def _persist_org_restaurants_cache(org_id, org_data: dict) -> bool:
         except Exception:
             pass
     if new_order_count < watermark:
+        print(f"[PERSIST-GUARD] org={org_id} BLOCKED: new_orders={new_order_count} < watermark={watermark}")
         return False
+    print(f"[PERSIST] org={org_id} WRITING: orders={new_order_count} revenue={new_revenue:.2f} watermark={watermark}")
     cache_order_limit = max(
         1,
         int(str(os.environ.get('ORDERS_CACHE_LIMIT', '300')).strip() or '300')
@@ -4613,6 +4616,10 @@ def _load_org_restaurants(org_id):
         # Avoid churn when both snapshots are empty/sparse.
         should_replace_existing = False
 
+    print(f"[REFRESH-GUARD] org={org_id} replace={should_replace_existing} "
+          f"new_orders={new_order_count} existing_orders={existing_order_count} "
+          f"new_revenue={new_revenue_total:.2f} existing_revenue={existing_revenue_total:.2f}")
+
     if should_replace_existing:
         org['restaurants'] = new_data
     else:
@@ -4665,6 +4672,11 @@ def initialize_all_orgs():
             od['last_refresh'] = cache_created_at if isinstance(cache_created_at, datetime) else datetime.now()
             # Seed watermark so keepalive cannot overwrite this cache with a sparser one.
             od['_db_cache_order_watermark'] = _count_orders_in_restaurant_list(cached)
+            _cached_orders = _count_orders_in_restaurant_list(cached)
+            _cached_revenue = _sum_revenue_in_restaurant_list(cached)
+            print(f"  [INIT-CACHE] org={org_id} loaded from DB: "
+                  f"restaurants={len(cached)} orders={_cached_orders} revenue={_cached_revenue:.2f} "
+                  f"cache_age={cached_meta.get('created_at')}")
             # Prevent stale cache entries from reviving removed merchants after restart.
             _reconcile_org_restaurants_with_config(od, od.get('config') or {})
             print(f"  Ã¢Å¡Â¡ Org {org_id} ({org_info['name']}): {len(cached)} restaurants from cache")
