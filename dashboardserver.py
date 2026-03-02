@@ -2843,8 +2843,17 @@ def _order_cache_key(order: dict) -> str:
         )
     merchant_id = normalize_merchant_id(merchant_candidate)
     amount = round(_safe_float_amount(extract_order_amount(order)), 2)
-    if created_at or merchant_id or amount > 0:
-        return f"fallback:{merchant_id}:{created_at}:{amount}"
+    status = normalize_order_status_value(
+        order.get('orderStatus') or order.get('status') or order.get('state')
+    )
+    try:
+        payload_hash = hashlib.sha1(
+            json.dumps(order, sort_keys=True, ensure_ascii=False, default=str, separators=(',', ':')).encode('utf-8')
+        ).hexdigest()[:16]
+    except Exception:
+        payload_hash = 'nohash'
+    if created_at or merchant_id or amount > 0 or payload_hash:
+        return f"fallback:{merchant_id}:{created_at}:{status}:{amount}:{payload_hash}"
     return ''
 
 

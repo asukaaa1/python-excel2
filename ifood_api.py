@@ -7,6 +7,7 @@ import requests
 import json
 import os
 import re
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 from pathlib import Path
@@ -114,12 +115,36 @@ class IFoodAPI:
     def _order_cache_key(self, order: Dict) -> str:
         if not isinstance(order, dict):
             return ''
-        return str(
+        canonical_id = str(
             order.get('id')
             or order.get('orderId')
+            or order.get('order_id')
             or order.get('displayId')
-            or f"{order.get('createdAt')}:{order.get('orderStatus')}"
+            or order.get('orderDisplayId')
+            or ''
+        ).strip()
+        if canonical_id:
+            return canonical_id
+
+        created_at = str(order.get('createdAt') or order.get('created_at') or '').strip()
+        status = self._normalize_order_status(
+            order.get('orderStatus') or order.get('status') or order.get('state')
         )
+        merchant_candidate = (
+            order.get('merchantId')
+            or order.get('merchant_id')
+            or ((order.get('merchant') or {}).get('id') if isinstance(order.get('merchant'), dict) else None)
+            or ((order.get('merchant') or {}).get('merchantId') if isinstance(order.get('merchant'), dict) else None)
+        )
+        merchant_id = self._normalize_merchant_id(merchant_candidate)
+        amount = round(self._safe_float_amount(self._extract_order_amount(order)), 2)
+        try:
+            payload_hash = hashlib.sha1(
+                json.dumps(order, sort_keys=True, ensure_ascii=False, default=str, separators=(',', ':')).encode('utf-8')
+            ).hexdigest()[:16]
+        except Exception:
+            payload_hash = 'nohash'
+        return f"fallback:{merchant_id}:{created_at}:{status}:{amount}:{payload_hash}"
 
     def _normalize_merchant_id(self, value) -> str:
         text = str(value or '').strip()
@@ -1045,15 +1070,12 @@ class IFoodAPI:
                     continue
             filtered.append(order)
 
-        # De-duplicate by order id when possible.
+        # De-duplicate by canonical id, or by enriched fallback fingerprint when id is missing.
         dedup = {}
         for order in filtered:
-            key = str(
-                order.get('id')
-                or order.get('orderId')
-                or order.get('displayId')
-                or f"{order.get('createdAt')}:{order.get('orderStatus')}"
-            )
+            key = self._order_cache_key(order)
+            if not key:
+                continue
             dedup[key] = order
         return list(dedup.values())
     
