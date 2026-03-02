@@ -4685,22 +4685,7 @@ def initialize_all_orgs():
         else:
             api = _init_org_ifood(org_id)
             if api:
-                # When an external worker handles refresh, skip the full data
-                # load to avoid split-brain DB writes.  The web process will
-                # sync from the worker's DB cache via _sync_org_restaurants_from_cache.
-                _is_worker_init = (
-                    ('--worker' in sys.argv)
-                    or str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on')
-                )
-                _defer_to_worker_init = (
-                    not _is_worker_init
-                    and (
-                        bool(REDIS_URL)
-                        or str(os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
-                    )
-                )
-                if not _defer_to_worker_init:
-                    _load_org_restaurants(org_id)
+                _load_org_restaurants(org_id)
     # Set legacy globals for backward compat (use first org's data)
     if orgs:
         first_org_id = orgs[0].get('id')
@@ -4714,27 +4699,9 @@ def initialize_all_orgs():
 
 
 def _init_and_refresh_org(org_id):
-    """Background: init API and refresh data for an org.
-
-    When an external worker service is expected (REDIS_URL is configured),
-    only initialise the API client so the web process can make on-demand
-    requests.  The full data load is left to the worker to avoid split-brain
-    races where both services write conflicting data to the shared DB.
-    """
+    """Background: init API and refresh data for an org"""
     api = _init_org_ifood(org_id)
     if api:
-        # Skip full data load when a dedicated worker handles refresh,
-        # but ONLY on non-worker processes.  The worker itself must always
-        # be allowed to load data.
-        _is_worker = (
-            ('--worker' in sys.argv)
-            or str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on')
-        )
-        if not _is_worker:
-            _defer_to_worker = bool(REDIS_URL) or str(
-                os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
-            if _defer_to_worker:
-                return
         _load_org_restaurants(org_id)
 
 
@@ -5496,38 +5463,17 @@ def initialize_app():
         ('--worker' in sys.argv)
         or (str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on'))
     )
-    # Detect when a separate worker service handles refresh/polling.
-    # If REDIS_URL is configured (even if temporarily unreachable), or
-    # DISABLE_WEB_REFRESH is set, the web process should not run its own
-    # background refresh or keepalive polling to avoid split-brain races
-    # where both services write conflicting data to the shared DB.
-    # Note: the worker process itself is never considered "external" to itself.
-    _has_external_worker = (
-        not is_worker_process
-        and (
-            queue_mode
-            or bool(REDIS_URL)
-            or str(os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
-        )
-    )
-
     org_values_snapshot = _org_data_values_snapshot()
     if not any((od or {}).get('restaurants') for od in org_values_snapshot):
         print("\nNo org data found; skipping legacy file fallback.")
 
     # Start background refresh for org-scoped data.
-    # Skip when a dedicated worker service handles refresh to avoid split-brain.
-    if not queue_mode and not _has_external_worker:
+    if not queue_mode:
         bg_refresher.interval = 1800  # 30 min
         bg_refresher.start()
-    elif _has_external_worker and not queue_mode:
-        print("Web refresh disabled: external worker detected (REDIS_URL set). "
-              "Data will sync from DB cache written by the worker service.")
 
     # In Redis queue mode, keepalive polling runs inside the dedicated worker loop.
-    # Web processes should not poll in parallel, otherwise they can race and persist
-    # sparse snapshots over richer data.
-    if IFOOD_KEEPALIVE_POLLING and not is_worker_process and not queue_mode and not _has_external_worker:
+    if IFOOD_KEEPALIVE_POLLING and not is_worker_process and not queue_mode:
         start_keepalive_poller()
     
     org_values_snapshot = _org_data_values_snapshot()
