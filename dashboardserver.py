@@ -4552,7 +4552,7 @@ def _load_org_restaurants(org_id):
     # real order data — e.g. because a different Gunicorn worker hydrated it earlier.
     existing_order_count = _count_orders_in_restaurant_list(org.get('restaurants') or [])
     new_order_count = _count_orders_in_restaurant_list(new_data)
-    if new_order_count > 0 or not org.get('restaurants') or new_order_count >= existing_order_count:
+    if new_order_count > 0 or not org.get('restaurants'):
         org['restaurants'] = new_data
     else:
         # Preserve existing metrics; only update non-metric status fields.
@@ -4579,14 +4579,26 @@ def _load_org_restaurants(org_id):
         1,
         int(str(os.environ.get('ORDERS_CACHE_LIMIT', '300')).strip() or '300')
     )
-    db.save_org_data_cache(
-        org_id,
-        'restaurants',
-        [build_restaurant_cache_record(r, max_orders=cache_order_limit) for r in new_data]
-    )
-    # Advance watermark so keepalive cannot overwrite this full-load result with fewer orders.
+    # Watermark guard: do not overwrite DB cache with fewer orders than previously persisted.
+    # Without this, a refresh that gets 0 orders from the API would erase a valid DB cache,
+    # causing subsequent page loads to also see 0 until the next successful fetch.
+    watermark = int(org.get('_db_cache_order_watermark') or 0)
+    if watermark <= 0:
+        try:
+            existing_cache = db.load_org_data_cache(org_id, 'restaurants', max_age_hours=24)
+            existing_count = _count_orders_in_restaurant_list(existing_cache or [])
+            if existing_count > 0:
+                watermark = existing_count
+        except Exception:
+            pass
     saved_count = _count_orders_in_restaurant_list(new_data)
-    org['_db_cache_order_watermark'] = max(int(org.get('_db_cache_order_watermark') or 0), saved_count)
+    if saved_count > 0 or saved_count >= watermark:
+        db.save_org_data_cache(
+            org_id,
+            'restaurants',
+            [build_restaurant_cache_record(r, max_orders=cache_order_limit) for r in new_data]
+        )
+    org['_db_cache_order_watermark'] = max(watermark, saved_count)
     print(f"  {org_id}: loaded {len(new_data)} restaurants")
 
 
