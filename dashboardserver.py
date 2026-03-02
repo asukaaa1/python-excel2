@@ -686,6 +686,31 @@ def _count_orders_in_restaurant_list(restaurants) -> int:
     return total
 
 
+def _sum_revenue_in_restaurant_list(restaurants) -> float:
+    total = 0.0
+    if not isinstance(restaurants, list):
+        return 0.0
+    for restaurant in restaurants:
+        if not isinstance(restaurant, dict):
+            continue
+        metrics = restaurant.get('metrics') if isinstance(restaurant.get('metrics'), dict) else {}
+        candidates = [
+            (metrics or {}).get('liquido'),
+            (metrics or {}).get('valor_bruto'),
+            restaurant.get('revenue'),
+        ]
+        best = 0.0
+        for raw_value in candidates:
+            try:
+                numeric = float(raw_value or 0)
+            except Exception:
+                numeric = 0.0
+            if numeric > best:
+                best = numeric
+        total += max(0.0, best)
+    return total
+
+
 def _sync_org_restaurants_from_cache(org_id: int, org: dict, max_age_hours: int = 12, force: bool = False):
     """Refresh in-memory org restaurants from DB cache when cache is newer/richer."""
     if not org_id or not isinstance(org, dict):
@@ -711,6 +736,8 @@ def _sync_org_restaurants_from_cache(org_id: int, org: dict, max_age_hours: int 
     current_last_refresh = org.get('last_refresh')
     current_order_count = _count_orders_in_restaurant_list(current_restaurants)
     cached_order_count = _count_orders_in_restaurant_list(cached_restaurants)
+    current_revenue_total = _sum_revenue_in_restaurant_list(current_restaurants)
+    cached_revenue_total = _sum_revenue_in_restaurant_list(cached_restaurants)
 
     should_replace = False
     if not current_restaurants:
@@ -721,13 +748,21 @@ def _sync_org_restaurants_from_cache(org_id: int, org: dict, max_age_hours: int 
             or (cache_created_at > (current_last_refresh + timedelta(seconds=5)))
         )
         if cache_is_newer:
-            # Trust newer persisted snapshots except when they are clearly sparse
-            # zero-order writes that would blank a non-empty in-memory dataset.
-            if cached_order_count <= 0 < current_order_count:
-                should_replace = False
-            else:
+            # Trust newer persisted snapshots only when they are at least as rich
+            # as the in-memory dataset (order count first, then revenue).
+            if cached_order_count > current_order_count:
                 should_replace = True
+            elif cached_order_count == current_order_count:
+                should_replace = cached_revenue_total >= current_revenue_total
+            else:
+                should_replace = False
     if not should_replace and current_order_count <= 0 and cached_order_count > 0:
+        should_replace = True
+    if (
+        not should_replace
+        and current_order_count == cached_order_count
+        and current_revenue_total <= 0 < cached_revenue_total
+    ):
         should_replace = True
 
     if should_replace:
@@ -933,10 +968,24 @@ def get_current_org_restaurants():
             org['init_attempted_at'] = now
             api = org.get('api') or _init_org_ifood(org_id)
             if api:
-                _load_org_restaurants(org_id)
-                org_restaurants = org.get('restaurants') or []
-                if org_restaurants:
-                    return _reconcile_org_restaurants_with_config(org, org_config)
+                # In split web/worker deployments, only the worker should run
+                # full refreshes that write DB cache snapshots.
+                _is_worker = (
+                    ('--worker' in sys.argv)
+                    or str(os.environ.get('RUN_REFRESH_WORKER', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+                )
+                _defer_to_worker = (
+                    not _is_worker
+                    and (
+                        bool(REDIS_URL)
+                        or str(os.environ.get('DISABLE_WEB_REFRESH', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+                    )
+                )
+                if not _defer_to_worker:
+                    _load_org_restaurants(org_id)
+                    org_restaurants = org.get('restaurants') or []
+                    if org_restaurants:
+                        return _reconcile_org_restaurants_with_config(org, org_config)
 
         # Keep configured merchants visible in local/test environments even when API is offline.
         placeholder_restaurants = _reconcile_org_restaurants_with_config(org, org_config)
@@ -4546,13 +4595,25 @@ def _load_org_restaurants(org_id):
         restaurant_data['closed_until'] = closure.get('closed_until')
         restaurant_data['active_interruptions_count'] = int(closure.get('active_interruptions_count') or 0)
         new_data.append(restaurant_data)
-    # Guard: do not overwrite existing data with zero-metric results.
-    # This happens when a background refresh runs but the iFood API returns no orders
-    # (rate limit, transient failure, etc.) while the in-memory cache already has
-    # real order data — e.g. because a different Gunicorn worker hydrated it earlier.
+    # Guard: do not overwrite existing data with sparse refreshes.
+    # This happens when get_orders omits test orders or returns partial payloads.
     existing_order_count = _count_orders_in_restaurant_list(org.get('restaurants') or [])
     new_order_count = _count_orders_in_restaurant_list(new_data)
-    if new_order_count > 0 or not org.get('restaurants') or new_order_count >= existing_order_count:
+    existing_revenue_total = _sum_revenue_in_restaurant_list(org.get('restaurants') or [])
+    new_revenue_total = _sum_revenue_in_restaurant_list(new_data)
+
+    should_replace_existing = False
+    if not org.get('restaurants'):
+        should_replace_existing = True
+    elif new_order_count > existing_order_count:
+        should_replace_existing = True
+    elif new_order_count == existing_order_count and new_order_count > 0:
+        should_replace_existing = new_revenue_total >= existing_revenue_total
+    elif new_order_count <= 0 and existing_order_count <= 0:
+        # Avoid churn when both snapshots are empty/sparse.
+        should_replace_existing = False
+
+    if should_replace_existing:
         org['restaurants'] = new_data
     else:
         # Preserve existing metrics; only update non-metric status fields.
@@ -4565,7 +4626,10 @@ def _load_org_restaurants(org_id):
         for r in new_data:
             mid = normalize_merchant_id(r.get('merchant_id') or r.get('id') or '')
             existing = existing_by_id.get(mid)
-            if existing and _count_orders_in_restaurant_list([existing]) > 0:
+            if existing and (
+                _count_orders_in_restaurant_list([existing]) > 0
+                or (new_order_count <= 0 and existing_order_count <= 0)
+            ):
                 preserved = dict(existing)
                 for field in ('is_closed', 'closure_reason', 'closed_until', 'active_interruptions_count'):
                     preserved[field] = r.get(field, preserved.get(field))
@@ -4575,15 +4639,7 @@ def _load_org_restaurants(org_id):
         org['restaurants'] = merged
         new_data = org['restaurants']
     org['last_refresh'] = datetime.now()
-    cache_order_limit = max(
-        1,
-        int(str(os.environ.get('ORDERS_CACHE_LIMIT', '300')).strip() or '300')
-    )
-    db.save_org_data_cache(
-        org_id,
-        'restaurants',
-        [build_restaurant_cache_record(r, max_orders=cache_order_limit) for r in new_data]
-    )
+    _persist_org_restaurants_cache(org_id, org)
     # Advance watermark so keepalive cannot overwrite this full-load result with fewer orders.
     saved_count = _count_orders_in_restaurant_list(new_data)
     org['_db_cache_order_watermark'] = max(int(org.get('_db_cache_order_watermark') or 0), saved_count)
