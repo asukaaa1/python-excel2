@@ -1962,16 +1962,18 @@ def _collect_candidate_merchant_ids(api, restaurant: dict, restaurant_id: str, o
 def _fetch_orders_from_candidate_merchants(api, candidate_ids, start_date, end_date, default_restaurant_id):
     fetched_orders = []
     resolved_merchant_id = str(default_restaurant_id or '')
+    best_count = -1
     for candidate_id in candidate_ids:
         try:
             candidate_orders = api.get_orders(candidate_id, start_date, end_date) or []
         except Exception as e:
             print(f"WARN merchant {candidate_id}: on-demand orders hydration failed: {e}")
             candidate_orders = []
-        if candidate_orders:
-            fetched_orders = candidate_orders
+        candidate_count = len(candidate_orders) if isinstance(candidate_orders, list) else 0
+        if candidate_count > best_count:
+            best_count = candidate_count
+            fetched_orders = candidate_orders if isinstance(candidate_orders, list) else []
             resolved_merchant_id = str(candidate_id)
-            break
     if not fetched_orders and candidate_ids:
         resolved_merchant_id = str(candidate_ids[0])
     return fetched_orders, resolved_merchant_id
@@ -2049,7 +2051,31 @@ def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_
                         normalize_merchant_id(resolved_merchant_id) or str(resolved_merchant_id or '').strip(),
                     )
                     if normalized_fetched:
-                        restaurant['_orders_cache'] = normalized_fetched
+                        # Never drop historical cache on sparse remote sync responses.
+                        # Some tenants/providers return only recent event-derived orders.
+                        merged_orders = {}
+                        for existing_order in (normalized_existing or []):
+                            if not isinstance(existing_order, dict):
+                                continue
+                            normalized_existing_order = normalize_order_payload(existing_order)
+                            existing_key = _order_cache_key(normalized_existing_order)
+                            if existing_key:
+                                merged_orders[existing_key] = normalized_existing_order
+                        for fetched_order in (normalized_fetched or []):
+                            if not isinstance(fetched_order, dict):
+                                continue
+                            normalized_fetched_order = normalize_order_payload(fetched_order)
+                            fetched_key = _order_cache_key(normalized_fetched_order)
+                            if not fetched_key:
+                                continue
+                            previous_payload = merged_orders.get(fetched_key)
+                            if previous_payload is None:
+                                merged_orders[fetched_key] = normalized_fetched_order
+                            else:
+                                merged_orders[fetched_key] = normalize_order_payload(
+                                    _merge_order_payload_for_cache(previous_payload, normalized_fetched_order)
+                                )
+                        restaurant['_orders_cache'] = list(merged_orders.values()) if merged_orders else normalized_fetched
                         _set_restaurant_resolved_merchant_id(restaurant, resolved_merchant_id)
                 except Exception:
                     pass
