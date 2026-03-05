@@ -783,6 +783,58 @@ def register(app, deps):
             log_exception("request_exception", e)
             return internal_error_response()
 
+    @bp.route('/api/ifood/homologation/merchants')
+    @login_required
+    def api_ifood_homologation_merchants():
+        """Live proxy for iFood GET /merchants used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            merchants = api.get_merchants()
+            if merchants is None:
+                return _ifood_error_response(api, action='listagem de lojas (GET /merchants)', default_status=502)
+
+            if not isinstance(merchants, list):
+                merchants = []
+
+            return jsonify({
+                'success': True,
+                'merchants': merchants,
+                'count': len(merchants),
+            })
+        except Exception as e:
+            print(f"Error listing iFood merchants: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/merchants/<merchant_id>')
+    @login_required
+    def api_ifood_homologation_merchant_details(merchant_id):
+        """Live proxy for iFood GET /merchants/{merchantId} used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            details = api.get_merchant_details(merchant_id)
+            if details is None:
+                return _ifood_error_response(
+                    api,
+                    action='detalhes da loja (GET /merchants/{merchantId})',
+                    default_status=502
+                )
+
+            return jsonify({
+                'success': True,
+                'merchant': details if isinstance(details, dict) else {},
+            })
+        except Exception as e:
+            print(f"Error getting iFood merchant details: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
 
     @bp.route('/api/restaurant/<restaurant_id>/status')
     @login_required
