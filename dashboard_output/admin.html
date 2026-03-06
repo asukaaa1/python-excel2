@@ -433,6 +433,70 @@
                     </div>
                 </div>
             </div>
+
+        <div class="section animate-in" id="ifoodHomologationPanel">
+            <div class="section-header">
+                <h2><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 3.104v5.62a2.25 2.25 0 01-.659 1.591L5.25 14.156m0 0l3.841 3.841a2.25 2.25 0 003.182 0l7.477-7.477a2.25 2.25 0 000-3.182L16.91 3.5a2.25 2.25 0 00-3.182 0L5.25 11.978z"/></svg>Homologacao iFood - Endpoints</h2>
+            </div>
+            <div class="section-body" style="padding:1.5rem;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+                    <div class="form-group">
+                        <label class="form-label">Merchant ID (loja)</label>
+                        <input type="text" class="form-input" id="homologMerchantId" placeholder="d91ad16e-0abc-4149-8e86-b10a477659b8">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Interruption ID (DELETE)</label>
+                        <input type="text" class="form-input" id="homologInterruptionId" placeholder="id retornado no POST">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Interrupcao Start (ISO)</label>
+                        <input type="text" class="form-input" id="homologInterruptStart" placeholder="2026-03-05T18:30:00Z">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Interrupcao End (ISO)</label>
+                        <input type="text" class="form-input" id="homologInterruptEnd" placeholder="2026-03-05T18:50:00Z">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Descricao da interrupcao</label>
+                    <input type="text" class="form-input" id="homologInterruptDescription" value="Teste homologacao - pausa tecnica">
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+                    <div class="form-group">
+                        <label class="form-label">Timezone (opening-hours)</label>
+                        <input type="text" class="form-input" id="homologTimezone" value="America/Sao_Paulo">
+                    </div>
+                    <div class="form-group" style="display:flex;align-items:flex-end;">
+                        <button class="btn btn-secondary" onclick="fillDefaultHomologationData()">Preencher padrao</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Payload opening-hours (JSON)</label>
+                    <textarea class="form-input" id="homologOpeningHoursPayload" style="min-height:160px;font-family:var(--font-mono);">[
+  {"dayOfWeek":0,"start":"09:00:00","end":"23:00:00"},
+  {"dayOfWeek":1,"start":"09:00:00","end":"23:00:00"},
+  {"dayOfWeek":2,"start":"09:00:00","end":"23:00:00"},
+  {"dayOfWeek":3,"start":"09:00:00","end":"23:00:00"},
+  {"dayOfWeek":4,"start":"09:00:00","end":"23:00:00"},
+  {"dayOfWeek":5,"start":"09:00:00","end":"23:00:00"},
+  {"dayOfWeek":6,"start":"09:00:00","end":"23:00:00"}
+]</textarea>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
+                    <button class="btn btn-secondary" onclick="homologListMerchants()">GET /merchants</button>
+                    <button class="btn btn-secondary" onclick="homologMerchantDetails()">GET /merchants/{merchantId}</button>
+                    <button class="btn btn-secondary" onclick="homologMerchantStatus()">GET /merchants/{merchantId}/status</button>
+                    <button class="btn btn-secondary" onclick="homologCreateInterruption()">POST /merchants/{merchantId}/interruptions</button>
+                    <button class="btn btn-secondary" onclick="homologListInterruptions()">GET /merchants/{merchantId}/interruptions</button>
+                    <button class="btn btn-secondary" onclick="homologDeleteInterruption()">DELETE /merchants/{merchantId}/interruptions/{interruptionId}</button>
+                    <button class="btn btn-secondary" onclick="homologGetOpeningHours()">GET /merchants/{merchantId}/opening-hours</button>
+                    <button class="btn btn-secondary" onclick="homologPutOpeningHours()">PUT /merchants/{merchantId}/opening-hours</button>
+                </div>
+                <div style="margin-top:12px;padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);">
+                    <div id="homologResponseMeta" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Nenhuma chamada executada.</div>
+                    <pre id="homologResponseContent" style="margin:0;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:var(--font-mono);font-size:12px;">{}</pre>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1474,6 +1538,10 @@
                 const orgStoreCount = document.getElementById('orgStoreCount');
                 if (orgStoreCount) orgStoreCount.textContent = `${merchants.length} lojas`;
                 const tbody = document.getElementById('merchantsTable');
+                const merchantInput = document.getElementById('homologMerchantId');
+                if (merchantInput && !merchantInput.value && merchants.length > 0 && merchants[0].merchant_id) {
+                    merchantInput.value = merchants[0].merchant_id;
+                }
                 if (merchants.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum merchant configurado</td></tr>';
                     return;
@@ -1631,6 +1699,157 @@
             } catch (error) {
                 window.location.href = '/login';
             }
+        }
+
+
+        function getHomologMerchantId() {
+            const value = (document.getElementById('homologMerchantId')?.value || '').trim();
+            if (!value) {
+                showToast('Informe o Merchant ID para homologacao', 'error');
+                return null;
+            }
+            return value;
+        }
+
+        function fillDefaultHomologationData() {
+            const now = new Date();
+            const start = new Date(now.getTime() + (2 * 60 * 1000));
+            const end = new Date(now.getTime() + (22 * 60 * 1000));
+            const startInput = document.getElementById('homologInterruptStart');
+            const endInput = document.getElementById('homologInterruptEnd');
+            if (startInput) startInput.value = start.toISOString();
+            if (endInput) endInput.value = end.toISOString();
+            showToast('Campos de teste preenchidos', 'success');
+        }
+
+        async function renderHomologationResponse(title, response) {
+            const metaEl = document.getElementById('homologResponseMeta');
+            const contentEl = document.getElementById('homologResponseContent');
+            const status = response?.status || 0;
+            const ok = !!response?.ok;
+            let jsonBody = {};
+            try {
+                jsonBody = await response.json();
+            } catch (_) {
+                jsonBody = { success: false, error: 'Resposta nao eh JSON' };
+            }
+            if (metaEl) metaEl.textContent = `${title} | HTTP ${status} | ${ok ? 'OK' : 'ERRO'} | ${new Date().toLocaleString('pt-BR')}`;
+            if (contentEl) contentEl.textContent = JSON.stringify(jsonBody, null, 2);
+            return jsonBody;
+        }
+
+        async function callHomologationEndpoint(title, url, options = {}) {
+            try {
+                const response = await fetch(url, options);
+                const body = await renderHomologationResponse(title, response);
+                if (response.ok) showToast(`${title}: sucesso`, 'success');
+                else showToast(`${title}: falha (${response.status})`, 'error');
+                return { response, body };
+            } catch (error) {
+                const metaEl = document.getElementById('homologResponseMeta');
+                const contentEl = document.getElementById('homologResponseContent');
+                if (metaEl) metaEl.textContent = `${title} | erro de rede`;
+                if (contentEl) contentEl.textContent = String(error || 'Erro inesperado');
+                showToast(`${title}: erro de conexao`, 'error');
+                return null;
+            }
+        }
+
+        async function homologListMerchants() {
+            await callHomologationEndpoint('GET /merchants', '/api/ifood/homologation/merchants');
+        }
+
+        async function homologMerchantDetails() {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            await callHomologationEndpoint('GET /merchants/{merchantId}', `/api/ifood/homologation/merchants/${encodeURIComponent(merchantId)}`);
+        }
+
+        async function homologMerchantStatus() {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            await callHomologationEndpoint('GET /merchants/{merchantId}/status', `/api/restaurant/${encodeURIComponent(merchantId)}/status`);
+        }
+
+        async function homologCreateInterruption() {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            const start = (document.getElementById('homologInterruptStart')?.value || '').trim();
+            const end = (document.getElementById('homologInterruptEnd')?.value || '').trim();
+            const description = (document.getElementById('homologInterruptDescription')?.value || '').trim();
+            if (!start || !end || !description) {
+                showToast('Preencha start/end/descricao para criar interrupcao', 'error');
+                return;
+            }
+            const result = await callHomologationEndpoint(
+                'POST /merchants/{merchantId}/interruptions',
+                `/api/restaurant/${encodeURIComponent(merchantId)}/interruptions`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ start, end, description }),
+                }
+            );
+            const interruptionId = result?.body?.interruption?.id;
+            if (interruptionId) {
+                const idInput = document.getElementById('homologInterruptionId');
+                if (idInput) idInput.value = interruptionId;
+            }
+        }
+
+        async function homologListInterruptions() {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            const result = await callHomologationEndpoint('GET /merchants/{merchantId}/interruptions', `/api/restaurant/${encodeURIComponent(merchantId)}/interruptions`);
+            const list = result?.body?.interruptions;
+            if (Array.isArray(list) && list.length > 0 && list[0]?.id) {
+                const idInput = document.getElementById('homologInterruptionId');
+                if (idInput && !idInput.value) idInput.value = list[0].id;
+            }
+        }
+
+        async function homologDeleteInterruption() {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            const interruptionId = (document.getElementById('homologInterruptionId')?.value || '').trim();
+            if (!interruptionId) {
+                showToast('Informe o interruptionId para remover', 'error');
+                return;
+            }
+            await callHomologationEndpoint(
+                'DELETE /merchants/{merchantId}/interruptions/{interruptionId}',
+                `/api/restaurant/${encodeURIComponent(merchantId)}/interruptions/${encodeURIComponent(interruptionId)}`,
+                { method: 'DELETE' }
+            );
+        }
+
+        async function homologGetOpeningHours() {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            await callHomologationEndpoint('GET /merchants/{merchantId}/opening-hours', `/api/restaurant/${encodeURIComponent(merchantId)}/opening-hours`);
+        }
+
+        async function homologPutOpeningHours() {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            const timezone = (document.getElementById('homologTimezone')?.value || '').trim();
+            const payloadText = (document.getElementById('homologOpeningHoursPayload')?.value || '').trim();
+            let openingHours;
+            try {
+                openingHours = JSON.parse(payloadText);
+            } catch (_) {
+                showToast('Payload de opening-hours invalido (JSON)', 'error');
+                return;
+            }
+            await callHomologationEndpoint(
+                'PUT /merchants/{merchantId}/opening-hours',
+                `/api/restaurant/${encodeURIComponent(merchantId)}/opening-hours`,
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ opening_hours: openingHours, timezone }),
+                }
+            );
         }
 
         function showToast(message, type = 'success') {
