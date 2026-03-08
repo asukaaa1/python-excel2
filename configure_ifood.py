@@ -5,15 +5,28 @@ This script sets up the iFood API credentials and fixes merchant format
 
 import sys
 import json
+import os
 from dashboarddb import DashboardDatabase
 
-# Your iFood API credentials
-CLIENT_ID = "e9a8b9ad-87af-4e34-a3b6-b6d05c97ee21"
-CLIENT_SECRET = "zfytk0q9r1q8q8z82kyr6i17nrfrv0jnfs9hntyhdim31xstvlmr4rsl1k3c9ho5lt4n236t5btsss442u7rr6dcxall8dcd081"
+CLIENT_ID = str(os.environ.get('IFOOD_CLIENT_ID') or '').strip()
+CLIENT_SECRET = str(os.environ.get('IFOOD_CLIENT_SECRET') or '').strip()
+TEST_MERCHANT_ID = str(
+    os.environ.get('IFOOD_TEST_MERCHANT_ID')
+    or 'd91ad16e-0abc-4149-8e86-b10a477659b8'
+).strip()
+TEST_MERCHANT_NAME = str(
+    os.environ.get('IFOOD_TEST_MERCHANT_NAME')
+    or 'Teste - PRODUTORA DUO LTDA'
+).strip()
 
-# Your test merchant
-TEST_MERCHANT_ID = "d91ad16e-0abc-4149-8e86-b10a477659b8"
-TEST_MERCHANT_NAME = "Teste - PRODUTORA DUO LTDA"
+
+def _mask_secret(value: str, visible_suffix: int = 4) -> str:
+    secret = str(value or '')
+    if not secret:
+        return '(not set)'
+    if len(secret) <= visible_suffix:
+        return '*' * len(secret)
+    return f"{'*' * max(8, len(secret) - visible_suffix)}{secret[-visible_suffix:]}"
 
 def main():
     db = DashboardDatabase()
@@ -22,8 +35,17 @@ def main():
     print("iFood API Configuration Tool")
     print("=" * 70)
 
+    if not CLIENT_ID or not CLIENT_SECRET:
+        print("❌ Missing iFood credentials.")
+        print("Set IFOOD_CLIENT_ID and IFOOD_CLIENT_SECRET before running this script.")
+        return 1
+
     # Get organization
-    org_id = 1  # From check_orgs.py output
+    try:
+        org_id = int(str(os.environ.get('IFOOD_CONFIG_ORG_ID', '1')).strip() or '1')
+    except Exception:
+        print("❌ Invalid IFOOD_CONFIG_ORG_ID value.")
+        return 1
 
     print(f"\n📋 Configuring organization ID: {org_id}")
 
@@ -79,8 +101,8 @@ def main():
 
     # Step 3: Update organization with credentials and fixed merchant list
     print(f"\n🔑 Adding iFood API credentials...")
-    print(f"   Client ID: {CLIENT_ID}")
-    print(f"   Client Secret: {'*' * 20}...{CLIENT_SECRET[-10:]}")
+    print(f"   Client ID: {_mask_secret(CLIENT_ID)}")
+    print(f"   Client Secret: {_mask_secret(CLIENT_SECRET)}")
 
     success = db.update_org_ifood_config(
         org_id=org_id,

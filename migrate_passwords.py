@@ -13,6 +13,7 @@ import psycopg2
 import bcrypt
 import os
 import sys
+import secrets
 from getpass import getpass
 
 try:
@@ -30,8 +31,7 @@ def migrate_passwords():
     print("=" * 60)
     print()
     print("⚠️  WARNING: This script will reset ALL user passwords!")
-    print("   Users will need to use the new default passwords or")
-    print("   you'll need to manually set new passwords for each user.")
+    print("   Each account will receive a one-time random password.")
     print()
     
     confirm = input("Do you want to continue? (yes/no): ").strip().lower()
@@ -60,14 +60,7 @@ def migrate_passwords():
         print()
         
         for user_id, username, email in users:
-            # Generate new password or use default based on role
-            cursor.execute("SELECT role FROM dashboard_users WHERE id = %s", (user_id,))
-            role = cursor.fetchone()[0]
-            
-            if role == 'admin':
-                new_password = 'Admin123!'
-            else:
-                new_password = 'User123!'
+            new_password = secrets.token_urlsafe(12)
             
             # Hash with bcrypt
             salt = bcrypt.gensalt(rounds=12)
@@ -88,9 +81,7 @@ def migrate_passwords():
         print("✅ Migration complete!")
         print("=" * 60)
         print()
-        print("New default passwords:")
-        print("  Admin users: Admin123!")
-        print("  Regular users: User123!")
+        print("Passwords above are one-time credentials.")
         print()
         print("⚠️  Please have users change their passwords after logging in.")
         

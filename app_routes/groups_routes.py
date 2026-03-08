@@ -599,7 +599,8 @@ def register(app, deps):
         link = db.create_group_share_link(org_id, group_id, created_by=session.get('user', {}).get('id'), expires_hours=expires_hours)
         if not link:
             return jsonify({'success': False, 'error': 'Unable to create share link'}), 400
-        share_url = f"{get_public_base_url()}/grupo/share/{link['token']}"
+        base_url = get_public_base_url()
+        share_url = f"{base_url}/grupo/share/{link['token']}" if base_url else f"/grupo/share/{link['token']}"
         return jsonify({'success': True, 'link': {**link, 'url': share_url}})
 
 
@@ -646,7 +647,7 @@ def register(app, deps):
         links = db.list_restaurant_share_links(org_id, resolved_id)
         base_url = get_public_base_url()
         for link in links:
-            link['url'] = f"{base_url}/r/{link['token']}"
+            link['url'] = f"{base_url}/r/{link['token']}" if base_url else f"/r/{link['token']}"
         return jsonify({'success': True, 'links': links})
 
 
@@ -674,7 +675,8 @@ def register(app, deps):
         if not link:
             return jsonify({'success': False, 'error': 'Unable to create share link'}), 400
 
-        share_url = f"{get_public_base_url()}/r/{link['token']}"
+        base_url = get_public_base_url()
+        share_url = f"{base_url}/r/{link['token']}" if base_url else f"/r/{link['token']}"
         return jsonify({'success': True, 'link': {**link, 'url': share_url}})
 
 

@@ -742,26 +742,31 @@ class DashboardDatabase:
             conn.close()
 
     def create_default_users(self):
-        """Create default admin and user accounts"""
+        """Create bootstrap users with one-time random passwords."""
         print("\nðŸ‘¤ Creating default users...")
-        
-        # Create admin user
-        self.create_user(
-            username='admin',
-            password='admin123',
-            full_name='Administrador',
-            email='admin@dashboard.com',
-            role='admin'
-        )
-        
-        # Create regular user
-        self.create_user(
-            username='usuario',
-            password='user123',
-            full_name='Usuario Padrao',
-            email='user@dashboard.com',
-            role='user'
-        )
+        credentials = []
+
+        for username, full_name, email, role in (
+            ('admin', 'Administrador', 'admin@dashboard.com', 'admin'),
+            ('usuario', 'Usuario Padrao', 'user@dashboard.com', 'user'),
+        ):
+            temp_password = secrets.token_urlsafe(12)
+            user_id = self.create_user(
+                username=username,
+                password=temp_password,
+                full_name=full_name,
+                email=email,
+                role=role
+            )
+            if user_id:
+                credentials.append({
+                    'username': username,
+                    'email': email,
+                    'role': role,
+                    'password': temp_password,
+                })
+
+        return credentials
     
     def get_all_users(self) -> List[Dict]:
         """Get all users (for platform/site admin panel)."""
@@ -2603,14 +2608,17 @@ def setup_database():
     # Create tables
     if db.setup_tables():
         # Create default users
-        db.create_default_users()
+        credentials = db.create_default_users()
         
         print("\n" + "=" * 60)
         print("âœ… Database setup complete!")
         print("=" * 60)
-        print("\nDefault credentials:")
-        print("  Admin:  admin@dashboard.com / admin123")
-        print("  User:   user@dashboard.com / user123")
+        if credentials:
+            print("\nBootstrap credentials (rotate after first login):")
+            for item in credentials:
+                print(f"  {item['role']}: {item['email']} / {item['password']}")
+        else:
+            print("\nNo bootstrap users were created (accounts may already exist).")
     else:
         print("\nâŒ Database setup failed!")
 

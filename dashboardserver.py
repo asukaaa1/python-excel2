@@ -96,6 +96,24 @@ app.permanent_session_lifetime = timedelta(days=7)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = IS_BEHIND_PROXY
+PUBLIC_BASE_URL = str(os.environ.get('PUBLIC_BASE_URL') or '').strip().rstrip('/')
+_trusted_hosts_env = str(os.environ.get('TRUSTED_HOSTS') or '').strip()
+if _trusted_hosts_env:
+    app.config['TRUSTED_HOSTS'] = [
+        host.strip() for host in _trusted_hosts_env.split(',') if host.strip()
+    ]
+elif PUBLIC_BASE_URL:
+    parsed_public_base_url = urlparse(PUBLIC_BASE_URL)
+    if parsed_public_base_url.netloc:
+        app.config['TRUSTED_HOSTS'] = [parsed_public_base_url.netloc]
+try:
+    app.config['MAX_CONTENT_LENGTH'] = max(
+        1024,
+        int(str(os.environ.get('MAX_CONTENT_LENGTH_BYTES', 2 * 1024 * 1024)).strip() or (2 * 1024 * 1024))
+    )
+except Exception:
+    app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
+ALLOW_IFRAME_EMBED = str(os.environ.get('ALLOW_IFRAME_EMBED', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
 # Redis-backed distributed features (queue/cache/pubsub)
 REDIS_URL = os.environ.get('REDIS_URL', '').strip()
 USE_REDIS_QUEUE = bool(_HAS_REDIS and REDIS_URL and str(os.environ.get('USE_REDIS_QUEUE', '1')).strip().lower() in ('1', 'true', 'yes', 'on'))
@@ -175,6 +193,15 @@ print(f"Dashboard output: {DASHBOARD_OUTPUT}")
 @app.after_request
 def add_cache_headers(response):
     """Set caching and compression headers"""
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+    if not ALLOW_IFRAME_EMBED:
+        response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+        response.headers.setdefault('Content-Security-Policy', "base-uri 'self'; object-src 'none'; frame-ancestors 'self'")
+    else:
+        response.headers.setdefault('Content-Security-Policy', "base-uri 'self'; object-src 'none'")
+
     no_store_paths = (
         '/api/org/ifood-config',
         '/api/ifood/config',
@@ -1219,10 +1246,9 @@ def _request_origin_matches_host():
 
 
 def get_public_base_url():
-    configured = str(os.environ.get('PUBLIC_BASE_URL') or '').strip().rstrip('/')
-    if configured:
-        return configured
-    return request.host_url.rstrip('/')
+    # Prefer an explicit public base URL; otherwise return relative links so
+    # generated invite/share URLs never trust a caller-controlled Host header.
+    return PUBLIC_BASE_URL
 
 
 def _rate_limit_key(scope):

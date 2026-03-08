@@ -433,7 +433,8 @@ def register(app, deps):
         if not email: return jsonify({'success': False, 'error': 'Email obrigatorio'}), 400
         token = db.create_invite(org_id, email, role, session['user']['id'])
         if not token: return jsonify({'success': False, 'error': 'Limite de membros atingido'}), 400
-        invite_url = f"{get_public_base_url()}/invite/{token}"
+        base_url = get_public_base_url()
+        invite_url = f"{base_url}/invite/{token}" if base_url else f"/invite/{token}"
         db.log_action('org.member_invited', org_id=org_id, user_id=session['user']['id'], details={'email': email, 'role': role}, ip_address=request.remote_addr)
         return jsonify({'success': True, 'invite_url': invite_url, 'token': token})
 

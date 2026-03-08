@@ -6,6 +6,9 @@ This will reset the passwords for your existing users using bcrypt
 import psycopg2
 import bcrypt
 import sys
+import os
+import secrets
+from getpass import getpass
 
 try:
     if hasattr(sys.stdout, "reconfigure"):
@@ -25,11 +28,11 @@ def reset_passwords():
     # Connect to database
     try:
         conn = psycopg2.connect(
-            host='localhost',
-            port=5432,
-            database='passwords',
-            user='postgres',
-            password='passwords'
+            host=os.environ.get('DATABASE_HOST', 'localhost'),
+            port=int(os.environ.get('DATABASE_PORT', 5432)),
+            database=os.environ.get('DATABASE_NAME', 'passwords'),
+            user=os.environ.get('DATABASE_USER', 'postgres'),
+            password=os.environ.get('DATABASE_PASSWORD') or getpass("Database password: ")
         )
         cursor = conn.cursor()
         print("✅ Connected to database")
@@ -56,12 +59,12 @@ def reset_passwords():
     for user in users:
         print(f"  - ID: {user[0]}, Username: {user[1]}, Role: {user[3]}")
     
-    print("\nResetting password to 'admin123' for all these users...")
+    admin_password = secrets.token_urlsafe(12)
+    print("\nResetting password for admin@dashboard.com users...")
     
-    # Generate bcrypt hash for 'admin123'
-    password = 'admin123'
+    # Generate bcrypt hash for a one-time admin password
     salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    hashed = bcrypt.hashpw(admin_password.encode('utf-8'), salt)
     hashed_str = hashed.decode('utf-8')
     
     print(f"New hash: {hashed_str[:50]}...")
@@ -86,9 +89,9 @@ def reset_passwords():
     print("\n" + "-"*70)
     print("Resetting password for user@dashboard.com...")
     
-    password = 'user123'
+    user_password = secrets.token_urlsafe(12)
     salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    hashed = bcrypt.hashpw(user_password.encode('utf-8'), salt)
     hashed_str = hashed.decode('utf-8')
     
     try:
@@ -114,9 +117,9 @@ def reset_passwords():
     print("="*70)
     print("\nYou can now login with:")
     print("  Email: admin@dashboard.com")
-    print("  Password: admin123")
+    print(f"  Password: {admin_password}")
     print("\n  Email: user@dashboard.com")
-    print("  Password: user123")
+    print(f"  Password: {user_password}")
     print()
 
 if __name__ == "__main__":

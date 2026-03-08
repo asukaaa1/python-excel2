@@ -100,11 +100,45 @@ def register_routes(bp, ctx: RouteContext):
             return "Invite not found", 404
 
         if 'user' in session:
-            result = db.accept_invite(invite_token, session['user']['id'])
-            if result and result.get('success'):
-                session['org_id'] = result['org_id']
-                return redirect(url_for('dashboard'))
-            return redirect(url_for('login_page', invite=invite_token, invite_error=1))
+            safe_token = escape_html_text(invite_token)
+            return f"""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>Accepting Invite</title>
+                <style>
+                    body {{ font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8fafc; color: #0f172a; }}
+                    .card {{ background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; width: min(420px, calc(100vw - 32px)); box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08); }}
+                    h1 {{ margin: 0 0 8px; font-size: 1.1rem; }}
+                    p {{ margin: 0; color: #475569; }}
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <h1>Accepting invite</h1>
+                    <p>Confirming your organization access. You will be redirected automatically.</p>
+                </div>
+                <script>
+                    (async function() {{
+                        try {{
+                            const response = await fetch('/api/invite/{safe_token}/accept', {{
+                                method: 'POST',
+                                headers: {{ 'Content-Type': 'application/json' }}
+                            }});
+                            const data = await response.json().catch(function() {{ return {{}}; }});
+                            if (response.ok && data.success) {{
+                                window.location.replace(data.redirect || '/dashboard');
+                                return;
+                            }}
+                        }} catch (error) {{}}
+                        window.location.replace('/login?invite={safe_token}&invite_error=1');
+                    }})();
+                </script>
+            </body>
+            </html>
+            """
 
         return redirect(url_for('login_page', invite=invite_token))
 
@@ -428,7 +462,12 @@ def register_routes(bp, ctx: RouteContext):
         if not shared:
             return jsonify({'success': False, 'error': 'View not found'}), 404
 
-        share_url = f"{get_public_base_url()}/dashboard?shared_view={shared['token']}"
+        base_url = get_public_base_url()
+        share_url = (
+            f"{base_url}/dashboard?shared_view={shared['token']}"
+            if base_url else
+            f"/dashboard?shared_view={shared['token']}"
+        )
         return jsonify({'success': True, 'share_url': share_url, 'token': shared['token'], 'expires_at': shared['expires_at']})
 
     @bp.route('/api/saved-views/<int:view_id>/share', methods=['DELETE'])
