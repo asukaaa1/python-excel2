@@ -432,6 +432,28 @@ def register_routes(bp, ctx: RouteContext):
             'success': True,
             'generated_at': generated_at,
             'pack_type': 'ifood_homologation_events_evidence',
+            'modules_used': [
+                {
+                    'name': 'Authentication',
+                    'doc_module': 'authentication',
+                    'used_for': ['oauth token acquisition'],
+                },
+                {
+                    'name': 'Merchant',
+                    'doc_module': 'merchant',
+                    'used_for': ['merchant list', 'merchant details', 'status', 'interruptions', 'opening-hours'],
+                },
+                {
+                    'name': 'Events',
+                    'doc_module': 'events',
+                    'used_for': ['polling', 'acknowledgment', 'webhook ingestion', 'evidence traces'],
+                },
+                {
+                    'name': 'Order',
+                    'doc_module': 'order',
+                    'used_for': ['order details', 'order listing fallback', 'dashboard metrics'],
+                },
+            ],
             'filters': {
                 'limit': limit,
                 'org_id': org_id_filter if str(org_id_filter or '').strip() else None,
@@ -444,6 +466,15 @@ def register_routes(bp, ctx: RouteContext):
             'entries_count': len(entries),
             'entries': entries,
             'evidence_log_file': IFOOD_EVIDENCE_LOG_FILE or None,
+            'webhook_config': {
+                'configured': bool(IFOOD_WEBHOOK_SECRET or IFOOD_WEBHOOK_TOKEN or IFOOD_WEBHOOK_ALLOW_UNSIGNED),
+                'auth_mode': (
+                    'hmac_sha256' if IFOOD_WEBHOOK_SECRET
+                    else 'token' if IFOOD_WEBHOOK_TOKEN
+                    else 'unsigned' if IFOOD_WEBHOOK_ALLOW_UNSIGNED
+                    else 'not_configured'
+                ),
+            },
         }
 
         if include_metrics:

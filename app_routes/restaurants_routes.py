@@ -44,6 +44,18 @@ def register(app, deps):
     bind_dependencies(globals(), deps, REQUIRED_DEPS)
     bp = Blueprint('restaurants_routes', __name__)
 
+    def _is_truthy(value):
+        return str(value or '').strip().lower() in ('1', 'true', 'yes', 'on', 'sim')
+
+    def _masked_value(value, *, keep=4):
+        text = str(value or '').strip()
+        if not text:
+            return None
+        keep_n = max(1, int(keep or 1))
+        if len(text) <= keep_n:
+            return '*' * len(text)
+        return f"{text[:keep_n]}{'*' * max(3, len(text) - keep_n)}"
+
     def _parse_ifood_error_status(api, default_status=500):
         err = {}
         getter = getattr(api, 'get_last_http_error', None)
@@ -832,6 +844,163 @@ def register(app, deps):
             })
         except Exception as e:
             print(f"Error getting iFood merchant details: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/authentication', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_authentication():
+        """Run a safe authentication probe without exposing the bearer token."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            authenticated = bool(api.authenticate())
+            token_expires_at = getattr(api, 'token_expires_at', None)
+            last_auth_error = str(getattr(api, 'last_auth_error', '') or '').strip() or None
+            status_code = 200 if authenticated else 502
+            if last_auth_error and last_auth_error.startswith('http_401'):
+                status_code = 401
+            elif last_auth_error and last_auth_error.startswith('http_403'):
+                status_code = 403
+
+            return jsonify({
+                'success': authenticated,
+                'module': 'Authentication',
+                'grant_type': 'client_credentials',
+                'authenticated': authenticated,
+                'token_present': bool(getattr(api, 'access_token', None)),
+                'token_expires_at': token_expires_at.isoformat() if token_expires_at else None,
+                'client_id_hint': _masked_value(getattr(api, 'client_id', None), keep=6),
+                'error': last_auth_error,
+            }), status_code
+        except Exception as e:
+            print(f"Error authenticating against iFood: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders')
+    @login_required
+    def api_ifood_homologation_orders():
+        """Live proxy for iFood order listing used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            merchant_id = str(
+                request.args.get('merchant_id')
+                or request.args.get('merchantId')
+                or ''
+            ).strip()
+            if not merchant_id:
+                return jsonify({'success': False, 'error': 'Merchant ID required'}), 400
+
+            start_date = str(request.args.get('start_date') or request.args.get('startDate') or '').strip() or None
+            end_date = str(request.args.get('end_date') or request.args.get('endDate') or '').strip() or None
+            status = str(request.args.get('status') or '').strip() or None
+
+            orders = api.get_orders(merchant_id, start_date, end_date, status)
+            if orders is None:
+                return _ifood_error_response(api, action='listagem de pedidos (GET /orders)', default_status=502)
+            if not isinstance(orders, list):
+                orders = []
+
+            return jsonify({
+                'success': True,
+                'module': 'Order',
+                'merchant_id': merchant_id,
+                'filters': {
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'status': status,
+                },
+                'orders': orders,
+                'count': len(orders),
+            })
+        except Exception as e:
+            print(f"Error listing iFood orders: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>')
+    @login_required
+    def api_ifood_homologation_order_details(order_id):
+        """Live proxy for iFood GET /orders/{orderId} used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            details = api.get_order_details(order_id)
+            if details is None:
+                return _ifood_error_response(
+                    api,
+                    action='detalhes do pedido (GET /orders/{orderId})',
+                    default_status=502
+                )
+
+            return jsonify({
+                'success': True,
+                'module': 'Order',
+                'order': details if isinstance(details, dict) else {},
+            })
+        except Exception as e:
+            print(f"Error getting iFood order details: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/events/polling', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_events_polling():
+        """Run a live polling request, optionally acknowledging returned events."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            data = get_json_payload()
+            if not isinstance(data, dict):
+                data = {}
+
+            merchant_scope_raw = (
+                data.get('merchant_ids')
+                if data.get('merchant_ids') is not None
+                else data.get('merchantId')
+                if data.get('merchantId') is not None
+                else data.get('merchant_id')
+            )
+            if isinstance(merchant_scope_raw, str):
+                merchant_scope = [part.strip() for part in merchant_scope_raw.split(',') if part.strip()]
+            elif isinstance(merchant_scope_raw, (list, tuple, set)):
+                merchant_scope = [str(part).strip() for part in merchant_scope_raw if str(part).strip()]
+            else:
+                merchant_scope = []
+
+            if not merchant_scope:
+                return jsonify({'success': False, 'error': 'Merchant ID required for polling'}), 400
+
+            ack_requested = _is_truthy(data.get('ack'))
+            events = api.poll_events(merchant_scope if len(merchant_scope) > 1 else merchant_scope[0]) or []
+            if not isinstance(events, list):
+                events = []
+
+            ack_result = None
+            if ack_requested and events and hasattr(api, 'acknowledge_events'):
+                ack_result = api.acknowledge_events(events)
+
+            return jsonify({
+                'success': True,
+                'module': 'Events',
+                'merchant_scope': merchant_scope,
+                'events': events,
+                'count': len(events),
+                'ack_requested': ack_requested,
+                'ack_result': ack_result,
+            })
+        except Exception as e:
+            print(f"Error polling iFood events: {e}")
             log_exception("request_exception", e)
             return internal_error_response()
 
