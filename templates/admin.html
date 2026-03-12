@@ -473,6 +473,16 @@
                             <div style="font-weight:700;">Order</div>
                             <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Order list and order details</div>
                         </div>
+                        <div style="padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);">
+                            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Module</div>
+                            <div style="font-weight:700;">Financial</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Sales, events, reconciliation, settlement and anticipation</div>
+                        </div>
+                        <div style="padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);">
+                            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Module</div>
+                            <div style="font-weight:700;">Review</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Review list, details, answer and summary</div>
+                        </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -492,6 +502,85 @@
                         <div class="form-group">
                             <label class="form-label">Order end date (YYYY-MM-DD)</label>
                             <input type="text" class="form-input" id="homologOrdersEndDate" placeholder="2026-03-08">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Financial start date (YYYY-MM-DD)</label>
+                            <input type="text" class="form-input" id="homologFinancialStartDate" placeholder="2026-03-01">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Financial end date (YYYY-MM-DD)</label>
+                            <input type="text" class="form-input" id="homologFinancialEndDate" placeholder="2026-03-08">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Competence (YYYY-MM)</label>
+                            <input type="text" class="form-input" id="homologFinancialCompetence" placeholder="2026-03">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Pagination</label>
+                            <div class="form-row" style="margin:0;">
+                                <input type="text" class="form-input" id="homologFinancialPage" placeholder="page" value="0">
+                                <input type="text" class="form-input" id="homologFinancialSize" placeholder="size" value="50">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Cancellation code</label>
+                            <input type="text" class="form-input" id="homologCancellationCode" placeholder="503">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Cancellation reason (optional)</label>
+                            <input type="text" class="form-input" id="homologCancellationReason" placeholder="Item unavailable">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Pickup code</label>
+                            <input type="text" class="form-input" id="homologPickupCode" placeholder="1234">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Delivery code</label>
+                            <input type="text" class="form-input" id="homologDeliveryCode" placeholder="1234">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Dispute ID</label>
+                            <input type="text" class="form-input" id="homologDisputeId" placeholder="ID da disputa">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Dispute alternative ID</label>
+                            <input type="text" class="form-input" id="homologDisputeAlternativeId" placeholder="ID da alternativa">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Dispute reject reason / alternative payload (JSON optional)</label>
+                        <textarea class="payload-input" id="homologDisputePayload">{
+  "reason": "Nao concordamos com a disputa"
+}</textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Review ID</label>
+                            <input type="text" class="form-input" id="homologReviewId" placeholder="ID do review">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Review answer</label>
+                            <input type="text" class="form-input" id="homologReviewAnswer" placeholder="Obrigado pelo feedback">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Review page</label>
+                            <input type="text" class="form-input" id="homologReviewPage" value="1" placeholder="1">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Review page size</label>
+                            <input type="text" class="form-input" id="homologReviewPageSize" value="10" placeholder="10">
                         </div>
                     </div>
                     <div class="form-row">
@@ -537,9 +626,38 @@
                         <button class="btn btn-secondary" onclick="homologEvidencePack()">GET /evidence-pack</button>
                     </div>
                     <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:10px 0 8px;">Order</div>
-                    <div class="endpoint-grid">
+                    <div class="endpoint-grid" style="margin-bottom:12px;">
                         <button class="btn btn-secondary" onclick="homologListOrders()">GET /orders</button>
                         <button class="btn btn-secondary" onclick="homologOrderDetails()">GET /orders/{orderId}</button>
+                        <button class="btn btn-secondary" onclick="homologOrderVirtualBag()">GET /orders/{orderId}/virtual-bag</button>
+                        <button class="btn btn-secondary" onclick="homologOrderConfirm()">POST /orders/{orderId}/confirm</button>
+                        <button class="btn btn-secondary" onclick="homologOrderStartPreparation()">POST /orders/{orderId}/startPreparation</button>
+                        <button class="btn btn-secondary" onclick="homologOrderDispatch()">POST /orders/{orderId}/dispatch</button>
+                        <button class="btn btn-secondary" onclick="homologOrderReadyToPickup()">POST /orders/{orderId}/readyToPickup</button>
+                        <button class="btn btn-secondary" onclick="homologOrderCancellationReasons()">GET /orders/{orderId}/cancellationReasons</button>
+                        <button class="btn btn-secondary" onclick="homologOrderRequestCancellation()">POST /orders/{orderId}/requestCancellation</button>
+                        <button class="btn btn-secondary" onclick="homologOrderTracking()">POST /orders/{orderId}/tracking</button>
+                        <button class="btn btn-secondary" onclick="homologOrderValidatePickupCode()">POST /orders/{orderId}/validatePickupCode</button>
+                        <button class="btn btn-secondary" onclick="homologOrderVerifyDeliveryCode()">POST /orders/{orderId}/verifyDeliveryCode</button>
+                        <button class="btn btn-secondary" onclick="homologDisputeAccept()">POST /disputes/{disputeId}/accept</button>
+                        <button class="btn btn-secondary" onclick="homologDisputeReject()">POST /disputes/{disputeId}/reject</button>
+                        <button class="btn btn-secondary" onclick="homologDisputeAlternative()">POST /disputes/{disputeId}/alternatives/{alternativeId}</button>
+                    </div>
+                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:10px 0 8px;">Financial</div>
+                    <div class="endpoint-grid" style="margin-bottom:12px;">
+                        <button class="btn btn-secondary" onclick="homologFinancialSales()">GET /financial/sales</button>
+                        <button class="btn btn-secondary" onclick="homologFinancialEvents()">GET /financial/events</button>
+                        <button class="btn btn-secondary" onclick="homologFinancialReconciliation()">GET /financial/reconciliation</button>
+                        <button class="btn btn-secondary" onclick="homologFinancialReconciliationOnDemand()">POST /financial/reconciliation-on-demand</button>
+                        <button class="btn btn-secondary" onclick="homologFinancialSettlement()">GET /financial/settlement</button>
+                        <button class="btn btn-secondary" onclick="homologFinancialAnticipation()">GET /financial/anticipation</button>
+                    </div>
+                    <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin:10px 0 8px;">Review</div>
+                    <div class="endpoint-grid">
+                        <button class="btn btn-secondary" onclick="homologListReviews()">GET /reviews</button>
+                        <button class="btn btn-secondary" onclick="homologReviewDetails()">GET /reviews/{reviewId}</button>
+                        <button class="btn btn-secondary" onclick="homologReviewAnswer()">POST /reviews/{reviewId}/answers</button>
+                        <button class="btn btn-secondary" onclick="homologReviewSummary()">GET /reviews/summary</button>
                     </div>
                     <div class="response-box">
                         <div class="response-meta" id="homologResponseMeta">Nenhuma chamada executada.</div>
@@ -829,9 +947,24 @@
             if (tzInput && !tzInput.value) tzInput.value = 'America/Sao_Paulo';
             const orderStartInput = document.getElementById('homologOrdersStartDate');
             const orderEndInput = document.getElementById('homologOrdersEndDate');
+            const financialStartInput = document.getElementById('homologFinancialStartDate');
+            const financialEndInput = document.getElementById('homologFinancialEndDate');
+            const competenceInput = document.getElementById('homologFinancialCompetence');
+            const cancellationCodeInput = document.getElementById('homologCancellationCode');
+            const pickupCodeInput = document.getElementById('homologPickupCode');
+            const deliveryCodeInput = document.getElementById('homologDeliveryCode');
+            const reviewAnswerInput = document.getElementById('homologReviewAnswer');
             const isoDate = now.toISOString().slice(0, 10);
+            const competenceValue = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
             if (orderStartInput && !orderStartInput.value) orderStartInput.value = isoDate;
             if (orderEndInput && !orderEndInput.value) orderEndInput.value = isoDate;
+            if (financialStartInput && !financialStartInput.value) financialStartInput.value = isoDate;
+            if (financialEndInput && !financialEndInput.value) financialEndInput.value = isoDate;
+            if (competenceInput && !competenceInput.value) competenceInput.value = competenceValue;
+            if (cancellationCodeInput && !cancellationCodeInput.value) cancellationCodeInput.value = '503';
+            if (pickupCodeInput && !pickupCodeInput.value) pickupCodeInput.value = '1234';
+            if (deliveryCodeInput && !deliveryCodeInput.value) deliveryCodeInput.value = '1234';
+            if (reviewAnswerInput && !reviewAnswerInput.value) reviewAnswerInput.value = 'Obrigado pelo seu feedback.';
             showToast('Campos de teste preenchidos', 'success');
         }
 
@@ -884,6 +1017,24 @@
             return value;
         }
 
+        function getHomologDisputeId() {
+            const value = (document.getElementById('homologDisputeId')?.value || '').trim();
+            if (!value) {
+                showToast('Informe o Dispute ID para esse teste', 'error');
+                return null;
+            }
+            return value;
+        }
+
+        function getHomologReviewId() {
+            const value = (document.getElementById('homologReviewId')?.value || '').trim();
+            if (!value) {
+                showToast('Informe o Review ID para esse teste', 'error');
+                return null;
+            }
+            return value;
+        }
+
         function buildHomologOrdersQuery() {
             const merchantId = getHomologMerchantId();
             if (!merchantId) return null;
@@ -894,6 +1045,39 @@
             if (startDate) params.set('start_date', startDate);
             if (endDate) params.set('end_date', endDate);
             if (status) params.set('status', status);
+            return params.toString();
+        }
+
+        function buildHomologFinancialQuery(requireCompetence = false) {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return null;
+            const params = new URLSearchParams({ merchant_id: merchantId });
+            const startDate = (document.getElementById('homologFinancialStartDate')?.value || '').trim();
+            const endDate = (document.getElementById('homologFinancialEndDate')?.value || '').trim();
+            const competence = (document.getElementById('homologFinancialCompetence')?.value || '').trim();
+            const page = (document.getElementById('homologFinancialPage')?.value || '').trim();
+            const size = (document.getElementById('homologFinancialSize')?.value || '').trim();
+            if (startDate) params.set('start_date', startDate);
+            if (endDate) params.set('end_date', endDate);
+            if (competence) params.set('competence', competence);
+            if (page) params.set('page', page);
+            if (size) params.set('size', size);
+            if (requireCompetence && !competence) {
+                showToast('Informe a competencia (YYYY-MM) para esse modulo financeiro', 'error');
+                return null;
+            }
+            return params.toString();
+        }
+
+        function buildHomologReviewsQuery() {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return null;
+            const params = new URLSearchParams({ merchant_id: merchantId });
+            const page = (document.getElementById('homologReviewPage')?.value || '').trim();
+            const pageSize = (document.getElementById('homologReviewPageSize')?.value || '').trim();
+            if (page) params.set('page', page);
+            if (pageSize) params.set('page_size', pageSize);
+            params.set('add_count', '1');
             return params.toString();
         }
 
@@ -1049,6 +1233,298 @@
             await callHomologationEndpoint(
                 'GET /orders/{orderId}',
                 `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}`
+            );
+        }
+
+        async function homologOrderVirtualBag() {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            await callHomologationEndpoint(
+                'GET /orders/{orderId}/virtual-bag',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/virtual-bag`
+            );
+        }
+
+        async function homologOrderConfirm() {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            await callHomologationEndpoint(
+                'POST /orders/{orderId}/confirm',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/confirm`,
+                { method: 'POST' }
+            );
+        }
+
+        async function homologOrderStartPreparation() {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            await callHomologationEndpoint(
+                'POST /orders/{orderId}/startPreparation',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/start-preparation`,
+                { method: 'POST' }
+            );
+        }
+
+        async function homologOrderDispatch() {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            await callHomologationEndpoint(
+                'POST /orders/{orderId}/dispatch',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/dispatch`,
+                { method: 'POST' }
+            );
+        }
+
+        async function homologOrderReadyToPickup() {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            await callHomologationEndpoint(
+                'POST /orders/{orderId}/readyToPickup',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/ready-to-pickup`,
+                { method: 'POST' }
+            );
+        }
+
+        async function homologOrderCancellationReasons() {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            await callHomologationEndpoint(
+                'GET /orders/{orderId}/cancellationReasons',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/cancellation-reasons`
+            );
+        }
+
+        async function homologOrderRequestCancellation() {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            const cancellationCode = (document.getElementById('homologCancellationCode')?.value || '').trim();
+            const reason = (document.getElementById('homologCancellationReason')?.value || '').trim();
+            if (!cancellationCode) {
+                showToast('Informe o cancellation code para esse teste', 'error');
+                return;
+            }
+            await callHomologationEndpoint(
+                'POST /orders/{orderId}/requestCancellation',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/request-cancellation`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cancellation_code: cancellationCode, reason }),
+                }
+            );
+        }
+
+        async function homologOrderTracking() {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            await callHomologationEndpoint(
+                'POST /orders/{orderId}/tracking',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/tracking`,
+                { method: 'POST' }
+            );
+        }
+
+        async function homologOrderValidatePickupCode() {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            const code = (document.getElementById('homologPickupCode')?.value || '').trim();
+            if (!code) {
+                showToast('Informe o pickup code para esse teste', 'error');
+                return;
+            }
+            await callHomologationEndpoint(
+                'POST /orders/{orderId}/validatePickupCode',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/validate-pickup-code`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code }),
+                }
+            );
+        }
+
+        async function homologOrderVerifyDeliveryCode() {
+            const orderId = getHomologOrderId();
+            if (!orderId) return;
+            const code = (document.getElementById('homologDeliveryCode')?.value || '').trim();
+            if (!code) {
+                showToast('Informe o delivery code para esse teste', 'error');
+                return;
+            }
+            await callHomologationEndpoint(
+                'POST /orders/{orderId}/verifyDeliveryCode',
+                `/api/ifood/homologation/orders/${encodeURIComponent(orderId)}/verify-delivery-code`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code }),
+                }
+            );
+        }
+
+        async function homologDisputeAccept() {
+            const disputeId = getHomologDisputeId();
+            if (!disputeId) return;
+            await callHomologationEndpoint(
+                'POST /disputes/{disputeId}/accept',
+                `/api/ifood/homologation/disputes/${encodeURIComponent(disputeId)}/accept`,
+                { method: 'POST' }
+            );
+        }
+
+        async function homologDisputeReject() {
+            const disputeId = getHomologDisputeId();
+            if (!disputeId) return;
+            let payload = {};
+            try {
+                payload = JSON.parse((document.getElementById('homologDisputePayload')?.value || '').trim() || '{}');
+            } catch (_) {
+                showToast('Payload de disputa invalido (JSON)', 'error');
+                return;
+            }
+            await callHomologationEndpoint(
+                'POST /disputes/{disputeId}/reject',
+                `/api/ifood/homologation/disputes/${encodeURIComponent(disputeId)}/reject`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                }
+            );
+        }
+
+        async function homologDisputeAlternative() {
+            const disputeId = getHomologDisputeId();
+            if (!disputeId) return;
+            const alternativeId = (document.getElementById('homologDisputeAlternativeId')?.value || '').trim();
+            if (!alternativeId) {
+                showToast('Informe o alternative ID para esse teste', 'error');
+                return;
+            }
+            let payload = {};
+            try {
+                payload = JSON.parse((document.getElementById('homologDisputePayload')?.value || '').trim() || '{}');
+            } catch (_) {
+                showToast('Payload de disputa invalido (JSON)', 'error');
+                return;
+            }
+            await callHomologationEndpoint(
+                'POST /disputes/{disputeId}/alternatives/{alternativeId}',
+                `/api/ifood/homologation/disputes/${encodeURIComponent(disputeId)}/alternatives/${encodeURIComponent(alternativeId)}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                }
+            );
+        }
+
+        async function homologFinancialSales() {
+            const query = buildHomologFinancialQuery(false);
+            if (!query) return;
+            await callHomologationEndpoint('GET /financial/sales', `/api/ifood/homologation/financial/sales?${query}`);
+        }
+
+        async function homologFinancialEvents() {
+            const query = buildHomologFinancialQuery(false);
+            if (!query) return;
+            await callHomologationEndpoint('GET /financial/events', `/api/ifood/homologation/financial/events?${query}`);
+        }
+
+        async function homologFinancialReconciliation() {
+            const query = buildHomologFinancialQuery(true);
+            if (!query) return;
+            await callHomologationEndpoint(
+                'GET /financial/reconciliation',
+                `/api/ifood/homologation/financial/reconciliation?${query}`
+            );
+        }
+
+        async function homologFinancialReconciliationOnDemand() {
+            const query = buildHomologFinancialQuery(true);
+            if (!query) return;
+            const params = new URLSearchParams(query);
+            const payload = {
+                merchant_id: params.get('merchant_id'),
+                start_date: params.get('start_date'),
+                end_date: params.get('end_date'),
+                competence: params.get('competence'),
+                page: params.get('page'),
+                size: params.get('size'),
+            };
+            await callHomologationEndpoint(
+                'POST /financial/reconciliation-on-demand',
+                '/api/ifood/homologation/financial/reconciliation-on-demand',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                }
+            );
+        }
+
+        async function homologFinancialSettlement() {
+            const query = buildHomologFinancialQuery(false);
+            if (!query) return;
+            await callHomologationEndpoint(
+                'GET /financial/settlement',
+                `/api/ifood/homologation/financial/settlement?${query}`
+            );
+        }
+
+        async function homologFinancialAnticipation() {
+            const query = buildHomologFinancialQuery(false);
+            if (!query) return;
+            await callHomologationEndpoint(
+                'GET /financial/anticipation',
+                `/api/ifood/homologation/financial/anticipation?${query}`
+            );
+        }
+
+        async function homologListReviews() {
+            const query = buildHomologReviewsQuery();
+            if (!query) return;
+            await callHomologationEndpoint('GET /reviews', `/api/ifood/homologation/reviews?${query}`);
+        }
+
+        async function homologReviewDetails() {
+            const reviewId = getHomologReviewId();
+            if (!reviewId) return;
+            const query = buildHomologReviewsQuery();
+            if (!query) return;
+            await callHomologationEndpoint(
+                'GET /reviews/{reviewId}',
+                `/api/ifood/homologation/reviews/${encodeURIComponent(reviewId)}?${query}`
+            );
+        }
+
+        async function homologReviewAnswer() {
+            const reviewId = getHomologReviewId();
+            if (!reviewId) return;
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            const text = (document.getElementById('homologReviewAnswer')?.value || '').trim();
+            if (!text) {
+                showToast('Informe a resposta do review para esse teste', 'error');
+                return;
+            }
+            await callHomologationEndpoint(
+                'POST /reviews/{reviewId}/answers',
+                `/api/ifood/homologation/reviews/${encodeURIComponent(reviewId)}/answers`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ merchant_id: merchantId, text }),
+                }
+            );
+        }
+
+        async function homologReviewSummary() {
+            const query = buildHomologReviewsQuery();
+            if (!query) return;
+            await callHomologationEndpoint(
+                'GET /reviews/summary',
+                `/api/ifood/homologation/reviews/summary?${query}`
             );
         }
 

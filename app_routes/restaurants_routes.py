@@ -139,6 +139,118 @@ def register(app, deps):
         except Exception:
             return None
 
+    def _parse_optional_int(raw_value, *, minimum=0, maximum=1000, default=None):
+        text = str(raw_value or '').strip()
+        if not text:
+            return default
+        try:
+            value = int(text)
+        except Exception:
+            return default
+        return max(minimum, min(maximum, value))
+
+    def _get_homologation_financial_filters(payload=None):
+        data = payload if isinstance(payload, dict) else {}
+        merchant_id = str(
+            request.args.get('merchant_id')
+            or request.args.get('merchantId')
+            or data.get('merchant_id')
+            or data.get('merchantId')
+            or ''
+        ).strip()
+        if not merchant_id:
+            return None, (jsonify({'success': False, 'error': 'Merchant ID required'}), 400)
+
+        filters = {
+            'merchant_id': merchant_id,
+            'start_date': str(
+                request.args.get('start_date')
+                or request.args.get('startDate')
+                or data.get('start_date')
+                or data.get('startDate')
+                or ''
+            ).strip() or None,
+            'end_date': str(
+                request.args.get('end_date')
+                or request.args.get('endDate')
+                or data.get('end_date')
+                or data.get('endDate')
+                or ''
+            ).strip() or None,
+            'competence': str(
+                request.args.get('competence')
+                or request.args.get('competencia')
+                or data.get('competence')
+                or data.get('competencia')
+                or ''
+            ).strip() or None,
+            'page': _parse_optional_int(
+                request.args.get('page')
+                if request.args.get('page') is not None
+                else data.get('page'),
+                minimum=0,
+                maximum=10000,
+                default=None
+            ),
+            'size': _parse_optional_int(
+                request.args.get('size')
+                if request.args.get('size') is not None
+                else data.get('size'),
+                minimum=1,
+                maximum=500,
+                default=None
+            ),
+        }
+        return filters, None
+
+    def _get_homologation_review_filters(payload=None):
+        data = payload if isinstance(payload, dict) else {}
+        merchant_id = str(
+            request.args.get('merchant_id')
+            or request.args.get('merchantId')
+            or data.get('merchant_id')
+            or data.get('merchantId')
+            or ''
+        ).strip()
+        if not merchant_id:
+            return None, (jsonify({'success': False, 'error': 'Merchant ID required'}), 400)
+
+        filters = {
+            'merchant_id': merchant_id,
+            'page': _parse_optional_int(
+                request.args.get('page')
+                if request.args.get('page') is not None
+                else data.get('page'),
+                minimum=1,
+                maximum=10000,
+                default=1
+            ),
+            'page_size': _parse_optional_int(
+                request.args.get('page_size')
+                if request.args.get('page_size') is not None
+                else request.args.get('pageSize')
+                if request.args.get('pageSize') is not None
+                else data.get('page_size')
+                if data.get('page_size') is not None
+                else data.get('pageSize'),
+                minimum=1,
+                maximum=100,
+                default=10
+            ),
+            'add_count': _is_truthy(
+                request.args.get('add_count')
+                if request.args.get('add_count') is not None
+                else request.args.get('addCount')
+                if request.args.get('addCount') is not None
+                else data.get('add_count')
+                if data.get('add_count') is not None
+                else data.get('addCount')
+                if data.get('addCount') is not None
+                else True
+            ),
+        }
+        return filters, None
+
     def _normalize_day_of_week(day_raw):
         if isinstance(day_raw, int):
             if 0 <= day_raw <= 6:
@@ -951,6 +1063,411 @@ def register(app, deps):
             log_exception("request_exception", e)
             return internal_error_response()
 
+    @bp.route('/api/ifood/homologation/orders/<order_id>/virtual-bag')
+    @login_required
+    def api_ifood_homologation_order_virtual_bag(order_id):
+        """Live proxy for iFood GET /orders/{orderId}/virtual-bag used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            details = api.get_order_virtual_bag(order_id)
+            if details is None:
+                return _ifood_error_response(
+                    api,
+                    action='virtual bag do pedido (GET /orders/{orderId}/virtual-bag)',
+                    default_status=502
+                )
+
+            return jsonify({
+                'success': True,
+                'module': 'Order',
+                'action': 'virtual-bag',
+                'order_id': order_id,
+                'data': details,
+            })
+        except Exception as e:
+            print(f"Error getting iFood virtual bag: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/confirm', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_confirm(order_id):
+        """Live proxy for iFood POST /orders/{orderId}/confirm used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            result = api.confirm_order(order_id)
+            if result is None:
+                return _ifood_error_response(api, action='confirmacao do pedido', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Order', 'action': 'confirm', 'order_id': order_id, 'data': result})
+        except Exception as e:
+            print(f"Error confirming iFood order: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/start-preparation', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_start_preparation(order_id):
+        """Live proxy for iFood POST /orders/{orderId}/startPreparation used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            result = api.start_order_preparation(order_id)
+            if result is None:
+                return _ifood_error_response(api, action='inicio de preparo do pedido', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Order', 'action': 'startPreparation', 'order_id': order_id, 'data': result})
+        except Exception as e:
+            print(f"Error starting iFood order preparation: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/dispatch', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_dispatch(order_id):
+        """Live proxy for iFood POST /orders/{orderId}/dispatch used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            result = api.dispatch_order(order_id)
+            if result is None:
+                return _ifood_error_response(api, action='dispatch do pedido', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Order', 'action': 'dispatch', 'order_id': order_id, 'data': result})
+        except Exception as e:
+            print(f"Error dispatching iFood order: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/ready-to-pickup', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_ready_to_pickup(order_id):
+        """Live proxy for iFood POST /orders/{orderId}/readyToPickup used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            result = api.ready_order_for_pickup(order_id)
+            if result is None:
+                return _ifood_error_response(api, action='pedido pronto para retirada', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Order', 'action': 'readyToPickup', 'order_id': order_id, 'data': result})
+        except Exception as e:
+            print(f"Error marking iFood order ready to pickup: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/cancellation-reasons')
+    @login_required
+    def api_ifood_homologation_order_cancellation_reasons(order_id):
+        """Live proxy for iFood GET /orders/{orderId}/cancellationReasons used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            result = api.get_order_cancellation_reasons(order_id)
+            if result is None:
+                return _ifood_error_response(api, action='motivos de cancelamento do pedido', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Order', 'action': 'cancellationReasons', 'order_id': order_id, 'data': result})
+        except Exception as e:
+            print(f"Error getting iFood order cancellation reasons: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/request-cancellation', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_request_cancellation(order_id):
+        """Live proxy for iFood POST /orders/{orderId}/requestCancellation used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            data = get_json_payload()
+            if not isinstance(data, dict):
+                data = {}
+            cancellation_code = str(
+                data.get('cancellation_code')
+                or data.get('cancellationCode')
+                or ''
+            ).strip()
+            reason = str(data.get('reason') or '').strip() or None
+            if not cancellation_code:
+                return jsonify({'success': False, 'error': 'Cancellation code required'}), 400
+
+            result = api.request_order_cancellation(order_id, cancellation_code, reason=reason)
+            if result is None:
+                return _ifood_error_response(api, action='solicitacao de cancelamento do pedido', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Order',
+                'action': 'requestCancellation',
+                'order_id': order_id,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error requesting iFood order cancellation: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/tracking', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_tracking(order_id):
+        """Live proxy for iFood tracking used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            result = api.get_order_tracking(order_id)
+            if result is None:
+                return _ifood_error_response(api, action='tracking do pedido', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Order', 'action': 'tracking', 'order_id': order_id, 'data': result})
+        except Exception as e:
+            print(f"Error getting iFood order tracking: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/validate-pickup-code', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_validate_pickup_code(order_id):
+        """Live proxy for iFood pickup-code validation used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            data = get_json_payload()
+            if not isinstance(data, dict):
+                data = {}
+            code = str(data.get('code') or '').strip()
+            if not code:
+                return jsonify({'success': False, 'error': 'Pickup code required'}), 400
+
+            result = api.validate_order_pickup_code(order_id, code)
+            if result is None:
+                return _ifood_error_response(api, action='validacao do codigo de retirada', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Order', 'action': 'validatePickupCode', 'order_id': order_id, 'data': result})
+        except Exception as e:
+            print(f"Error validating iFood pickup code: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/orders/<order_id>/verify-delivery-code', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_order_verify_delivery_code(order_id):
+        """Live proxy for iFood delivery-code verification used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            data = get_json_payload()
+            if not isinstance(data, dict):
+                data = {}
+            code = str(data.get('code') or '').strip()
+            if not code:
+                return jsonify({'success': False, 'error': 'Delivery code required'}), 400
+
+            result = api.verify_order_delivery_code(order_id, code)
+            if result is None:
+                return _ifood_error_response(api, action='validacao do codigo de entrega', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Order', 'action': 'verifyDeliveryCode', 'order_id': order_id, 'data': result})
+        except Exception as e:
+            print(f"Error verifying iFood delivery code: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/disputes/<dispute_id>/accept', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_dispute_accept(dispute_id):
+        """Live proxy for iFood dispute accept used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            result = api.accept_dispute(dispute_id)
+            if result is None:
+                return _ifood_error_response(api, action='aceite de disputa', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Order', 'action': 'disputeAccept', 'dispute_id': dispute_id, 'data': result})
+        except Exception as e:
+            print(f"Error accepting iFood dispute: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/disputes/<dispute_id>/reject', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_dispute_reject(dispute_id):
+        """Live proxy for iFood dispute reject used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            data = get_json_payload()
+            if not isinstance(data, dict):
+                data = {}
+            reason = str(data.get('reason') or '').strip() or None
+
+            result = api.reject_dispute(dispute_id, reason=reason)
+            if result is None:
+                return _ifood_error_response(api, action='rejeicao de disputa', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Order', 'action': 'disputeReject', 'dispute_id': dispute_id, 'data': result})
+        except Exception as e:
+            print(f"Error rejecting iFood dispute: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/disputes/<dispute_id>/alternatives/<alternative_id>', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_dispute_alternative(dispute_id, alternative_id):
+        """Live proxy for iFood dispute alternatives used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            data = get_json_payload()
+            payload = data if isinstance(data, dict) else {}
+            result = api.submit_dispute_alternative(dispute_id, alternative_id, payload=payload)
+            if result is None:
+                return _ifood_error_response(api, action='envio de alternativa de disputa', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Order',
+                'action': 'disputeAlternative',
+                'dispute_id': dispute_id,
+                'alternative_id': alternative_id,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error submitting iFood dispute alternative: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/reviews')
+    @login_required
+    def api_ifood_homologation_reviews():
+        """Live proxy for iFood review listing used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_review_filters()
+            if error_response:
+                return error_response
+
+            result = api.list_reviews(
+                filters['merchant_id'],
+                page=filters['page'],
+                page_size=filters['page_size'],
+                add_count=filters['add_count'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='listagem de reviews', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Review', 'merchant_id': filters['merchant_id'], 'filters': filters, 'data': result})
+        except Exception as e:
+            print(f"Error listing iFood reviews: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/reviews/<review_id>')
+    @login_required
+    def api_ifood_homologation_review_details(review_id):
+        """Live proxy for iFood review details used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_review_filters()
+            if error_response:
+                return error_response
+
+            result = api.get_review_details(filters['merchant_id'], review_id)
+            if result is None:
+                return _ifood_error_response(api, action='detalhes do review', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Review', 'merchant_id': filters['merchant_id'], 'review_id': review_id, 'data': result})
+        except Exception as e:
+            print(f"Error getting iFood review details: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/reviews/<review_id>/answers', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_review_answer(review_id):
+        """Live proxy for iFood review answers used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            data = get_json_payload()
+            payload = data if isinstance(data, dict) else {}
+            filters, error_response = _get_homologation_review_filters(payload)
+            if error_response:
+                return error_response
+            text = str(payload.get('text') or payload.get('answer') or '').strip()
+            if not text:
+                return jsonify({'success': False, 'error': 'Answer text required'}), 400
+
+            result = api.answer_review(filters['merchant_id'], review_id, text)
+            if result is None:
+                return _ifood_error_response(api, action='resposta do review', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Review', 'merchant_id': filters['merchant_id'], 'review_id': review_id, 'data': result})
+        except Exception as e:
+            print(f"Error answering iFood review: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/reviews/summary')
+    @login_required
+    def api_ifood_homologation_review_summary():
+        """Live proxy for iFood review summary used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_review_filters()
+            if error_response:
+                return error_response
+
+            result = api.get_review_summary(filters['merchant_id'])
+            if result is None:
+                return _ifood_error_response(api, action='summary de reviews', default_status=502)
+
+            return jsonify({'success': True, 'module': 'Review', 'merchant_id': filters['merchant_id'], 'data': result})
+        except Exception as e:
+            print(f"Error getting iFood review summary: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
     @bp.route('/api/ifood/homologation/events/polling', methods=['POST'])
     @login_required
     def api_ifood_homologation_events_polling():
@@ -1001,6 +1518,219 @@ def register(app, deps):
             })
         except Exception as e:
             print(f"Error polling iFood events: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/sales')
+    @login_required
+    def api_ifood_homologation_financial_sales():
+        """Live proxy for iFood Financial Sales module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_financial_filters()
+            if error_response:
+                return error_response
+
+            result = api.get_financial_sales(
+                filters['merchant_id'],
+                start_date=filters['start_date'],
+                end_date=filters['end_date'],
+                page=filters['page'],
+                size=filters['size'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial sales', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Sales',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error fetching iFood financial sales: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/events')
+    @login_required
+    def api_ifood_homologation_financial_events():
+        """Live proxy for iFood Financial Events module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_financial_filters()
+            if error_response:
+                return error_response
+
+            result = api.get_financial_events(
+                filters['merchant_id'],
+                start_date=filters['start_date'],
+                end_date=filters['end_date'],
+                page=filters['page'],
+                size=filters['size'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial events', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Events',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error fetching iFood financial events: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/reconciliation')
+    @login_required
+    def api_ifood_homologation_financial_reconciliation():
+        """Live proxy for iFood Reconciliation module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_financial_filters()
+            if error_response:
+                return error_response
+            if not filters.get('competence'):
+                return jsonify({'success': False, 'error': 'Competence required (YYYY-MM)'}), 400
+
+            result = api.get_financial_reconciliation(
+                filters['merchant_id'],
+                competence=filters['competence'],
+                page=filters['page'],
+                size=filters['size'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial reconciliation', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Reconciliation',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error fetching iFood reconciliation: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/reconciliation-on-demand', methods=['POST'])
+    @login_required
+    def api_ifood_homologation_financial_reconciliation_on_demand():
+        """Live proxy for iFood Reconciliation On Demand module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            data = get_json_payload()
+            filters, error_response = _get_homologation_financial_filters(data if isinstance(data, dict) else {})
+            if error_response:
+                return error_response
+            if not filters.get('competence'):
+                return jsonify({'success': False, 'error': 'Competence required (YYYY-MM)'}), 400
+
+            result = api.request_financial_reconciliation_on_demand(
+                filters['merchant_id'],
+                competence=filters['competence'],
+                start_date=filters['start_date'],
+                end_date=filters['end_date'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial reconciliation on demand', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Reconciliation On Demand',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error requesting iFood reconciliation on demand: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/settlement')
+    @login_required
+    def api_ifood_homologation_financial_settlement():
+        """Live proxy for iFood Settlement module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_financial_filters()
+            if error_response:
+                return error_response
+
+            result = api.get_financial_settlement(
+                filters['merchant_id'],
+                start_date=filters['start_date'],
+                end_date=filters['end_date'],
+                page=filters['page'],
+                size=filters['size'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial settlement', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Settlement',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error fetching iFood settlement: {e}")
+            log_exception("request_exception", e)
+            return internal_error_response()
+
+    @bp.route('/api/ifood/homologation/financial/anticipation')
+    @login_required
+    def api_ifood_homologation_financial_anticipation():
+        """Live proxy for iFood Anticipation module used in homologation demos."""
+        try:
+            api = get_resilient_api_client()
+            if not api:
+                return jsonify({'success': False, 'error': 'iFood API not configured'}), 400
+
+            filters, error_response = _get_homologation_financial_filters()
+            if error_response:
+                return error_response
+
+            result = api.get_financial_anticipation(
+                filters['merchant_id'],
+                start_date=filters['start_date'],
+                end_date=filters['end_date'],
+                page=filters['page'],
+                size=filters['size'],
+            )
+            if result is None:
+                return _ifood_error_response(api, action='financial anticipation', default_status=502)
+
+            return jsonify({
+                'success': True,
+                'module': 'Financial Anticipation',
+                'merchant_id': filters['merchant_id'],
+                'filters': filters,
+                'data': result,
+            })
+        except Exception as e:
+            print(f"Error fetching iFood anticipation: {e}")
             log_exception("request_exception", e)
             return internal_error_response()
 

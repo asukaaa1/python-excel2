@@ -761,6 +761,244 @@ class IFoodAPI:
                 return payload
         return None
 
+    def _mock_order_action_response(self, order_id: str, action: str, *, extra: Dict = None) -> Dict:
+        payload = {
+            'orderId': str(order_id or '').strip(),
+            'action': str(action or '').strip(),
+            'mock': True,
+            'accepted': True,
+            'requestedAt': datetime.utcnow().isoformat() + 'Z',
+        }
+        if isinstance(extra, dict):
+            payload.update(extra)
+        return payload
+
+    def get_order_virtual_bag(self, order_id: str):
+        if not order_id:
+            return None
+        if self.use_mock_data:
+            return {
+                'orderId': str(order_id),
+                'mock': True,
+                'bag': {
+                    'items': [],
+                    'replacementOptions': {},
+                },
+            }
+        return self._request('GET', f'/order/v1.0/orders/{order_id}/virtual-bag')
+
+    def confirm_order(self, order_id: str):
+        if not order_id:
+            return None
+        if self.use_mock_data:
+            return self._mock_order_action_response(order_id, 'confirm')
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/confirm')
+
+    def start_order_preparation(self, order_id: str):
+        if not order_id:
+            return None
+        if self.use_mock_data:
+            return self._mock_order_action_response(order_id, 'startPreparation')
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/startPreparation')
+
+    def dispatch_order(self, order_id: str):
+        if not order_id:
+            return None
+        if self.use_mock_data:
+            return self._mock_order_action_response(order_id, 'dispatch')
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/dispatch')
+
+    def ready_order_for_pickup(self, order_id: str):
+        if not order_id:
+            return None
+        if self.use_mock_data:
+            return self._mock_order_action_response(order_id, 'readyToPickup')
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/readyToPickup')
+
+    def get_order_cancellation_reasons(self, order_id: str):
+        if not order_id:
+            return None
+        if self.use_mock_data:
+            return [
+                {'cancelCodeId': '501', 'description': 'System issues'},
+                {'cancelCodeId': '503', 'description': 'Item unavailable'},
+                {'cancelCodeId': '509', 'description': 'Internal restaurant difficulties'},
+            ]
+        return self._request('GET', f'/order/v1.0/orders/{order_id}/cancellationReasons')
+
+    def request_order_cancellation(self, order_id: str, cancellation_code, reason: str = None):
+        if not order_id:
+            return None
+        payload = self._clean_request_params({
+            'cancellationCode': cancellation_code,
+            'reason': reason,
+        })
+        if self.use_mock_data:
+            return self._mock_order_action_response(order_id, 'requestCancellation', extra=payload)
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/requestCancellation', data=payload)
+
+    def get_order_tracking(self, order_id: str):
+        if not order_id:
+            return None
+        if self.use_mock_data:
+            return {
+                'orderId': str(order_id),
+                'mock': True,
+                'latitude': -23.5505,
+                'longitude': -46.6333,
+                'expectedDelivery': datetime.utcnow().isoformat() + 'Z',
+                'pickupEtaStart': 180,
+                'deliveryEtaEnd': 900,
+                'trackDate': datetime.utcnow().isoformat() + 'Z',
+            }
+        payload = self._request('POST', f'/order/v1.0/orders/{order_id}/tracking')
+        if payload is not None:
+            return payload
+        return self._request('GET', f'/order/v1.0/orders/{order_id}/tracking')
+
+    def validate_order_pickup_code(self, order_id: str, code: str):
+        if not order_id or not str(code or '').strip():
+            return None
+        payload = {'code': str(code).strip()}
+        if self.use_mock_data:
+            return self._mock_order_action_response(order_id, 'validatePickupCode', extra={'valid': True, **payload})
+        return self._request('POST', f'/order/v1.0/orders/{order_id}/validatePickupCode', data=payload)
+
+    def verify_order_delivery_code(self, order_id: str, code: str):
+        if not order_id or not str(code or '').strip():
+            return None
+        payload = {'code': str(code).strip()}
+        if self.use_mock_data:
+            return self._mock_order_action_response(order_id, 'verifyDeliveryCode', extra={'valid': True, **payload})
+        result = self._request('POST', f'/order/v1.0/orders/{order_id}/verifyDeliveryCode', data=payload)
+        if result is not None:
+            return result
+        return self._request('POST', f'/logistics/v1.0/orders/{order_id}/verifyDeliveryCode', data=payload)
+
+    def accept_dispute(self, dispute_id: str):
+        if not dispute_id:
+            return None
+        if self.use_mock_data:
+            return {
+                'disputeId': str(dispute_id),
+                'mock': True,
+                'status': 'ACCEPTED',
+                'requestedAt': datetime.utcnow().isoformat() + 'Z',
+            }
+        return self._request('POST', f'/order/v1.0/disputes/{dispute_id}/accept')
+
+    def reject_dispute(self, dispute_id: str, reason: str = None):
+        if not dispute_id:
+            return None
+        payload = self._clean_request_params({'reason': reason})
+        if self.use_mock_data:
+            return {
+                'disputeId': str(dispute_id),
+                'mock': True,
+                'status': 'REJECTED',
+                'reason': payload.get('reason'),
+                'requestedAt': datetime.utcnow().isoformat() + 'Z',
+            }
+        return self._request('POST', f'/order/v1.0/disputes/{dispute_id}/reject', data=payload)
+
+    def submit_dispute_alternative(self, dispute_id: str, alternative_id: str, payload: Dict = None):
+        if not dispute_id or not alternative_id:
+            return None
+        clean_payload = payload if isinstance(payload, dict) else {}
+        if self.use_mock_data:
+            return {
+                'disputeId': str(dispute_id),
+                'alternativeId': str(alternative_id),
+                'mock': True,
+                'status': 'SUBMITTED',
+                'payload': clean_payload,
+                'requestedAt': datetime.utcnow().isoformat() + 'Z',
+            }
+        return self._request(
+            'POST',
+            f'/order/v1.0/disputes/{dispute_id}/alternatives/{alternative_id}',
+            data=clean_payload
+        )
+
+    def list_reviews(self, merchant_id: str, page: int = None, page_size: int = None, add_count: bool = None):
+        if not merchant_id:
+            return None
+        params = self._clean_request_params({
+            'page': page,
+            'pageSize': page_size,
+            'addCount': 'true' if add_count else 'false' if add_count is not None else None,
+        })
+        if self.use_mock_data:
+            return {
+                'page': int(page or 1),
+                'pageSize': int(page_size or 10),
+                'total': 1,
+                'pageCount': 1,
+                'reviews': [
+                    {
+                        'id': f'{merchant_id}-review-001',
+                        'comment': 'Great experience.',
+                        'createdAt': datetime.utcnow().isoformat() + 'Z',
+                        'status': 'NOT_REPLIED',
+                        'score': 5,
+                        'order': {'id': f'{merchant_id}-order-001', 'shortId': '1234'},
+                        'replies': [],
+                    }
+                ],
+            }
+        return self._request(
+            'GET',
+            f'/review/v2.0/merchants/{merchant_id}/reviews',
+            params=params
+        )
+
+    def get_review_details(self, merchant_id: str, review_id: str):
+        if not merchant_id or not review_id:
+            return None
+        if self.use_mock_data:
+            return {
+                'id': str(review_id),
+                'comment': 'Great experience.',
+                'createdAt': datetime.utcnow().isoformat() + 'Z',
+                'status': 'NOT_REPLIED',
+                'score': 5,
+                'order': {'id': f'{merchant_id}-order-001', 'shortId': '1234'},
+                'replies': [],
+            }
+        return self._request('GET', f'/review/v2.0/merchants/{merchant_id}/reviews/{review_id}')
+
+    def answer_review(self, merchant_id: str, review_id: str, text: str):
+        if not merchant_id or not review_id or not str(text or '').strip():
+            return None
+        payload = {'text': str(text).strip()}
+        if self.use_mock_data:
+            return {
+                'reviewId': str(review_id),
+                'merchantId': str(merchant_id),
+                'mock': True,
+                'createdAt': datetime.utcnow().isoformat() + 'Z',
+                'reply': {
+                    'from': 'MERCHANT',
+                    'text': payload['text'],
+                },
+            }
+        return self._request(
+            'POST',
+            f'/review/v2.0/merchants/{merchant_id}/reviews/{review_id}/answers',
+            data=payload
+        )
+
+    def get_review_summary(self, merchant_id: str):
+        if not merchant_id:
+            return None
+        if self.use_mock_data:
+            return {
+                'totalReviewsCount': 12,
+                'validReviewsCount': 10,
+                'score': 4.6,
+            }
+        return self._request('GET', f'/review/v2.0/merchants/{merchant_id}/summary')
+
     def _extract_polling_events(self, payload) -> List[Dict]:
         if not payload:
             return []
@@ -1252,6 +1490,292 @@ class IFoodAPI:
         elif result and isinstance(result, dict):
             return result.get('merchants', [])
         return []
+
+    def _clean_request_params(self, params: Dict = None) -> Dict:
+        cleaned = {}
+        for key, value in (params or {}).items():
+            if value in (None, ''):
+                continue
+            cleaned[key] = value
+        return cleaned
+
+    def _prefer_http_error(self, current_error: Dict, next_error: Dict) -> Dict:
+        if not isinstance(next_error, dict) or not next_error:
+            return current_error or {}
+        if not isinstance(current_error, dict) or not current_error:
+            return dict(next_error)
+
+        try:
+            current_status = int(current_error.get('status') or 0)
+        except Exception:
+            current_status = 0
+        try:
+            next_status = int(next_error.get('status') or 0)
+        except Exception:
+            next_status = 0
+
+        if current_status in (404, 405) and next_status not in (404, 405):
+            return dict(next_error)
+        if current_status == 0 and next_status > 0:
+            return dict(next_error)
+        return dict(current_error)
+
+    def _request_first_success(self, method: str, endpoints, params: Dict = None, data: Dict = None, headers: Dict = None):
+        preferred_error = {}
+        cleaned_params = self._clean_request_params(params)
+        for endpoint in endpoints or []:
+            payload = self._request(method, endpoint, params=cleaned_params, data=data, headers=headers)
+            if payload is not None:
+                return payload
+            preferred_error = self._prefer_http_error(preferred_error, self.get_last_http_error())
+        if preferred_error:
+            self._last_http_error = preferred_error
+        return None
+
+    def _request_financial_module(self, method: str, merchant_id: str, resource_variants, params: Dict = None, data: Dict = None):
+        merchant_key = str(merchant_id or '').strip()
+        cleaned_params = self._clean_request_params(params)
+        preferred_error = {}
+
+        nested_endpoints = [
+            f"/financial/v3.0/merchants/{merchant_key}/{resource}"
+            for resource in (resource_variants or [])
+            if merchant_key and str(resource or '').strip()
+        ]
+        if nested_endpoints:
+            payload = self._request_first_success(method, nested_endpoints, params=cleaned_params, data=data)
+            if payload is not None:
+                return payload
+            preferred_error = self._prefer_http_error(preferred_error, self.get_last_http_error())
+
+        root_params = dict(cleaned_params)
+        if merchant_key:
+            root_params.setdefault('merchantId', merchant_key)
+        root_endpoints = [
+            f"/financial/v3.0/{resource}"
+            for resource in (resource_variants or [])
+            if str(resource or '').strip()
+        ]
+        if root_endpoints:
+            payload = self._request_first_success(method, root_endpoints, params=root_params, data=data)
+            if payload is not None:
+                return payload
+            preferred_error = self._prefer_http_error(preferred_error, self.get_last_http_error())
+
+        if preferred_error:
+            self._last_http_error = preferred_error
+        return None
+
+    def _mock_financial_payload(self, module_name: str, merchant_id: str, *, params: Dict = None, data: Dict = None):
+        merchant_key = str(merchant_id or '').strip() or 'mock-merchant'
+        filters = self._clean_request_params(params)
+        body = data if isinstance(data, dict) else {}
+        now_iso = datetime.utcnow().isoformat() + 'Z'
+
+        if module_name == 'sales':
+            return {
+                'merchantId': merchant_key,
+                'module': 'Sales',
+                'mock': True,
+                'filters': filters,
+                'page': int(filters.get('page') or 0),
+                'items': [
+                    {
+                        'saleId': f'{merchant_key}-sale-001',
+                        'referenceDate': filters.get('beginSalesDate') or now_iso[:10],
+                        'grossAmount': 187.4,
+                        'netAmount': 171.92,
+                        'status': 'PROCESSED',
+                    },
+                    {
+                        'saleId': f'{merchant_key}-sale-002',
+                        'referenceDate': filters.get('endSalesDate') or now_iso[:10],
+                        'grossAmount': 92.0,
+                        'netAmount': 84.18,
+                        'status': 'PROCESSED',
+                    },
+                ],
+            }
+
+        if module_name == 'financial_events':
+            return {
+                'merchantId': merchant_key,
+                'module': 'Financial Events',
+                'mock': True,
+                'filters': filters,
+                'events': [
+                    {
+                        'id': f'{merchant_key}-evt-001',
+                        'type': 'SALE',
+                        'createdAt': now_iso,
+                        'amount': 171.92,
+                    },
+                    {
+                        'id': f'{merchant_key}-evt-002',
+                        'type': 'SETTLEMENT',
+                        'createdAt': now_iso,
+                        'amount': 84.18,
+                    },
+                ],
+            }
+
+        if module_name == 'reconciliation_on_demand':
+            return {
+                'merchantId': merchant_key,
+                'module': 'Reconciliation On Demand',
+                'mock': True,
+                'requestedAt': now_iso,
+                'status': 'QUEUED',
+                'competence': body.get('competence') or filters.get('competence'),
+                'protocol': f'recon-{merchant_key}-{int(time.time())}',
+            }
+
+        if module_name == 'reconciliation':
+            return {
+                'merchantId': merchant_key,
+                'module': 'Reconciliation',
+                'mock': True,
+                'filters': filters,
+                'competence': filters.get('competence'),
+                'items': [
+                    {
+                        'orderId': f'{merchant_key}-ord-001',
+                        'status': 'MATCHED',
+                        'grossAmount': 187.4,
+                        'netAmount': 171.92,
+                    },
+                    {
+                        'orderId': f'{merchant_key}-ord-002',
+                        'status': 'MATCHED',
+                        'grossAmount': 92.0,
+                        'netAmount': 84.18,
+                    },
+                ],
+            }
+
+        if module_name == 'settlement':
+            return {
+                'merchantId': merchant_key,
+                'module': 'Settlement',
+                'mock': True,
+                'filters': filters,
+                'settlements': [
+                    {
+                        'settlementId': f'{merchant_key}-stl-001',
+                        'creditDate': filters.get('beginDate') or now_iso[:10],
+                        'amount': 256.1,
+                        'status': 'PAID',
+                    }
+                ],
+            }
+
+        if module_name == 'anticipation':
+            return {
+                'merchantId': merchant_key,
+                'module': 'Anticipation',
+                'mock': True,
+                'filters': filters,
+                'anticipations': [
+                    {
+                        'anticipationId': f'{merchant_key}-ant-001',
+                        'requestedAmount': 120.0,
+                        'feeAmount': 3.4,
+                        'status': 'APPROVED',
+                    }
+                ],
+            }
+
+        return {
+            'merchantId': merchant_key,
+            'module': module_name,
+            'mock': True,
+            'filters': filters,
+            'requestBody': body,
+        }
+
+    def get_financial_sales(self, merchant_id: str, start_date: str = None, end_date: str = None, page: int = None, size: int = None):
+        params = {
+            'beginSalesDate': start_date,
+            'endSalesDate': end_date,
+            'page': page,
+            'size': size,
+        }
+        if self.use_mock_data:
+            return self._mock_financial_payload('sales', merchant_id, params=params)
+        return self._request_financial_module('GET', merchant_id, ('sales',), params=params)
+
+    def get_financial_events(self, merchant_id: str, start_date: str = None, end_date: str = None, page: int = None, size: int = None):
+        params = {
+            'beginDate': start_date,
+            'endDate': end_date,
+            'page': page,
+            'size': size,
+        }
+        if self.use_mock_data:
+            return self._mock_financial_payload('financial_events', merchant_id, params=params)
+        return self._request_financial_module(
+            'GET',
+            merchant_id,
+            ('financial-events', 'events'),
+            params=params
+        )
+
+    def request_financial_reconciliation_on_demand(self, merchant_id: str, competence: str, start_date: str = None, end_date: str = None):
+        payload = self._clean_request_params({
+            'competence': competence,
+            'beginDate': start_date,
+            'endDate': end_date,
+        })
+        if self.use_mock_data:
+            return self._mock_financial_payload('reconciliation_on_demand', merchant_id, data=payload)
+        return self._request_financial_module(
+            'POST',
+            merchant_id,
+            ('reconciliation-on-demand', 'reconciliation/on-demand'),
+            data=payload
+        )
+
+    def get_financial_reconciliation(self, merchant_id: str, competence: str = None, page: int = None, size: int = None):
+        params = {
+            'competence': competence,
+            'page': page,
+            'size': size,
+        }
+        if self.use_mock_data:
+            return self._mock_financial_payload('reconciliation', merchant_id, params=params)
+        return self._request_financial_module('GET', merchant_id, ('reconciliation',), params=params)
+
+    def get_financial_settlement(self, merchant_id: str, start_date: str = None, end_date: str = None, page: int = None, size: int = None):
+        params = {
+            'beginDate': start_date,
+            'endDate': end_date,
+            'page': page,
+            'size': size,
+        }
+        if self.use_mock_data:
+            return self._mock_financial_payload('settlement', merchant_id, params=params)
+        return self._request_financial_module(
+            'GET',
+            merchant_id,
+            ('settlements', 'settlement'),
+            params=params
+        )
+
+    def get_financial_anticipation(self, merchant_id: str, start_date: str = None, end_date: str = None, page: int = None, size: int = None):
+        params = {
+            'beginDate': start_date,
+            'endDate': end_date,
+            'page': page,
+            'size': size,
+        }
+        if self.use_mock_data:
+            return self._mock_financial_payload('anticipation', merchant_id, params=params)
+        return self._request_financial_module(
+            'GET',
+            merchant_id,
+            ('anticipations', 'anticipation'),
+            params=params
+        )
 
     def _request_via_urllib(self, method: str, endpoint: str, params: Dict = None, data: Dict = None, headers: Dict = None) -> Optional[Dict]:
         """Fallback HTTP path used when requests stack is unstable."""
