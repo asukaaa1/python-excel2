@@ -1491,7 +1491,6 @@ class IFoodAPI:
             return result.get('merchants', [])
         return []
 
-<<<<<<< HEAD
     def _financial_endpoint(self, path: str) -> str:
         """Build a Financial v3 endpoint path from the official API Reference."""
         suffix = str(path or '').strip()
@@ -1499,43 +1498,41 @@ class IFoodAPI:
             suffix = f'/{suffix}'
         return f'/financial/v3.0{suffix}'
 
-    def _clean_query_params(self, params: Dict = None) -> Dict:
-        """Drop empty query params while preserving numeric values."""
+    def _clean_request_params(self, params: Dict = None) -> Dict:
+        """Drop empty params while preserving numeric values."""
         cleaned = {}
         for key, value in (params or {}).items():
             if value is None:
                 continue
             if isinstance(value, str) and not value.strip():
-=======
-    def _clean_request_params(self, params: Dict = None) -> Dict:
-        cleaned = {}
-        for key, value in (params or {}).items():
-            if value in (None, ''):
->>>>>>> b0e417db7cf86478f7459b4cbfadcca9a0801524
                 continue
             cleaned[key] = value
         return cleaned
 
-<<<<<<< HEAD
     def get_financial_sales(
         self,
         merchant_id: str,
-        begin_sales_date: str,
-        end_sales_date: str,
+        start_date: str = None,
+        end_date: str = None,
         page: int = None,
+        size: int = None,
+        begin_sales_date: str = None,
+        end_sales_date: str = None,
     ) -> Optional[Dict]:
         """Get Financial API Sales records for a merchant."""
+        begin_value = begin_sales_date or start_date
+        end_value = end_sales_date or end_date
         if self.use_mock_data:
             return [{
                 'page': int(page or 1),
-                'beginSalesDate': begin_sales_date,
-                'endSalesDate': end_sales_date,
+                'beginSalesDate': begin_value,
+                'endSalesDate': end_value,
                 'sales': [],
             }]
 
-        params = self._clean_query_params({
-            'beginSalesDate': begin_sales_date,
-            'endSalesDate': end_sales_date,
+        params = self._clean_request_params({
+            'beginSalesDate': begin_value,
+            'endSalesDate': end_value,
             'page': page,
         })
         return self._request(
@@ -1547,12 +1544,16 @@ class IFoodAPI:
     def get_financial_events(
         self,
         merchant_id: str,
-        begin_date: str,
-        end_date: str,
+        start_date: str = None,
+        end_date: str = None,
         page: int = None,
         size: int = None,
+        begin_date: str = None,
+        end_date_filter: str = None,
     ) -> Optional[Dict]:
         """Get Financial API event ledger entries for a merchant."""
+        begin_value = begin_date or start_date
+        end_value = end_date_filter or end_date
         if self.use_mock_data:
             return {
                 'page': int(page or 1),
@@ -1561,9 +1562,9 @@ class IFoodAPI:
                 'financialEvents': [],
             }
 
-        params = self._clean_query_params({
-            'beginDate': begin_date,
-            'endDate': end_date,
+        params = self._clean_request_params({
+            'beginDate': begin_value,
+            'endDate': end_value,
             'page': page,
             'size': size,
         })
@@ -1576,9 +1577,11 @@ class IFoodAPI:
     def get_financial_reconciliation(
         self,
         merchant_id: str,
-        competence: str,
+        competence: str = None,
+        page: int = None,
+        size: int = None,
     ) -> Optional[Dict]:
-        """Get the reconciliation export metadata for a competence month."""
+        """Get reconciliation export metadata for a competence month."""
         if self.use_mock_data:
             return {
                 'downloadPath': '',
@@ -1586,7 +1589,7 @@ class IFoodAPI:
                 'competence': competence,
             }
 
-        params = self._clean_query_params({'competence': competence})
+        params = self._clean_request_params({'competence': competence})
         return self._request(
             'GET',
             self._financial_endpoint(f'/merchants/{merchant_id}/reconciliation'),
@@ -1597,6 +1600,8 @@ class IFoodAPI:
         self,
         merchant_id: str,
         competence: str,
+        start_date: str = None,
+        end_date: str = None,
     ) -> Optional[Dict]:
         """Request asynchronous reconciliation file generation for a competence month."""
         if self.use_mock_data:
@@ -1639,8 +1644,14 @@ class IFoodAPI:
         end_payment_date: str = None,
         begin_calculation_date: str = None,
         end_calculation_date: str = None,
+        start_date: str = None,
+        end_date: str = None,
+        page: int = None,
+        size: int = None,
     ) -> Optional[Dict]:
         """Get Financial API settlements for a merchant."""
+        begin_calc = begin_calculation_date or start_date
+        end_calc = end_calculation_date or end_date
         if self.use_mock_data:
             return {
                 'merchantId': merchant_id,
@@ -1648,11 +1659,11 @@ class IFoodAPI:
                 'balance': 0,
             }
 
-        params = self._clean_query_params({
+        params = self._clean_request_params({
             'beginPaymentDate': begin_payment_date,
             'endPaymentDate': end_payment_date,
-            'beginCalculationDate': begin_calculation_date,
-            'endCalculationDate': end_calculation_date,
+            'beginCalculationDate': begin_calc,
+            'endCalculationDate': end_calc,
         })
         return self._request(
             'GET',
@@ -1667,8 +1678,14 @@ class IFoodAPI:
         end_calculation_date: str = None,
         begin_anticipated_payment_date: str = None,
         end_anticipated_payment_date: str = None,
+        start_date: str = None,
+        end_date: str = None,
+        page: int = None,
+        size: int = None,
     ) -> Optional[Dict]:
         """Get Financial API anticipation records for a merchant."""
+        begin_calc = begin_calculation_date or start_date
+        end_calc = end_calculation_date or end_date
         if self.use_mock_data:
             return {
                 'merchantId': merchant_id,
@@ -1676,9 +1693,9 @@ class IFoodAPI:
                 'balance': 0,
             }
 
-        params = self._clean_query_params({
-            'beginCalculationDate': begin_calculation_date,
-            'endCalculationDate': end_calculation_date,
+        params = self._clean_request_params({
+            'beginCalculationDate': begin_calc,
+            'endCalculationDate': end_calc,
             'beginAnticipatedPaymentDate': begin_anticipated_payment_date,
             'endAnticipatedPaymentDate': end_anticipated_payment_date,
         })
@@ -1686,284 +1703,40 @@ class IFoodAPI:
             'GET',
             self._financial_endpoint(f'/merchants/{merchant_id}/anticipations'),
             params=params,
-=======
-    def _prefer_http_error(self, current_error: Dict, next_error: Dict) -> Dict:
-        if not isinstance(next_error, dict) or not next_error:
-            return current_error or {}
-        if not isinstance(current_error, dict) or not current_error:
-            return dict(next_error)
-
-        try:
-            current_status = int(current_error.get('status') or 0)
-        except Exception:
-            current_status = 0
-        try:
-            next_status = int(next_error.get('status') or 0)
-        except Exception:
-            next_status = 0
-
-        if current_status in (404, 405) and next_status not in (404, 405):
-            return dict(next_error)
-        if current_status == 0 and next_status > 0:
-            return dict(next_error)
-        return dict(current_error)
-
-    def _request_first_success(self, method: str, endpoints, params: Dict = None, data: Dict = None, headers: Dict = None):
-        preferred_error = {}
-        cleaned_params = self._clean_request_params(params)
-        for endpoint in endpoints or []:
-            payload = self._request(method, endpoint, params=cleaned_params, data=data, headers=headers)
-            if payload is not None:
-                return payload
-            preferred_error = self._prefer_http_error(preferred_error, self.get_last_http_error())
-        if preferred_error:
-            self._last_http_error = preferred_error
-        return None
-
-    def _request_financial_module(self, method: str, merchant_id: str, resource_variants, params: Dict = None, data: Dict = None):
-        merchant_key = str(merchant_id or '').strip()
-        cleaned_params = self._clean_request_params(params)
-        preferred_error = {}
-
-        nested_endpoints = [
-            f"/financial/v3.0/merchants/{merchant_key}/{resource}"
-            for resource in (resource_variants or [])
-            if merchant_key and str(resource or '').strip()
-        ]
-        if nested_endpoints:
-            payload = self._request_first_success(method, nested_endpoints, params=cleaned_params, data=data)
-            if payload is not None:
-                return payload
-            preferred_error = self._prefer_http_error(preferred_error, self.get_last_http_error())
-
-        root_params = dict(cleaned_params)
-        if merchant_key:
-            root_params.setdefault('merchantId', merchant_key)
-        root_endpoints = [
-            f"/financial/v3.0/{resource}"
-            for resource in (resource_variants or [])
-            if str(resource or '').strip()
-        ]
-        if root_endpoints:
-            payload = self._request_first_success(method, root_endpoints, params=root_params, data=data)
-            if payload is not None:
-                return payload
-            preferred_error = self._prefer_http_error(preferred_error, self.get_last_http_error())
-
-        if preferred_error:
-            self._last_http_error = preferred_error
-        return None
-
-    def _mock_financial_payload(self, module_name: str, merchant_id: str, *, params: Dict = None, data: Dict = None):
-        merchant_key = str(merchant_id or '').strip() or 'mock-merchant'
-        filters = self._clean_request_params(params)
-        body = data if isinstance(data, dict) else {}
-        now_iso = datetime.utcnow().isoformat() + 'Z'
-
-        if module_name == 'sales':
-            return {
-                'merchantId': merchant_key,
-                'module': 'Sales',
-                'mock': True,
-                'filters': filters,
-                'page': int(filters.get('page') or 0),
-                'items': [
-                    {
-                        'saleId': f'{merchant_key}-sale-001',
-                        'referenceDate': filters.get('beginSalesDate') or now_iso[:10],
-                        'grossAmount': 187.4,
-                        'netAmount': 171.92,
-                        'status': 'PROCESSED',
-                    },
-                    {
-                        'saleId': f'{merchant_key}-sale-002',
-                        'referenceDate': filters.get('endSalesDate') or now_iso[:10],
-                        'grossAmount': 92.0,
-                        'netAmount': 84.18,
-                        'status': 'PROCESSED',
-                    },
-                ],
-            }
-
-        if module_name == 'financial_events':
-            return {
-                'merchantId': merchant_key,
-                'module': 'Financial Events',
-                'mock': True,
-                'filters': filters,
-                'events': [
-                    {
-                        'id': f'{merchant_key}-evt-001',
-                        'type': 'SALE',
-                        'createdAt': now_iso,
-                        'amount': 171.92,
-                    },
-                    {
-                        'id': f'{merchant_key}-evt-002',
-                        'type': 'SETTLEMENT',
-                        'createdAt': now_iso,
-                        'amount': 84.18,
-                    },
-                ],
-            }
-
-        if module_name == 'reconciliation_on_demand':
-            return {
-                'merchantId': merchant_key,
-                'module': 'Reconciliation On Demand',
-                'mock': True,
-                'requestedAt': now_iso,
-                'status': 'QUEUED',
-                'competence': body.get('competence') or filters.get('competence'),
-                'protocol': f'recon-{merchant_key}-{int(time.time())}',
-            }
-
-        if module_name == 'reconciliation':
-            return {
-                'merchantId': merchant_key,
-                'module': 'Reconciliation',
-                'mock': True,
-                'filters': filters,
-                'competence': filters.get('competence'),
-                'items': [
-                    {
-                        'orderId': f'{merchant_key}-ord-001',
-                        'status': 'MATCHED',
-                        'grossAmount': 187.4,
-                        'netAmount': 171.92,
-                    },
-                    {
-                        'orderId': f'{merchant_key}-ord-002',
-                        'status': 'MATCHED',
-                        'grossAmount': 92.0,
-                        'netAmount': 84.18,
-                    },
-                ],
-            }
-
-        if module_name == 'settlement':
-            return {
-                'merchantId': merchant_key,
-                'module': 'Settlement',
-                'mock': True,
-                'filters': filters,
-                'settlements': [
-                    {
-                        'settlementId': f'{merchant_key}-stl-001',
-                        'creditDate': filters.get('beginDate') or now_iso[:10],
-                        'amount': 256.1,
-                        'status': 'PAID',
-                    }
-                ],
-            }
-
-        if module_name == 'anticipation':
-            return {
-                'merchantId': merchant_key,
-                'module': 'Anticipation',
-                'mock': True,
-                'filters': filters,
-                'anticipations': [
-                    {
-                        'anticipationId': f'{merchant_key}-ant-001',
-                        'requestedAmount': 120.0,
-                        'feeAmount': 3.4,
-                        'status': 'APPROVED',
-                    }
-                ],
-            }
-
-        return {
-            'merchantId': merchant_key,
-            'module': module_name,
-            'mock': True,
-            'filters': filters,
-            'requestBody': body,
-        }
-
-    def get_financial_sales(self, merchant_id: str, start_date: str = None, end_date: str = None, page: int = None, size: int = None):
-        params = {
-            'beginSalesDate': start_date,
-            'endSalesDate': end_date,
-            'page': page,
-            'size': size,
-        }
-        if self.use_mock_data:
-            return self._mock_financial_payload('sales', merchant_id, params=params)
-        return self._request_financial_module('GET', merchant_id, ('sales',), params=params)
-
-    def get_financial_events(self, merchant_id: str, start_date: str = None, end_date: str = None, page: int = None, size: int = None):
-        params = {
-            'beginDate': start_date,
-            'endDate': end_date,
-            'page': page,
-            'size': size,
-        }
-        if self.use_mock_data:
-            return self._mock_financial_payload('financial_events', merchant_id, params=params)
-        return self._request_financial_module(
-            'GET',
-            merchant_id,
-            ('financial-events', 'events'),
-            params=params
         )
 
-    def request_financial_reconciliation_on_demand(self, merchant_id: str, competence: str, start_date: str = None, end_date: str = None):
-        payload = self._clean_request_params({
-            'competence': competence,
-            'beginDate': start_date,
-            'endDate': end_date,
-        })
-        if self.use_mock_data:
-            return self._mock_financial_payload('reconciliation_on_demand', merchant_id, data=payload)
-        return self._request_financial_module(
-            'POST',
+    def get_financial_settlement(
+        self,
+        merchant_id: str,
+        start_date: str = None,
+        end_date: str = None,
+        page: int = None,
+        size: int = None,
+    ) -> Optional[Dict]:
+        """Backward-compatible alias for plural settlements method."""
+        return self.get_financial_settlements(
             merchant_id,
-            ('reconciliation-on-demand', 'reconciliation/on-demand'),
-            data=payload
+            start_date=start_date,
+            end_date=end_date,
+            page=page,
+            size=size,
         )
 
-    def get_financial_reconciliation(self, merchant_id: str, competence: str = None, page: int = None, size: int = None):
-        params = {
-            'competence': competence,
-            'page': page,
-            'size': size,
-        }
-        if self.use_mock_data:
-            return self._mock_financial_payload('reconciliation', merchant_id, params=params)
-        return self._request_financial_module('GET', merchant_id, ('reconciliation',), params=params)
-
-    def get_financial_settlement(self, merchant_id: str, start_date: str = None, end_date: str = None, page: int = None, size: int = None):
-        params = {
-            'beginDate': start_date,
-            'endDate': end_date,
-            'page': page,
-            'size': size,
-        }
-        if self.use_mock_data:
-            return self._mock_financial_payload('settlement', merchant_id, params=params)
-        return self._request_financial_module(
-            'GET',
+    def get_financial_anticipation(
+        self,
+        merchant_id: str,
+        start_date: str = None,
+        end_date: str = None,
+        page: int = None,
+        size: int = None,
+    ) -> Optional[Dict]:
+        """Backward-compatible alias for plural anticipations method."""
+        return self.get_financial_anticipations(
             merchant_id,
-            ('settlements', 'settlement'),
-            params=params
-        )
-
-    def get_financial_anticipation(self, merchant_id: str, start_date: str = None, end_date: str = None, page: int = None, size: int = None):
-        params = {
-            'beginDate': start_date,
-            'endDate': end_date,
-            'page': page,
-            'size': size,
-        }
-        if self.use_mock_data:
-            return self._mock_financial_payload('anticipation', merchant_id, params=params)
-        return self._request_financial_module(
-            'GET',
-            merchant_id,
-            ('anticipations', 'anticipation'),
-            params=params
->>>>>>> b0e417db7cf86478f7459b4cbfadcca9a0801524
+            start_date=start_date,
+            end_date=end_date,
+            page=page,
+            size=size,
         )
 
     def _request_via_urllib(self, method: str, endpoint: str, params: Dict = None, data: Dict = None, headers: Dict = None) -> Optional[Dict]:
