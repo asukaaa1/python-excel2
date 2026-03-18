@@ -2005,6 +2005,191 @@ def _fetch_orders_from_candidate_merchants(api, candidate_ids, start_date, end_d
     return fetched_orders, resolved_merchant_id
 
 
+def _extract_financial_sales_records(payload):
+    if isinstance(payload, list):
+        sales = []
+        for item in payload:
+            if isinstance(item, dict) and any(key in item for key in ('sales', 'items', 'results', 'data')):
+                sales.extend(_extract_financial_sales_records(item))
+            elif isinstance(item, dict):
+                sales.append(item)
+        return sales
+
+    if not isinstance(payload, dict):
+        return []
+
+    for key in ('sales', 'items', 'results', 'data'):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+
+    return []
+
+
+def _financial_sales_has_next_page(payload):
+    if not isinstance(payload, dict):
+        return False
+    if isinstance(payload.get('hasNextPage'), bool):
+        return payload.get('hasNextPage')
+    try:
+        page = int(payload.get('page') or 1)
+        total_pages = int(payload.get('totalPages') or payload.get('pageCount') or 0)
+        if total_pages > 0:
+            return page < total_pages
+    except Exception:
+        pass
+    return False
+
+
+def _financial_sale_cache_key(sale):
+    if not isinstance(sale, dict):
+        return ''
+    for candidate in (
+        sale.get('orderId'),
+        sale.get('order_id'),
+        (sale.get('order') or {}).get('id') if isinstance(sale.get('order'), dict) else None,
+        (sale.get('order') or {}).get('orderId') if isinstance(sale.get('order'), dict) else None,
+        (sale.get('order') or {}).get('displayId') if isinstance(sale.get('order'), dict) else None,
+        sale.get('displayId'),
+        sale.get('id'),
+    ):
+        text = str(candidate or '').strip().lower()
+        if text:
+            return text
+    return ''
+
+
+def _merge_financial_sales_for_cache(existing_sales: list, incoming_sales: list) -> list:
+    merged = {}
+    for sale in (existing_sales or []):
+        if not isinstance(sale, dict):
+            continue
+        sale_key = _financial_sale_cache_key(sale)
+        if sale_key:
+            merged[sale_key] = sale
+    for sale in (incoming_sales or []):
+        if not isinstance(sale, dict):
+            continue
+        sale_key = _financial_sale_cache_key(sale)
+        if sale_key:
+            merged[sale_key] = sale
+    if merged:
+        return list(merged.values())
+    return [sale for sale in (incoming_sales or existing_sales or []) if isinstance(sale, dict)]
+
+
+def _fetch_financial_sales_from_candidate_merchants(api, candidate_ids, start_date, end_date, default_restaurant_id):
+    fetched_sales = []
+    resolved_merchant_id = str(default_restaurant_id or '')
+    best_count = -1
+
+    if not api or not hasattr(api, 'get_financial_sales'):
+        return fetched_sales, resolved_merchant_id
+
+    for candidate_id in candidate_ids:
+        page = 1
+        candidate_sales = []
+        seen_pages = set()
+        while page <= 25:
+            try:
+                payload = api.get_financial_sales(
+                    candidate_id,
+                    begin_sales_date=start_date,
+                    end_sales_date=end_date,
+                    page=page,
+                ) or {}
+            except Exception as e:
+                print(f"WARN merchant {candidate_id}: financial sales hydration failed: {e}")
+                payload = {}
+
+            sales_page = _extract_financial_sales_records(payload)
+            if sales_page:
+                candidate_sales.extend(sales_page)
+
+            page_signature = (
+                page,
+                len(sales_page),
+                _financial_sale_cache_key(sales_page[0]) if sales_page else '',
+                _financial_sale_cache_key(sales_page[-1]) if sales_page else '',
+            )
+            if page_signature in seen_pages:
+                break
+            seen_pages.add(page_signature)
+
+            if not sales_page or not _financial_sales_has_next_page(payload):
+                break
+            page += 1
+
+        candidate_count = len(candidate_sales)
+        if candidate_count > best_count:
+            best_count = candidate_count
+            fetched_sales = candidate_sales
+            resolved_merchant_id = str(candidate_id)
+
+    if not fetched_sales and candidate_ids:
+        resolved_merchant_id = str(candidate_ids[0])
+    return fetched_sales, resolved_merchant_id
+
+
+def ensure_restaurant_financial_sales_cache(
+    restaurant: dict,
+    restaurant_id: str,
+    org_id_override: int = None,
+    force_remote_sync: bool = False,
+):
+    """Ensure a store has Financial API Sales cached for discount calculations."""
+    if not isinstance(restaurant, dict):
+        return []
+
+    existing_sales = _extract_financial_sales_records(restaurant.get('_financial_sales_cache'))
+    if existing_sales:
+        restaurant['_financial_sales_cache'] = existing_sales
+
+    org_id = org_id_override or get_current_org_id()
+    if org_id:
+        api = _get_org_api_client_for_ingestion(org_id)
+    else:
+        api = get_resilient_api_client()
+
+    if existing_sales and not force_remote_sync:
+        return existing_sales
+
+    if not api or not restaurant_id or not hasattr(api, 'get_financial_sales'):
+        restaurant['_financial_sales_cache'] = existing_sales
+        return existing_sales
+
+    now_ts = time.time()
+    try:
+        last_sync_at = float((restaurant or {}).get('_financial_sales_remote_sync_at') or 0)
+    except Exception:
+        last_sync_at = 0.0
+    if existing_sales and force_remote_sync and (now_ts - last_sync_at) < 20:
+        return existing_sales
+
+    days = resolve_current_org_fetch_days(default_days=30)
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    candidate_ids = _collect_candidate_merchant_ids(api, restaurant, restaurant_id, org_id_override=org_id_override)
+    fetched_sales, resolved_merchant_id = _fetch_financial_sales_from_candidate_merchants(
+        api,
+        candidate_ids,
+        start_date,
+        end_date,
+        default_restaurant_id=restaurant_id,
+    )
+    restaurant['_financial_sales_remote_sync_at'] = now_ts
+    _set_restaurant_resolved_merchant_id(restaurant, resolved_merchant_id)
+
+    if fetched_sales:
+        merged_sales = _merge_financial_sales_for_cache(existing_sales, fetched_sales)
+        restaurant['_financial_sales_cache'] = merged_sales
+        _refresh_restaurant_metrics_from_cache(restaurant, resolved_merchant_id)
+        return merged_sales
+
+    restaurant['_financial_sales_cache'] = existing_sales
+    return existing_sales
+
+
 def ensure_restaurant_orders_cache(restaurant: dict, restaurant_id: str, org_id_override: int = None, force_remote_sync: bool = False):
     """
     Ensure a store has raw orders cached for detail screens.
@@ -2175,6 +2360,15 @@ def build_restaurant_cache_record(restaurant: Dict, max_orders: int = 300):
         orders = orders[-max_orders:]
     if orders:
         clean['_orders_cache'] = orders
+    financial_sales = [
+        sale
+        for sale in _extract_financial_sales_records(restaurant.get('_financial_sales_cache'))
+        if isinstance(sale, dict)
+    ]
+    if max_orders > 0 and len(financial_sales) > max_orders:
+        financial_sales = financial_sales[-max_orders:]
+    if financial_sales:
+        clean['_financial_sales_cache'] = financial_sales
     resolved_id = (
         restaurant.get('_resolved_merchant_id')
         or restaurant.get('merchant_id')
@@ -3834,7 +4028,8 @@ def _refresh_restaurant_metrics_from_cache(restaurant: dict, merchant_id: str) -
             or restaurant.get('super')
         ),
     }
-    refreshed = IFoodDataProcessor.process_restaurant_data(merchant_details, orders, None)
+    financial_sales = _extract_financial_sales_records(restaurant.get('_financial_sales_cache'))
+    refreshed = IFoodDataProcessor.process_restaurant_data(merchant_details, orders, financial_sales)
     if not isinstance(refreshed, dict):
         return False
 
@@ -3843,6 +4038,8 @@ def _refresh_restaurant_metrics_from_cache(restaurant: dict, merchant_id: str) -
             continue
         restaurant[key] = value
     restaurant['_orders_cache'] = orders
+    if financial_sales:
+        restaurant['_financial_sales_cache'] = financial_sales
     restaurant['_resolved_merchant_id'] = merchant_lookup_id
     if not restaurant.get('merchant_id'):
         restaurant['merchant_id'] = merchant_lookup_id
@@ -4733,9 +4930,23 @@ def _load_org_restaurants(org_id):
                 orders = previous_orders
 
         orders = _normalize_orders_list(orders)
+        financial_cache_context = {
+            'id': merchant_id,
+            'merchant_id': merchant_id,
+            'name': details.get('name', merchant_name) if isinstance(details, dict) else merchant_name,
+            'manager': merchant_manager,
+            'neighborhood': ((details.get('address') or {}).get('neighborhood') if isinstance(details, dict) else None) or mc.get('neighborhood') or 'Centro',
+            '_orders_cache': orders,
+        }
+        financial_sales = ensure_restaurant_financial_sales_cache(
+            financial_cache_context,
+            merchant_id,
+            org_id_override=org_id,
+            force_remote_sync=True,
+        )
 
         try:
-            restaurant_data = IFoodDataProcessor.process_restaurant_data(details, orders, None)
+            restaurant_data = IFoodDataProcessor.process_restaurant_data(details, orders, financial_sales)
         except Exception as e:
             print(f"  WARN Org {org_id}, merchant {merchant_id}: data processing failed: {e}")
             neighborhood = (details.get('address') or {}).get('neighborhood') if isinstance(details, dict) else 'Centro'
@@ -4746,6 +4957,10 @@ def _load_org_restaurants(org_id):
         if merchant_manager:
             restaurant_data['manager'] = sanitize_merchant_name(merchant_manager) or merchant_manager
         restaurant_data['merchant_id'] = normalize_merchant_id(merchant_id) or merchant_id
+        if financial_sales:
+            restaurant_data['_financial_sales_cache'] = financial_sales
+        if financial_cache_context.get('_resolved_merchant_id'):
+            restaurant_data['_resolved_merchant_id'] = financial_cache_context.get('_resolved_merchant_id')
 
         closure = {
             'is_closed': False,

@@ -15,6 +15,7 @@ REQUIRED_DEPS = [
     'copy',
     'datetime',
     'detect_restaurant_closure',
+    'ensure_restaurant_financial_sales_cache',
     'ensure_restaurant_orders_cache',
     'evaluate_restaurant_quality',
     'filter_orders_by_month',
@@ -75,38 +76,55 @@ def register(app, deps):
         return status_code
 
     def _ifood_error_response(api, *, action='operacao iFood', default_status=500):
+        raw_error = {}
+        getter = getattr(api, 'get_last_http_error', None)
+        if callable(getter):
+            try:
+                raw_error = getter() or {}
+            except Exception:
+                raw_error = {}
+        elif isinstance(getattr(api, '_last_http_error', None), dict):
+            raw_error = dict(getattr(api, '_last_http_error') or {})
+
         status_code = _parse_ifood_error_status(api, default_status=default_status)
+        detail_text = str((raw_error or {}).get('detail') or '').strip()
+        endpoint_text = str((raw_error or {}).get('endpoint') or '').strip()
+
+        def _error_payload(message):
+            payload = {'success': False, 'error': message}
+            if status_code:
+                payload['ifood_status'] = status_code
+            if endpoint_text:
+                payload['ifood_endpoint'] = endpoint_text
+            if detail_text:
+                payload['ifood_detail'] = detail_text[:800]
+            return payload
+
         if status_code == 400:
-            return jsonify({
-                'success': False,
-                'error': f'Falha de validacao ao executar {action}. Revise campos obrigatorios e formato dos horarios.'
-            }), 400
+            return jsonify(_error_payload(
+                f'Falha de validacao ao executar {action}. Revise campos obrigatorios e formato dos horarios.'
+            )), 400
         if status_code == 401:
-            return jsonify({
-                'success': False,
-                'error': 'Nao autorizado no iFood. Revise as credenciais da organizacao.'
-            }), 401
+            return jsonify(_error_payload(
+                'Nao autorizado no iFood. Revise as credenciais da organizacao.'
+            )), 401
         if status_code == 403:
-            return jsonify({
-                'success': False,
-                'error': 'Permissao insuficiente no iFood para a loja informada.'
-            }), 403
+            return jsonify(_error_payload(
+                'Permissao insuficiente no iFood para a loja informada.'
+            )), 403
         if status_code == 409:
-            return jsonify({
-                'success': False,
-                'error': 'Conflito detectado (ex.: sobreposicao de interrupcao/horario). Ajuste a janela e tente novamente.'
-            }), 409
+            return jsonify(_error_payload(
+                'Conflito detectado (ex.: sobreposicao de interrupcao/horario). Ajuste a janela e tente novamente.'
+            )), 409
         if status_code == 429:
-            return jsonify({
-                'success': False,
-                'error': 'Limite de requisicoes iFood atingido. Tente novamente em instantes.'
-            }), 429
+            return jsonify(_error_payload(
+                'Limite de requisicoes iFood atingido. Tente novamente em instantes.'
+            )), 429
         if 500 <= status_code <= 599:
-            return jsonify({
-                'success': False,
-                'error': 'iFood indisponivel no momento. Tente novamente com backoff.'
-            }), 502
-        return jsonify({'success': False, 'error': f'Falha ao executar {action}.'}), default_status
+            return jsonify(_error_payload(
+                'iFood indisponivel no momento. Tente novamente com backoff.'
+            )), 502
+        return jsonify(_error_payload(f'Falha ao executar {action}.')), default_status
 
     def _request_text_arg(*names):
         for name in names:
@@ -476,7 +494,7 @@ def register(app, deps):
                             refreshed = IFoodDataProcessor.process_restaurant_data(
                                 merchant_details,
                                 hydrated_orders,
-                                None
+                                r.get('_financial_sales_cache')
                             )
                             refreshed['name'] = r.get('name', refreshed.get('name'))
                             refreshed['manager'] = r.get('manager', refreshed.get('manager'))
@@ -531,7 +549,7 @@ def register(app, deps):
                         restaurant_data = IFoodDataProcessor.process_restaurant_data(
                             merchant_details,
                             filtered_orders,
-                            None
+                            r.get('_financial_sales_cache')
                         )
                     
                         # Keep original name and manager
@@ -607,7 +625,7 @@ def register(app, deps):
                                     'isSuperRestaurant': is_super,
                                 },
                                 orders_snapshot,
-                                None
+                                r.get('_financial_sales_cache')
                             )
                             for key, value in (refreshed or {}).items():
                                 if not str(key).startswith('_'):
@@ -669,6 +687,11 @@ def register(app, deps):
                 merchant_lookup_id,
                 force_remote_sync=True
             )
+            financial_sales = ensure_restaurant_financial_sales_cache(
+                restaurant,
+                merchant_lookup_id,
+                force_remote_sync=True,
+            )
             merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant, merchant_lookup_id)
         
             # Filter orders by date range if provided
@@ -721,7 +744,7 @@ def register(app, deps):
                     response_data = IFoodDataProcessor.process_restaurant_data(
                         merchant_details,
                         filtered_orders,
-                        None
+                        financial_sales
                     )
                 
                     # Keep original name and manager
@@ -738,7 +761,7 @@ def register(app, deps):
                     response_data = IFoodDataProcessor.process_restaurant_data(
                         merchant_details,
                         all_orders,
-                        None
+                        financial_sales
                     )
                     response_data['name'] = restaurant.get('name', response_data.get('name'))
                     response_data['manager'] = restaurant.get('manager', response_data.get('manager'))

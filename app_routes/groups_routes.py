@@ -16,6 +16,7 @@ REQUIRED_DEPS = [
     'admin_required',
     'datetime',
     'db',
+    'ensure_restaurant_financial_sales_cache',
     'ensure_restaurant_orders_cache',
     'escape_html_text',
     'find_restaurant_by_identifier',
@@ -286,6 +287,12 @@ def register(app, deps):
             merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant, restaurant_id)
 
             all_orders = ensure_restaurant_orders_cache(restaurant, merchant_lookup_id, org_id_override=org_id)
+            financial_sales = ensure_restaurant_financial_sales_cache(
+                restaurant,
+                merchant_lookup_id,
+                org_id_override=org_id,
+                force_remote_sync=True,
+            )
             merchant_lookup_id = restaurants_service.resolve_merchant_lookup_id(restaurant, merchant_lookup_id)
 
             # Date filtering
@@ -309,7 +316,7 @@ def register(app, deps):
                     'name': restaurant.get('name', 'Unknown'),
                     'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
                 }
-                response_data = IFoodDataProcessor.process_restaurant_data(merchant_details, filtered_orders, None)
+                response_data = IFoodDataProcessor.process_restaurant_data(merchant_details, filtered_orders, financial_sales)
                 response_data['name'] = restaurant['name']
                 response_data['manager'] = restaurant['manager']
             else:
@@ -319,7 +326,7 @@ def register(app, deps):
                         'name': restaurant.get('name', 'Unknown'),
                         'merchantManager': {'name': restaurant.get('manager', 'Gerente')}
                     }
-                    response_data = IFoodDataProcessor.process_restaurant_data(merchant_details, all_orders, None)
+                    response_data = IFoodDataProcessor.process_restaurant_data(merchant_details, all_orders, financial_sales)
                     response_data['name'] = restaurant.get('name', response_data.get('name'))
                     response_data['manager'] = restaurant.get('manager', response_data.get('manager'))
                 else:

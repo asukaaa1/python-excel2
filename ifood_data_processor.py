@@ -221,6 +221,151 @@ class IFoodDataProcessor:
         return 0.0
 
     @staticmethod
+    def _normalize_identifier(value) -> str:
+        text = str(value or '').strip()
+        return text.lower() if text else ''
+
+    @staticmethod
+    def _extract_order_identifier(order: Dict) -> str:
+        if not isinstance(order, dict):
+            return ''
+
+        for key in ('id', 'orderId', 'order_id', 'displayId'):
+            identifier = IFoodDataProcessor._normalize_identifier(order.get(key))
+            if identifier:
+                return identifier
+
+        metadata = order.get('metadata')
+        if isinstance(metadata, dict):
+            for key in ('id', 'orderId', 'order_id', 'displayId'):
+                identifier = IFoodDataProcessor._normalize_identifier(metadata.get(key))
+                if identifier:
+                    return identifier
+
+        return ''
+
+    @staticmethod
+    def _extract_financial_sales(financial_data) -> List[Dict]:
+        if isinstance(financial_data, list):
+            sales = []
+            for item in financial_data:
+                if isinstance(item, dict) and any(key in item for key in ('sales', 'items', 'results', 'data')):
+                    sales.extend(IFoodDataProcessor._extract_financial_sales(item))
+                elif isinstance(item, dict):
+                    sales.append(item)
+            return sales
+
+        if not isinstance(financial_data, dict):
+            return []
+
+        for key in ('sales', 'items', 'results', 'data'):
+            value = financial_data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+        return []
+
+    @staticmethod
+    def _extract_financial_sale_identifier(sale: Dict) -> str:
+        if not isinstance(sale, dict):
+            return ''
+
+        preferred_paths = [
+            sale.get('orderId'),
+            sale.get('order_id'),
+            (sale.get('order') or {}).get('id') if isinstance(sale.get('order'), dict) else None,
+            (sale.get('order') or {}).get('orderId') if isinstance(sale.get('order'), dict) else None,
+            (sale.get('order') or {}).get('displayId') if isinstance(sale.get('order'), dict) else None,
+            sale.get('displayId'),
+            sale.get('id'),
+        ]
+        for candidate in preferred_paths:
+            identifier = IFoodDataProcessor._normalize_identifier(candidate)
+            if identifier:
+                return identifier
+        return ''
+
+    @staticmethod
+    def _extract_financial_benefits_total(sale: Dict) -> float:
+        if not isinstance(sale, dict):
+            return 0.0
+
+        benefits = sale.get('benefits')
+        if isinstance(benefits, dict):
+            for key in ('totalValue', 'total', 'value', 'amount'):
+                amount = IFoodDataProcessor._safe_float(benefits.get(key), 0.0)
+                if amount > 0:
+                    return amount
+
+            nested_entries = (
+                benefits.get('entries')
+                or benefits.get('items')
+                or benefits.get('details')
+                or benefits.get('benefits')
+            )
+            if isinstance(nested_entries, list):
+                total_amount = 0.0
+                for entry in nested_entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    entry_amount = 0.0
+                    for key in ('totalValue', 'value', 'amount'):
+                        entry_amount = IFoodDataProcessor._safe_float(entry.get(key), 0.0)
+                        if entry_amount > 0:
+                            break
+                    total_amount += entry_amount
+                if total_amount > 0:
+                    return total_amount
+        elif isinstance(benefits, list):
+            total_amount = 0.0
+            for entry in benefits:
+                if not isinstance(entry, dict):
+                    continue
+                entry_amount = 0.0
+                for key in ('totalValue', 'value', 'amount'):
+                    entry_amount = IFoodDataProcessor._safe_float(entry.get(key), 0.0)
+                    if entry_amount > 0:
+                        break
+                total_amount += entry_amount
+            if total_amount > 0:
+                return total_amount
+
+        for key in ('benefitsTotal', 'benefitTotal', 'discountTotal', 'discounts'):
+            amount = IFoodDataProcessor._safe_float(sale.get(key), 0.0)
+            if amount > 0:
+                return amount
+
+        return 0.0
+
+    @staticmethod
+    def _build_financial_discount_map(financial_data) -> Dict[str, float]:
+        sales = IFoodDataProcessor._extract_financial_sales(financial_data)
+        if not sales:
+            return {}
+
+        discounts_by_order = {}
+        for sale in sales:
+            if not isinstance(sale, dict):
+                continue
+            sale_identifier = IFoodDataProcessor._extract_financial_sale_identifier(sale)
+            if not sale_identifier:
+                continue
+            amount = IFoodDataProcessor._extract_financial_benefits_total(sale)
+            if amount <= 0:
+                continue
+            discounts_by_order[sale_identifier] = amount
+
+        return discounts_by_order
+
+    @staticmethod
+    def _discount_amount_for_order(order: Dict, discounts_by_order: Optional[Dict[str, float]] = None) -> float:
+        if isinstance(discounts_by_order, dict) and discounts_by_order:
+            order_identifier = IFoodDataProcessor._extract_order_identifier(order)
+            if order_identifier and order_identifier in discounts_by_order:
+                return IFoodDataProcessor._safe_float(discounts_by_order.get(order_identifier), 0.0)
+        return IFoodDataProcessor._discount_amount(order)
+
+    @staticmethod
     def _is_revenue_status(status: str, has_concluded_orders: bool) -> bool:
         """Allow fallback revenue counting when integrations do not classify CONCLUDED explicitly."""
         if status == 'CONCLUDED':
@@ -269,12 +414,16 @@ class IFoodDataProcessor:
                 if IFoodDataProcessor._is_revenue_status(status, has_concluded_orders)
                 and IFoodDataProcessor._order_amount(o) > 0
             ]
+            discounts_by_order = IFoodDataProcessor._build_financial_discount_map(financial_data)
             
             # Calculate gross revenue (valor bruto)
             gross_revenue = sum(IFoodDataProcessor._gross_amount(o) for o in revenue_orders)
             
             # Calculate total discounts/benefits
-            total_discounts = sum(IFoodDataProcessor._discount_amount(o) for o in revenue_orders)
+            total_discounts = sum(
+                IFoodDataProcessor._discount_amount_for_order(o, discounts_by_order)
+                for o in revenue_orders
+            )
             
             # Calculate net revenue (líquido = gross - discounts)
             net_revenue = gross_revenue - total_discounts
@@ -351,7 +500,7 @@ class IFoodDataProcessor:
                 fh_orders = len(first_half)
                 fh_gross = sum(IFoodDataProcessor._gross_amount(o) for o in first_half)
                 fh_discounts = sum(
-                    IFoodDataProcessor._discount_amount(o)
+                    IFoodDataProcessor._discount_amount_for_order(o, discounts_by_order)
                     for o in first_half
                 )
                 fh_net = fh_gross - fh_discounts
@@ -370,7 +519,7 @@ class IFoodDataProcessor:
                 sh_orders = len(second_half)
                 sh_gross = sum(IFoodDataProcessor._gross_amount(o) for o in second_half)
                 sh_discounts = sum(
-                    IFoodDataProcessor._discount_amount(o)
+                    IFoodDataProcessor._discount_amount_for_order(o, discounts_by_order)
                     for o in second_half
                 )
                 sh_net = sh_gross - sh_discounts

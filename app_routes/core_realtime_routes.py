@@ -575,7 +575,7 @@ def register_routes(bp, ctx: RouteContext):
             restaurant_data = IFoodDataProcessor.process_restaurant_data(
                 {'id': r.get('id'), 'name': r.get('name', 'Restaurante'), 'merchantManager': {'name': r.get('manager', 'Gerente')}},
                 orders,
-                None
+                r.get('_financial_sales_cache')
             )
             restaurant_data['name'] = r.get('name', 'Restaurante')
             restaurant_data['manager'] = r.get('manager', 'Gerente')
