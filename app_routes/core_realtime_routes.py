@@ -454,6 +454,68 @@ def register_routes(bp, ctx: RouteContext):
                     'used_for': ['order details', 'order listing fallback', 'dashboard metrics'],
                 },
             ],
+            'backend_panel_module_scope': [
+                {
+                    'name': 'Authentication',
+                    'doc_module': 'authentication',
+                    'status': 'active',
+                    'used_for': ['oauth token acquisition'],
+                },
+                {
+                    'name': 'Merchant',
+                    'doc_module': 'merchant',
+                    'status': 'active',
+                    'used_for': ['merchant list', 'merchant details', 'status', 'interruptions', 'opening-hours'],
+                },
+                {
+                    'name': 'Events',
+                    'doc_module': 'events',
+                    'status': 'active',
+                    'used_for': ['polling', 'acknowledgment', 'webhook ingestion', 'evidence traces'],
+                },
+                {
+                    'name': 'Order',
+                    'doc_module': 'order',
+                    'status': 'active',
+                    'used_for': ['order details', 'order listing fallback', 'dashboard metrics'],
+                },
+                {
+                    'name': 'Financial Sales',
+                    'doc_module': 'financial/api-sales',
+                    'status': 'requested',
+                    'used_for': ['discount and coupon savings roadmap', 'financial sale visibility in backend panel'],
+                },
+                {
+                    'name': 'Financial Events',
+                    'doc_module': 'financial/api-financial-events',
+                    'status': 'requested',
+                    'used_for': ['cash-flow event reconciliation scope in backend panel'],
+                },
+                {
+                    'name': 'Financial Reconciliation On Demand',
+                    'doc_module': 'financial/api-reconciliation-ondemand',
+                    'status': 'requested',
+                    'used_for': ['async reconciliation export scope in backend panel'],
+                },
+                {
+                    'name': 'Financial Reconciliation',
+                    'doc_module': 'financial/api-reconciliation',
+                    'status': 'requested',
+                    'used_for': ['csv reconciliation scope in backend panel'],
+                },
+                {
+                    'name': 'Financial Settlement',
+                    'doc_module': 'financial/api-settlement',
+                    'status': 'requested',
+                    'used_for': ['settlement and receivable visibility scope in backend panel'],
+                },
+                {
+                    'name': 'Financial Antecipation',
+                    'doc_module': 'financial/api-antecipation',
+                    'status': 'requested',
+                    'used_for': ['advance-payment scope in backend panel'],
+                },
+            ],
             'filters': {
                 'limit': limit,
                 'org_id': org_id_filter if str(org_id_filter or '').strip() else None,

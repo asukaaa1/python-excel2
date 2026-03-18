@@ -1253,6 +1253,195 @@ class IFoodAPI:
             return result.get('merchants', [])
         return []
 
+    def _financial_endpoint(self, path: str) -> str:
+        """Build a Financial v3 endpoint path from the official API Reference."""
+        suffix = str(path or '').strip()
+        if not suffix.startswith('/'):
+            suffix = f'/{suffix}'
+        return f'/financial/v3.0{suffix}'
+
+    def _clean_query_params(self, params: Dict = None) -> Dict:
+        """Drop empty query params while preserving numeric values."""
+        cleaned = {}
+        for key, value in (params or {}).items():
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            cleaned[key] = value
+        return cleaned
+
+    def get_financial_sales(
+        self,
+        merchant_id: str,
+        begin_sales_date: str,
+        end_sales_date: str,
+        page: int = None,
+    ) -> Optional[Dict]:
+        """Get Financial API Sales records for a merchant."""
+        if self.use_mock_data:
+            return [{
+                'page': int(page or 1),
+                'beginSalesDate': begin_sales_date,
+                'endSalesDate': end_sales_date,
+                'sales': [],
+            }]
+
+        params = self._clean_query_params({
+            'beginSalesDate': begin_sales_date,
+            'endSalesDate': end_sales_date,
+            'page': page,
+        })
+        return self._request(
+            'GET',
+            self._financial_endpoint(f'/merchants/{merchant_id}/sales'),
+            params=params,
+        )
+
+    def get_financial_events(
+        self,
+        merchant_id: str,
+        begin_date: str,
+        end_date: str,
+        page: int = None,
+        size: int = None,
+    ) -> Optional[Dict]:
+        """Get Financial API event ledger entries for a merchant."""
+        if self.use_mock_data:
+            return {
+                'page': int(page or 1),
+                'size': int(size or 100),
+                'hasNextPage': False,
+                'financialEvents': [],
+            }
+
+        params = self._clean_query_params({
+            'beginDate': begin_date,
+            'endDate': end_date,
+            'page': page,
+            'size': size,
+        })
+        return self._request(
+            'GET',
+            self._financial_endpoint(f'/merchants/{merchant_id}/financial-events'),
+            params=params,
+        )
+
+    def get_financial_reconciliation(
+        self,
+        merchant_id: str,
+        competence: str,
+    ) -> Optional[Dict]:
+        """Get the reconciliation export metadata for a competence month."""
+        if self.use_mock_data:
+            return {
+                'downloadPath': '',
+                'createdAt': datetime.utcnow().isoformat() + 'Z',
+                'competence': competence,
+            }
+
+        params = self._clean_query_params({'competence': competence})
+        return self._request(
+            'GET',
+            self._financial_endpoint(f'/merchants/{merchant_id}/reconciliation'),
+            params=params,
+        )
+
+    def request_financial_reconciliation_on_demand(
+        self,
+        merchant_id: str,
+        competence: str,
+    ) -> Optional[Dict]:
+        """Request asynchronous reconciliation file generation for a competence month."""
+        if self.use_mock_data:
+            return {
+                'merchantId': merchant_id,
+                'competence': competence,
+                'requestId': 'mock-financial-request',
+            }
+
+        return self._request(
+            'POST',
+            self._financial_endpoint(f'/merchants/{merchant_id}/reconciliation/on-demand'),
+            data={'competence': competence},
+        )
+
+    def get_financial_reconciliation_on_demand_status(
+        self,
+        merchant_id: str,
+        request_id: str,
+    ) -> Optional[Dict]:
+        """Get reconciliation on demand generation status."""
+        if self.use_mock_data:
+            return {
+                'id': request_id,
+                'status': 'created',
+                'merchantId': merchant_id,
+            }
+
+        return self._request(
+            'GET',
+            self._financial_endpoint(
+                f'/merchants/{merchant_id}/reconciliation/on-demand/{request_id}'
+            ),
+        )
+
+    def get_financial_settlements(
+        self,
+        merchant_id: str,
+        begin_payment_date: str = None,
+        end_payment_date: str = None,
+        begin_calculation_date: str = None,
+        end_calculation_date: str = None,
+    ) -> Optional[Dict]:
+        """Get Financial API settlements for a merchant."""
+        if self.use_mock_data:
+            return {
+                'merchantId': merchant_id,
+                'settlements': [],
+                'balance': 0,
+            }
+
+        params = self._clean_query_params({
+            'beginPaymentDate': begin_payment_date,
+            'endPaymentDate': end_payment_date,
+            'beginCalculationDate': begin_calculation_date,
+            'endCalculationDate': end_calculation_date,
+        })
+        return self._request(
+            'GET',
+            self._financial_endpoint(f'/merchants/{merchant_id}/settlements'),
+            params=params,
+        )
+
+    def get_financial_anticipations(
+        self,
+        merchant_id: str,
+        begin_calculation_date: str = None,
+        end_calculation_date: str = None,
+        begin_anticipated_payment_date: str = None,
+        end_anticipated_payment_date: str = None,
+    ) -> Optional[Dict]:
+        """Get Financial API anticipation records for a merchant."""
+        if self.use_mock_data:
+            return {
+                'merchantId': merchant_id,
+                'settlements': [],
+                'balance': 0,
+            }
+
+        params = self._clean_query_params({
+            'beginCalculationDate': begin_calculation_date,
+            'endCalculationDate': end_calculation_date,
+            'beginAnticipatedPaymentDate': begin_anticipated_payment_date,
+            'endAnticipatedPaymentDate': end_anticipated_payment_date,
+        })
+        return self._request(
+            'GET',
+            self._financial_endpoint(f'/merchants/{merchant_id}/anticipations'),
+            params=params,
+        )
+
     def _request_via_urllib(self, method: str, endpoint: str, params: Dict = None, data: Dict = None, headers: Dict = None) -> Optional[Dict]:
         """Fallback HTTP path used when requests stack is unstable."""
         timeout_seconds = float(os.environ.get('IFOOD_HTTP_TIMEOUT', 20))
