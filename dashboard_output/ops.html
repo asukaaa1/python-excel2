@@ -15,6 +15,8 @@
             --ok: #10b981;
             --warn: #f59e0b;
             --bad: #ef4444;
+            --accent: #f97015;
+            --sidebar-width: 260px;
         }
         [data-theme="dark"] {
             --bg: #08090b;
@@ -29,8 +31,136 @@
             font-family: "Plus Jakarta Sans", system-ui, sans-serif;
             background: var(--bg);
             color: var(--text);
+            min-height: 100vh;
         }
-        .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: var(--card);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+        }
+        .sidebar-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 99;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+        }
+        .sidebar-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .sidebar-header {
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .sidebar-brand {
+            font-size: 1.05rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+        }
+        .sidebar-user {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: var(--bg);
+            border-radius: 12px;
+        }
+        .sidebar-avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            background: var(--accent);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+        }
+        .sidebar-user-info h3 {
+            margin: 0;
+            font-size: 0.9rem;
+        }
+        .sidebar-user-info p {
+            margin: 0.15rem 0 0;
+            color: var(--muted);
+            font-size: 0.78rem;
+        }
+        .sidebar-nav {
+            flex: 1;
+            padding: 1rem 0.75rem;
+            overflow-y: auto;
+        }
+        .sidebar-section {
+            margin-bottom: 1.25rem;
+        }
+        .sidebar-section-title {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--muted);
+            padding: 0 0.85rem;
+            margin-bottom: 0.4rem;
+        }
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 0.85rem;
+            border-radius: 12px;
+            text-decoration: none;
+            color: var(--text);
+            font-size: 0.9rem;
+            margin-bottom: 0.2rem;
+        }
+        .sidebar-link:hover {
+            background: var(--bg);
+        }
+        .sidebar-link.active {
+            background: rgba(249, 112, 21, 0.12);
+            color: var(--accent);
+            font-weight: 700;
+        }
+        .sidebar-link svg {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+        .sidebar-footer {
+            padding: 1rem;
+            border-top: 1px solid var(--border);
+        }
+        .sidebar-footer-btn {
+            width: 100%;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            border-radius: 10px;
+            padding: 0.75rem 0.9rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        .main-content {
+            margin-left: var(--sidebar-width);
+            width: calc(100% - var(--sidebar-width));
+        }
+        .wrap {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px;
+        }
         .top {
             display: flex;
             justify-content: space-between;
@@ -39,7 +169,16 @@
             margin-bottom: 14px;
             flex-wrap: wrap;
         }
-        .links { display: flex; gap: 8px; flex-wrap: wrap; }
+        .page-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .links {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
         .btn {
             border: 1px solid var(--border);
             background: var(--card);
@@ -48,6 +187,13 @@
             padding: 8px 12px;
             cursor: pointer;
             font-size: 13px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .menu-toggle {
+            display: none;
         }
         .grid {
             display: grid;
@@ -91,66 +237,158 @@
         .row:last-child { border-bottom: none; }
         .small { font-size: 12px; color: var(--muted); }
         @media (max-width: 900px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.2s ease;
+            }
+            .sidebar.open {
+                transform: translateX(0);
+            }
+            .main-content {
+                margin-left: 0;
+                width: 100%;
+            }
+            .menu-toggle {
+                display: inline-flex;
+            }
             .grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-    <div class="wrap">
-        <div class="top">
-            <div>
-                <h1 style="margin:0;font-size:24px">Painel Operacional</h1>
-                <div class="small">Resumo de fila, refresh, cache e qualidade</div>
-            </div>
-            <div class="links">
-                <a class="btn" href="/dashboard">Dashboard</a>
-                <a class="btn" href="/admin">Admin</a>
-                <button class="btn" onclick="toggleTheme()">Tema</button>
-                <button class="btn" onclick="loadOps()">Atualizar</button>
-            </div>
-        </div>
-
-        <div class="grid">
-            <div class="card">
-                <div class="k">Refresh</div>
-                <div class="v" id="refreshStatus">-</div>
-                <div class="small mono" id="refreshAt">-</div>
-            </div>
-            <div class="card">
-                <div class="k">Fila Redis</div>
-                <div class="v" id="queueDepth">0</div>
-                <div class="small" id="queueMeta">-</div>
-            </div>
-            <div class="card">
-                <div class="k">Qualidade</div>
-                <div class="v" id="qualityScore">100</div>
-                <div class="small" id="qualityMeta">-</div>
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-brand">TIMO Ops</div>
+            <div class="sidebar-user">
+                <div class="sidebar-avatar" id="userAvatar">O</div>
+                <div class="sidebar-user-info">
+                    <h3 id="userName">Operações</h3>
+                    <p id="userRoleText">Platform Admin</p>
+                </div>
             </div>
         </div>
+        <nav class="sidebar-nav">
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Menu</div>
+                <a class="sidebar-link" href="/dashboard">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7l9-4 9 4M4 10h16v10a2 2 0 01-2 2H6a2 2 0 01-2-2V10z"/></svg>
+                    <span>Dashboard</span>
+                </a>
+                <a class="sidebar-link" href="/grupos">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                    <span>Grupos</span>
+                </a>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Admin</div>
+                <a class="sidebar-link" href="/comparativo">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    <span>Comparativo</span>
+                </a>
+                <a class="sidebar-link" href="/admin">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    <span>Configurações</span>
+                </a>
+                <a class="sidebar-link" href="/squads">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    <span>Squads</span>
+                </a>
+                <a class="sidebar-link" href="/hidden-stores">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
+                    <span>Lojas Ocultas</span>
+                </a>
+                <a class="sidebar-link active" href="/ops">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+                    <span>Ops</span>
+                </a>
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            <button class="sidebar-footer-btn" onclick="logout()">
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                <span>Sair</span>
+            </button>
+        </div>
+    </aside>
 
-        <div class="grid" style="margin-top:10px">
-            <div class="card">
-                <div class="k">Instancia</div>
-                <div class="row"><span>ID</span><span class="mono" id="instanceId">-</span></div>
-                <div class="row"><span>Uptime</span><span id="uptime">-</span></div>
-                <div class="row"><span>SSE clients</span><span id="clients">0</span></div>
+    <div class="main-content">
+        <div class="wrap">
+            <div class="top">
+                <div class="page-head">
+                    <button class="btn menu-toggle" onclick="toggleSidebar()">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                    </button>
+                    <div>
+                        <h1 style="margin:0;font-size:24px">Painel Operacional</h1>
+                        <div class="small">Resumo de fila, refresh, cache e qualidade</div>
+                    </div>
+                </div>
+                <div class="links">
+                    <button class="btn" onclick="toggleTheme()">Tema</button>
+                    <button class="btn" onclick="loadOps()">Atualizar</button>
+                </div>
             </div>
-            <div class="card">
-                <div class="k">Cache e PubSub</div>
-                <div class="row"><span>Redis cache</span><span id="redisCache">-</span></div>
-                <div class="row"><span>Cache local keys</span><span id="localCache">0</span></div>
-                <div class="row"><span>PubSub</span><span id="pubsub">-</span></div>
+
+            <div class="grid">
+                <div class="card">
+                    <div class="k">Refresh</div>
+                    <div class="v" id="refreshStatus">-</div>
+                    <div class="small mono" id="refreshAt">-</div>
+                </div>
+                <div class="card">
+                    <div class="k">Fila Redis</div>
+                    <div class="v" id="queueDepth">0</div>
+                    <div class="small" id="queueMeta">-</div>
+                </div>
+                <div class="card">
+                    <div class="k">Qualidade</div>
+                    <div class="v" id="qualityScore">100</div>
+                    <div class="small" id="qualityMeta">-</div>
+                </div>
             </div>
-            <div class="card">
-                <div class="k">Organizacao</div>
-                <div class="row"><span>Nome</span><span id="orgName">-</span></div>
-                <div class="row"><span>Plano</span><span id="orgPlan">-</span></div>
-                <div class="row"><span>Lojas</span><span id="storeCount">0</span></div>
+
+            <div class="grid" style="margin-top:10px">
+                <div class="card">
+                    <div class="k">Instância</div>
+                    <div class="row"><span>ID</span><span class="mono" id="instanceId">-</span></div>
+                    <div class="row"><span>Uptime</span><span id="uptime">-</span></div>
+                    <div class="row"><span>SSE clients</span><span id="clients">0</span></div>
+                </div>
+                <div class="card">
+                    <div class="k">Cache e PubSub</div>
+                    <div class="row"><span>Redis cache</span><span id="redisCache">-</span></div>
+                    <div class="row"><span>Cache local keys</span><span id="localCache">0</span></div>
+                    <div class="row"><span>PubSub</span><span id="pubsub">-</span></div>
+                </div>
+                <div class="card">
+                    <div class="k">Organização</div>
+                    <div class="row"><span>Nome</span><span id="orgName">-</span></div>
+                    <div class="row"><span>Plano</span><span id="orgPlan">-</span></div>
+                    <div class="row"><span>Lojas</span><span id="storeCount">0</span></div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/me');
+                const data = await res.json();
+                if (!res.ok || !data.success || !data.user || !data.user.is_platform_admin) {
+                    window.location.href = '/dashboard';
+                    return;
+                }
+                const user = data.user;
+                document.getElementById('userName').textContent = user.name || user.username || 'Operações';
+                document.getElementById('userAvatar').textContent = (user.name || user.username || 'O').charAt(0).toUpperCase();
+                document.getElementById('userRoleText').textContent = 'Platform Admin';
+            } catch (e) {
+                window.location.href = '/login';
+            }
+        }
+
         async function loadOps() {
             try {
                 const res = await fetch('/api/ops/summary');
@@ -190,6 +428,24 @@
             }
         }
 
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+            document.getElementById('sidebarOverlay').classList.toggle('show');
+        }
+
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebarOverlay').classList.remove('show');
+        }
+
+        function logout() {
+            fetch('/api/logout', { method: 'POST' }).then(() => {
+                window.location.href = '/login';
+            }).catch(() => {
+                window.location.href = '/login';
+            });
+        }
+
         function toggleTheme() {
             const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
             document.documentElement.setAttribute('data-theme', current);
@@ -199,6 +455,7 @@
         (function init() {
             const t = localStorage.getItem('theme') || 'dark';
             document.documentElement.setAttribute('data-theme', t);
+            checkAuth();
             loadOps();
             setInterval(loadOps, 10000);
         })();
