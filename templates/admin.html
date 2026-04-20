@@ -1419,7 +1419,7 @@
             const merchantId = getHomologMerchantId();
             if (!merchantId) return;
             const ack = !!document.getElementById('homologAckEvents')?.checked;
-            await callHomologationEndpoint(
+            const result = await callHomologationEndpoint(
                 'POST /events:polling',
                 '/api/ifood/homologation/events/polling',
                 {
@@ -1428,6 +1428,23 @@
                     body: JSON.stringify({ merchant_id: merchantId, ack }),
                 }
             );
+            try {
+                const events = result?.body?.events;
+                if (Array.isArray(events) && events.length > 0) {
+                    const orderIdInput = document.getElementById('homologOrderId');
+                    const disputeIdInput = document.getElementById('homologDisputeId');
+                    for (const ev of events) {
+                        const oid = ev?.orderId || ev?.order_id || ev?.metadata?.orderId || '';
+                        if (oid && orderIdInput && !orderIdInput.value) {
+                            orderIdInput.value = oid;
+                        }
+                        const did = ev?.disputeId || ev?.dispute_id || ev?.metadata?.disputeId || '';
+                        if (did && disputeIdInput && !disputeIdInput.value) {
+                            disputeIdInput.value = did;
+                        }
+                    }
+                }
+            } catch (_) { /* response already displayed in result panel */ }
         }
 
         async function homologRefreshStatus() {
@@ -1441,7 +1458,18 @@
         async function homologListOrders() {
             const query = buildHomologOrdersQuery();
             if (!query) return;
-            await callHomologationEndpoint('GET /orders', `/api/ifood/homologation/orders?${query}`);
+            const result = await callHomologationEndpoint('GET /orders', `/api/ifood/homologation/orders?${query}`);
+            try {
+                const orders = result?.body?.orders;
+                if (Array.isArray(orders) && orders.length > 0) {
+                    const firstId = orders[0]?.id || orders[0]?.orderId || '';
+                    const orderIdInput = document.getElementById('homologOrderId');
+                    if (orderIdInput && firstId) {
+                        orderIdInput.value = firstId;
+                        showToast(`${orders.length} pedido(s) encontrado(s). Primeiro ID preenchido automaticamente.`, 'success');
+                    }
+                }
+            } catch (_) { /* response already displayed in result panel */ }
         }
 
         async function homologOrderDetails() {
