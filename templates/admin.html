@@ -470,43 +470,13 @@
                             <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Order list and order details</div>
                         </div>
                         <div style="padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);">
-                            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Financial</div>
-                            <div style="font-weight:700;">Sales</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Discounts, coupons, billed sale view</div>
-                        </div>
-                        <div style="padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);">
-                            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Financial</div>
-                            <div style="font-weight:700;">Financial Events</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Cash-flow entries and expected payment dates</div>
-                        </div>
-                        <div style="padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);">
-                            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Financial</div>
-                            <div style="font-weight:700;">Reconciliation On Demand</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Async reconciliation export scope</div>
-                        </div>
-                        <div style="padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);">
-                            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Financial</div>
-                            <div style="font-weight:700;">Reconciliation</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">CSV reconciliation scope</div>
-                        </div>
-                        <div style="padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);">
-                            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Financial</div>
-                            <div style="font-weight:700;">Settlement</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Net transfers and receivable routing</div>
-                        </div>
-                        <div style="padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);">
-                            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Financial</div>
-                            <div style="font-weight:700;">Antecipation</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Advance-payment scope when enabled</div>
-                        </div>
-                        <div style="padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:var(--bg-secondary);">
                             <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">Module</div>
                             <div style="font-weight:700;">Review</div>
                             <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">Review list, details, answer and summary</div>
                         </div>
                     </div>
                     <div style="margin:-4px 0 16px;padding:12px;border:1px solid var(--border-light);border-radius:var(--radius-lg);background:rgba(249,112,21,0.08);font-size:12px;color:var(--text-secondary);">
-                        O backend panel agora considera o escopo completo dos modulos iFood a serem solicitados para homologacao: Authentication, Merchant, Events, Order, Review e todo o modulo Financial.
+                        
                     </div>
                     <style>
                         .homolog-module{border:1px solid var(--border);border-radius:8px;margin-bottom:12px;overflow:hidden;}
@@ -768,121 +738,6 @@
                         </div>
                     </div>
 
-                    <!-- 7. Financial -->
-                    <div class="homolog-module">
-                        <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                            <span>7. Financial</span>
-                            <span class="hm-badge">7 endpoints</span>
-                            <span class="hm-chevron">&#9660;</span>
-                        </div>
-                        <div class="homolog-module-body">
-                            <div class="hm-sub" style="margin-top:0;">Sales</div>
-                            <div class="hm-row" style="margin-bottom:8px;">
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Begin date</label>
-                                    <input type="text" class="form-input" id="homologFinancialSalesBeginDate" placeholder="2026-03-01">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">End date</label>
-                                    <input type="text" class="form-input" id="homologFinancialSalesEndDate" placeholder="2026-03-08">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Page</label>
-                                    <input type="text" class="form-input" id="homologFinancialSalesPage" placeholder="1">
-                                </div>
-                            </div>
-                            <div class="hm-btn-grid">
-                                <button class="btn btn-secondary" onclick="homologFinancialSales()">GET sales</button>
-                            </div>
-
-                            <div class="hm-sub">Financial Events</div>
-                            <div class="hm-row" style="margin-bottom:8px;">
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Begin date</label>
-                                    <input type="text" class="form-input" id="homologFinancialEventsBeginDate" placeholder="2026-03-01">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">End date</label>
-                                    <input type="text" class="form-input" id="homologFinancialEventsEndDate" placeholder="2026-03-08">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Page</label>
-                                    <input type="text" class="form-input" id="homologFinancialEventsPage" placeholder="1">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Size</label>
-                                    <input type="text" class="form-input" id="homologFinancialEventsSize" placeholder="100">
-                                </div>
-                            </div>
-                            <div class="hm-btn-grid">
-                                <button class="btn btn-secondary" onclick="homologFinancialEvents()">GET financial-events</button>
-                            </div>
-
-                            <div class="hm-sub">Reconciliation</div>
-                            <div class="hm-row" style="margin-bottom:8px;">
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Competence (YYYY-MM)</label>
-                                    <input type="text" class="form-input" id="homologFinancialCompetence" placeholder="2026-03">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">On-demand request ID</label>
-                                    <input type="text" class="form-input" id="homologFinancialRequestId" placeholder="request id do POST">
-                                    <div class="hm-note">O request ID e preenchido automaticamente apos o POST on-demand.</div>
-                                </div>
-                            </div>
-                            <div class="hm-btn-grid">
-                                <button class="btn btn-secondary" onclick="homologFinancialReconciliation()">GET reconciliation</button>
-                                <button class="btn btn-secondary" onclick="homologFinancialReconciliationOnDemand()">POST reconciliation/on-demand</button>
-                                <button class="btn btn-secondary" onclick="homologFinancialReconciliationStatus()">GET on-demand/{requestId}</button>
-                            </div>
-
-                            <div class="hm-sub">Settlement</div>
-                            <div class="hm-row" style="margin-bottom:8px;">
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Payment begin</label>
-                                    <input type="text" class="form-input" id="homologSettlementBeginPaymentDate" placeholder="2026-03-01">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Payment end</label>
-                                    <input type="text" class="form-input" id="homologSettlementEndPaymentDate" placeholder="2026-03-08">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Calc begin</label>
-                                    <input type="text" class="form-input" id="homologSettlementBeginCalculationDate" placeholder="2026-03-01">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Calc end</label>
-                                    <input type="text" class="form-input" id="homologSettlementEndCalculationDate" placeholder="2026-03-08">
-                                </div>
-                            </div>
-                            <div class="hm-btn-grid">
-                                <button class="btn btn-secondary" onclick="homologFinancialSettlements()">GET settlements</button>
-                            </div>
-
-                            <div class="hm-sub">Anticipation</div>
-                            <div class="hm-row" style="margin-bottom:8px;">
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Calc begin</label>
-                                    <input type="text" class="form-input" id="homologAnticipationBeginCalculationDate" placeholder="2026-03-01">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Calc end</label>
-                                    <input type="text" class="form-input" id="homologAnticipationEndCalculationDate" placeholder="2026-03-08">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Pay begin</label>
-                                    <input type="text" class="form-input" id="homologAnticipationBeginPaymentDate" placeholder="2026-03-01">
-                                </div>
-                                <div class="form-group" style="margin:0;">
-                                    <label class="form-label">Pay end</label>
-                                    <input type="text" class="form-input" id="homologAnticipationEndPaymentDate" placeholder="2026-03-08">
-                                </div>
-                            </div>
-                            <div class="hm-btn-grid">
-                                <button class="btn btn-secondary" onclick="homologFinancialAnticipations()">GET anticipations</button>
-                            </div>
-                        </div>
-                    </div>
                     <div class="response-box">
                         <div class="response-meta" id="homologResponseMeta">Nenhuma chamada executada.</div>
                         <pre class="response-content" id="homologResponseContent">{}</pre>
