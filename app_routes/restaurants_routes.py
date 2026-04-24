@@ -1996,6 +1996,21 @@ def register(app, deps):
 
             payload = api.get_review_summary(filters['merchant_id'])
             if payload is None:
+                status_code = _parse_ifood_error_status(api, default_status=502)
+                if status_code == 404:
+                    return jsonify({
+                        'success': True,
+                        'module': 'Review',
+                        'api': 'Review Summary',
+                        'merchant_id': filters['merchant_id'],
+                        'payload': None,
+                        'empty': True,
+                        'ifood_status': 404,
+                        'homologation_note': (
+                            'iFood retornou 404 "Summary not found". Esta loja ainda nao possui resumo '
+                            'de avaliacoes (nenhum review agregado). Estado valido para homologacao.'
+                        ),
+                    })
                 return _ifood_error_response(
                     api,
                     action='resumo de avaliacoes (GET /review/v2.0/merchants/{merchantId}/summary)',

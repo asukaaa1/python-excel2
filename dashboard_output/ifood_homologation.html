@@ -503,44 +503,87 @@
                     </div>
                 </div>
 
-                <!-- 6. Reviews -->
+                <!-- 6. Reviews - Ciclo de Homologação -->
                 <div class="homolog-module">
                     <div class="homolog-module-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                        <span>6. Reviews</span>
-                        <span class="hm-badge">4 endpoints</span>
+                        <span>6. Reviews - Ciclo de Homologação</span>
+                        <span class="hm-badge">Req Reviews: 4 testes</span>
                         <span class="hm-chevron">&#9660;</span>
                     </div>
                     <div class="homolog-module-body">
-                        <div class="hm-sub" style="margin-top:0;">Consulta</div>
+                        <div style="padding:10px;border-radius:var(--radius-lg);border:1px solid var(--border-light);background:rgba(249,112,21,0.08);font-size:12px;color:var(--text-secondary);line-height:1.5;">
+                            <strong>Checklist iFood Reviews v2.0:</strong> listagem com paginação e filtro de data, detalhes completos, resposta com validação de status/tamanho, resumo com score.
+                            Documentação obrigatória: <a href="https://institucional.ifood.com.br/parceiros/politica-de-avaliacoes/" target="_blank" rel="noopener" style="color:var(--primary-500);font-weight:600;text-decoration:underline;">Política de Avaliações do iFood</a> (link deve estar visível na UI final).
+                        </div>
+
+                        <!-- 6.1 Listar -->
+                        <div class="hm-sub" style="margin-top:12px;">6.1 Listar Avaliações — GET /reviews</div>
                         <div class="hm-row" style="margin-bottom:8px;">
                             <div class="form-group" style="margin:0;">
                                 <label class="form-label">Page</label>
                                 <input type="text" class="form-input" id="homologReviewPage" value="1" placeholder="1">
                             </div>
                             <div class="form-group" style="margin:0;">
-                                <label class="form-label">Page size</label>
+                                <label class="form-label">Page size (max 50)</label>
                                 <input type="text" class="form-input" id="homologReviewPageSize" value="10" placeholder="10">
                             </div>
                         </div>
-                        <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologListReviews()">GET /reviews</button>
-                            <button class="btn btn-secondary" onclick="homologReviewSummary()">GET /reviews/summary</button>
+                        <div class="hm-row" style="margin-bottom:8px;">
+                            <div class="form-group" style="margin:0;">
+                                <label class="form-label">dateFrom (ISO 8601)</label>
+                                <input type="text" class="form-input" id="homologReviewDateFrom" placeholder="2025-01-01T00:00:00Z">
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label class="form-label">dateTo (ISO 8601)</label>
+                                <input type="text" class="form-input" id="homologReviewDateTo" placeholder="2025-03-31T23:59:59Z">
+                            </div>
                         </div>
-                        <div class="hm-sub">Review Selecionado</div>
+                        <div class="hm-btn-grid">
+                            <button class="btn btn-secondary" onclick="homologListReviews()">Teste 1: Lista básica (addCount=true)</button>
+                            <button class="btn btn-secondary" onclick="homologListReviewsDateFilter()">Teste 2: Filtro por data</button>
+                            <button class="btn btn-secondary" onclick="homologListReviewsPageSizeLimit()">Teste 3: pageSize=100 (espera 400)</button>
+                        </div>
+                        <div class="hm-note">
+                            <strong>Validações:</strong> Status 200 · campos obrigatórios (id, status, replies[], version, visibility) · paginação (page, size, total, pageCount) · pageSize &gt; 50 retorna 400 · reviews:[] quando vazio.
+                        </div>
+
+                        <!-- 6.2 Detalhes -->
+                        <div class="hm-sub">6.2 Obter Detalhes — GET /reviews/{reviewId}</div>
                         <div class="form-group">
                             <label class="form-label">Review ID</label>
-                            <input type="text" class="form-input" id="homologReviewId" placeholder="ID do review">
+                            <input type="text" class="form-input" id="homologReviewId" placeholder="a26c8718-b1f5-44a0-8f06-ecc71ddfcd5a">
                         </div>
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologReviewDetails()">GET /reviews/{id}</button>
+                            <button class="btn btn-secondary" onclick="homologReviewDetails()">Teste 1: Detalhes completos</button>
+                            <button class="btn btn-secondary" onclick="homologReviewDetailsNotFound()">Teste 2: ID inexistente (espera 404)</button>
                         </div>
-                        <div class="hm-sub">Resposta</div>
-                        <div class="form-group">
-                            <label class="form-label">Answer text</label>
-                            <input type="text" class="form-input" id="homologReviewAnswer" placeholder="Obrigado pelo feedback">
+                        <div class="hm-note">
+                            <strong>Validações:</strong> Status 200 · todos os campos v2 presentes · replies[].from ∈ {MERCHANT, CUSTOMER} · ID inexistente retorna 404.
+                        </div>
+
+                        <!-- 6.3 Responder -->
+                        <div class="hm-sub">6.3 Responder — POST /reviews/{reviewId}/answers</div>
+                        <div class="hm-note">Só aceita reviews com <code>status: NOT_REPLIED</code>. Texto entre 10 e 300 caracteres.</div>
+                        <div class="form-group" style="margin-top:8px;">
+                            <label class="form-label">Answer text (10-300 chars) — <span id="homologReviewAnswerCount" style="color:var(--text-tertiary);">0 chars</span></label>
+                            <input type="text" class="form-input" id="homologReviewAnswer" placeholder="Obrigado pelo feedback! Vamos melhorar o tempo de entrega." oninput="updateHomologAnswerCount()">
                         </div>
                         <div class="hm-btn-grid">
-                            <button class="btn btn-secondary" onclick="homologReviewAnswer()">POST /reviews/{id}/answers</button>
+                            <button class="btn btn-secondary" onclick="homologReviewAnswer()">Teste 1: Resposta válida (espera 201)</button>
+                            <button class="btn btn-secondary" onclick="homologReviewAnswerTooShort()">Teste 2: Texto curto &lt; 10 chars (espera 400)</button>
+                            <button class="btn btn-secondary" onclick="homologReviewAnswerTooLong()">Teste 3: Texto &gt; 300 chars (espera 400)</button>
+                        </div>
+                        <div class="hm-note">
+                            <strong>Validações:</strong> Status 201 com resposta válida · 400 para texto fora do intervalo · 409/422 se review já foi respondida (PUBLISHED).
+                        </div>
+
+                        <!-- 6.4 Resumo -->
+                        <div class="hm-sub">6.4 Obter Resumo — GET /summary</div>
+                        <div class="hm-btn-grid">
+                            <button class="btn btn-secondary" onclick="homologReviewSummary()">GET /reviews/summary</button>
+                        </div>
+                        <div class="hm-note">
+                            <strong>Validações:</strong> totalReviewsCount ≥ 0 · validReviewsCount ≤ totalReviewsCount · score ∈ [1.0, 5.0] · 404 "Summary not found" é estado válido quando a loja ainda não tem reviews agregados.
                         </div>
                     </div>
                 </div>
@@ -1090,14 +1133,24 @@
             return params.toString();
         }
 
-        function buildHomologReviewsQuery() {
+        function buildHomologReviewsQuery(overrides = {}) {
             const merchantId = getHomologMerchantId();
             if (!merchantId) return null;
             const params = new URLSearchParams({ merchant_id: merchantId });
             const page = (document.getElementById('homologReviewPage')?.value || '').trim();
-            const pageSize = (document.getElementById('homologReviewPageSize')?.value || '').trim();
+            const pageSize = overrides.pageSize != null
+                ? String(overrides.pageSize)
+                : (document.getElementById('homologReviewPageSize')?.value || '').trim();
+            const dateFrom = overrides.dateFrom != null
+                ? String(overrides.dateFrom)
+                : (document.getElementById('homologReviewDateFrom')?.value || '').trim();
+            const dateTo = overrides.dateTo != null
+                ? String(overrides.dateTo)
+                : (document.getElementById('homologReviewDateTo')?.value || '').trim();
             if (page) params.set('page', page);
             if (pageSize) params.set('page_size', pageSize);
+            if (dateFrom) params.set('date_from', dateFrom);
+            if (dateTo) params.set('date_to', dateTo);
             params.set('add_count', '1');
             return params.toString();
         }
@@ -1517,6 +1570,73 @@
             const query = buildHomologReviewsQuery();
             if (!query) return;
             await callHomologationEndpoint('GET /reviews/summary', `/api/ifood/homologation/reviews/summary?${query}`);
+        }
+
+        async function homologListReviewsDateFilter() {
+            const dateFrom = (document.getElementById('homologReviewDateFrom')?.value || '').trim();
+            const dateTo = (document.getElementById('homologReviewDateTo')?.value || '').trim();
+            if (!dateFrom || !dateTo) {
+                showToast('Informe dateFrom e dateTo (ISO 8601) para testar o filtro', 'error');
+                return;
+            }
+            const query = buildHomologReviewsQuery();
+            if (!query) return;
+            await callHomologationEndpoint('GET /reviews (filtro data)', `/api/ifood/homologation/reviews?${query}`);
+        }
+
+        async function homologListReviewsPageSizeLimit() {
+            const query = buildHomologReviewsQuery({ pageSize: 100 });
+            if (!query) return;
+            await callHomologationEndpoint('GET /reviews (pageSize=100, espera 400)', `/api/ifood/homologation/reviews?${query}`);
+        }
+
+        async function homologReviewDetailsNotFound() {
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            const nullId = '00000000-0000-0000-0000-000000000000';
+            const params = new URLSearchParams({ merchant_id: merchantId, page: '1', page_size: '10', add_count: '1' });
+            await callHomologationEndpoint(
+                'GET /reviews/{id} (ID inexistente, espera 404)',
+                `/api/ifood/homologation/reviews/${encodeURIComponent(nullId)}?${params.toString()}`
+            );
+        }
+
+        async function homologReviewAnswerTooShort() {
+            const reviewId = getHomologReviewId();
+            if (!reviewId) return;
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            await callHomologationEndpoint(
+                'POST /reviews/{id}/answers (texto curto, espera 400)',
+                `/api/ifood/homologation/reviews/${encodeURIComponent(reviewId)}/answers`,
+                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ merchant_id: merchantId, text: 'Obrigado' }) }
+            );
+        }
+
+        async function homologReviewAnswerTooLong() {
+            const reviewId = getHomologReviewId();
+            if (!reviewId) return;
+            const merchantId = getHomologMerchantId();
+            if (!merchantId) return;
+            const longText = 'A'.repeat(320);
+            await callHomologationEndpoint(
+                'POST /reviews/{id}/answers (texto longo, espera 400)',
+                `/api/ifood/homologation/reviews/${encodeURIComponent(reviewId)}/answers`,
+                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ merchant_id: merchantId, text: longText }) }
+            );
+        }
+
+        function updateHomologAnswerCount() {
+            const input = document.getElementById('homologReviewAnswer');
+            const label = document.getElementById('homologReviewAnswerCount');
+            if (!input || !label) return;
+            const len = (input.value || '').length;
+            let color = 'var(--text-tertiary)';
+            if (len > 0 && len < 10) color = 'var(--error-500)';
+            else if (len > 300) color = 'var(--error-500)';
+            else if (len >= 10 && len <= 300) color = 'var(--success-500)';
+            label.style.color = color;
+            label.textContent = `${len} chars` + (len < 10 ? ' (mínimo 10)' : len > 300 ? ' (máximo 300)' : ' ✓');
         }
 
         (async function init() {
